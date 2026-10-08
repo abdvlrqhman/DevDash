@@ -53,3 +53,14 @@ test('side panel facts: latest to-dos and changed files with line counts, includ
   assert.equal(f.todos[0]!.content, 'new')
   assert.deepEqual(f.files.map((x) => [x.path, x.added, x.removed]), [['/p/a.ts', 2, 1], ['/p/b.ts', 3, 0]])
 })
+
+test('system reminders are not shown as the person\'s words', () => {
+  const blocks = buildTranscript([
+    { type: 'user', uuid: 'u1', message: { role: 'user', content: 'fix the build<system-reminder>internal note for the model</system-reminder>' } },
+    { type: 'user', uuid: 'u2', message: { role: 'user', content: '<system-reminder>only a reminder</system-reminder>' } },
+    { type: 'user', uuid: 'u3', message: { role: 'user', content: '<task-notification><status>completed</status><summary>Background command &quot;gh run watch&quot; completed (exit code 0)</summary></task-notification>' } },
+  ] as never)
+  assert.deepEqual(blocks.map((b) => b.kind), ['user', 'event'])
+  assert.equal((blocks[0] as { text: string }).text, 'fix the build')
+  assert.equal((blocks[1] as { text: string }).text, 'Background command "gh run watch" completed (exit code 0)')
+})

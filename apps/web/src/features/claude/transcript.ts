@@ -88,7 +88,9 @@ export function buildTranscript(raws: Raw[]): Block[] {
         top.push({ kind: 'event', key, ok: !/fail|error|killed/i.test(status), text: unescape(tag(notice, 'summary')?.trim() ?? `Background task ${status}`) })
         return
       }
-      if (!text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim() && !images.length) return
+      // Reminders Claude Code appends for the model aren't the person's words.
+      const said = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
+      if (!said && !images.length) return
       const command = tag(text, 'command-name')
       if (command) return void top.push({ kind: 'command', key, name: command.trim() })
       const stdout = tag(text, 'local-command-stdout')
@@ -98,7 +100,7 @@ export function buildTranscript(raws: Raw[]): Block[] {
         else if (stdout.trim()) top.push({ kind: 'note', key, text: stdout.trim() })
         return
       }
-      top.push({ kind: 'user', key, uuid: r.uuid, text, images })
+      top.push({ kind: 'user', key, uuid: r.uuid, text: said, images })
       return
     }
 

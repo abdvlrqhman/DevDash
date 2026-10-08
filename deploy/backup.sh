@@ -4,7 +4,7 @@
 # Keeps 14 daily snapshots in /var/backups/devdash (root-only: they hold the master key):
 #   devdash.db       consistent copy of the database (sqlite3 .backup, safe while DevDash runs)
 #   etc-devdash.tgz  /etc/devdash: master key, environment, browser settings. Without it, sealed data can't be read.
-#   data.tgz         the rest of /var/lib/devdash (share-link files, push keys, browser members)
+#   data.tgz         the rest of /var/lib/devdash (push keys, backup status), without share-link file copies
 # Off-site: put RESTIC_REPOSITORY and RESTIC_PASSWORD (and the storage credentials restic needs, e.g. B2 or S3 keys)
 # in /etc/devdash/backup.env and every snapshot is also sent there with restic, encrypted.
 set -euo pipefail
@@ -27,7 +27,8 @@ trap 'finish false "the backup stopped with an error; see journalctl -u devdash-
 
 sqlite3 /var/lib/devdash/devdash.db ".backup '$OUT/devdash.db'"
 tar -czf "$OUT/etc-devdash.tgz" -C /etc devdash
-tar -czf "$OUT/data.tgz" --exclude='devdash/devdash.db*' -C /var/lib devdash
+# Share-link files are skipped: frozen copies (up to 4 GB each) that would repeat in every snapshot. Their records stay.
+tar -czf "$OUT/data.tgz" --exclude='devdash/devdash.db*' --exclude='devdash/shares' -C /var/lib devdash
 
 # Keep two weeks.
 find "$ROOT" -mindepth 1 -maxdepth 1 -type d -mtime +14 -exec rm -rf {} +
