@@ -72,6 +72,9 @@ async function handle(m) {
 }
 
 const rl = createInterface({ input: process.stdin, crlfDelay: Infinity })
+let pending = 0
+let closed = false
+const maybeExit = () => { if (closed && !pending) process.exit(0) }
 rl.on('line', async (line) => {
   if (!line.trim()) return
   let m
@@ -81,10 +84,15 @@ rl.on('line', async (line) => {
     return send({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } })
   }
   if (m.id === undefined || m.id === null) return // a notification (e.g. notifications/initialized): no reply
+  pending++
   try {
     send({ jsonrpc: '2.0', id: m.id, result: await handle(m) })
   } catch (err) {
     send({ jsonrpc: '2.0', id: m.id, error: { code: err.code ?? -32603, message: err.message } })
+  } finally {
+    pending--
+    maybeExit()
   }
 })
-rl.on('close', () => process.exit(0))
+// Claude closes stdin to stop the server: answer what's in flight first.
+rl.on('close', () => { closed = true; maybeExit() })
