@@ -64,7 +64,7 @@ if [[ -f $CERTS/origin.crt && -f $CERTS/origin.key ]]; then
 else
   echo "tls internal" > /etc/caddy/devdash-tls.caddy # until the Cloudflare origin certificate is installed
 fi
-DEVDASH_DOMAIN=$DOMAIN caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
+out=$(DEVDASH_DOMAIN=$DOMAIN caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1) || { echo "$out" >&2; exit 1; }
 
 systemctl daemon-reload
 systemctl enable -q --now devdash-helper.socket

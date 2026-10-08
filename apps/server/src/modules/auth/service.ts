@@ -48,13 +48,13 @@ export function authService(deps: { db: Db; masterKey: Buffer; spaceName: string
   }
 
   return {
-    async login(input: { email: string; password: string; code: string; remember: boolean }, meta: Meta) {
+    async login(input: { login: string; password: string; code: string; remember: boolean }, meta: Meta) {
       rateLimit(`login:ip:${meta.ip}`, 20, FIFTEEN_MIN)
-      rateLimit(`login:email:${input.email.toLowerCase()}`, 8, FIFTEEN_MIN)
-      const u = repo.userByEmail(input.email)
+      rateLimit(`login:id:${input.login.toLowerCase()}`, 8, FIFTEEN_MIN)
+      const u = repo.userByLogin(input.login.trim())
       const passwordOk = await verifyPassword(input.password, u?.password_hash ?? (await dummyHash))
       if (!u || !passwordOk || u.disabled_at) {
-        repo.audit(u?.id ?? null, 'login.fail', input.email, meta.ip, { reason: 'password' })
+        repo.audit(u?.id ?? null, 'login.fail', input.login, meta.ip, { reason: 'password' })
         throw invalidLogin()
       }
       const code = input.code.trim()
@@ -62,13 +62,13 @@ export function authService(deps: { db: Db; masterKey: Buffer; spaceName: string
       if (/^\d{6}$/.test(code)) {
         const step = verifyTotp(unseal(key, u.totp_secret, `totp:user:${u.id}`), code, u.totp_last_step)
         if (step === null || !repo.advanceTotpStep(u.id, step)) {
-          repo.audit(u.id, 'login.fail', input.email, meta.ip, { reason: 'totp' })
+          repo.audit(u.id, 'login.fail', input.login, meta.ip, { reason: 'totp' })
           throw invalidLogin()
         }
         secondFactor = 'totp'
       } else {
         if (!repo.useBackupCode(u.id, sha256(normalizeBackupCode(code)))) {
-          repo.audit(u.id, 'login.fail', input.email, meta.ip, { reason: 'backup_code' })
+          repo.audit(u.id, 'login.fail', input.login, meta.ip, { reason: 'backup_code' })
           throw invalidLogin()
         }
         secondFactor = 'backup_code'
@@ -148,6 +148,18 @@ export function authService(deps: { db: Db; masterKey: Buffer; spaceName: string
       const ended = repo.deleteOtherSessions(userId, sha256(keepToken))
       repo.audit(userId, 'password.change', null, ip, { endedSessions: ended })
       return ended
+    },
+
+    /** Requires the current password. */
+    async changeEmail(userId: number, password: string, email: string, ip: string) {
+      rateLimit(`password:${userId}`, 8, FIFTEEN_MIN)
+      const u = repo.userById(userId)
+      if (!u || !(await verifyPassword(password, u.password_hash))) throw new AppError(400, 'wrong_password', 'Your current password is not correct.')
+      const taken = repo.userByEmail(email)
+      if (taken && taken.id !== userId) throw new AppError(409, 'email_taken', 'Another member already uses this email.')
+      repo.setEmail(userId, email)
+      repo.audit(userId, 'email.change', email, ip)
+      return toUser(repo.userById(userId)!)
     },
 
     /** Fresh 2FA check for sensitive actions (admin shell). Shares the replay guard with sign-in. */

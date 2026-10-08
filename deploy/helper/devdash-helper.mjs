@@ -67,7 +67,7 @@ const commands = {
   'user-ensure'(a) {
     const u = username(a.username)
     const name = text(a.name, 80)
-    const mail = email(a.email)
+    const mail = a.email === undefined ? null : email(a.email)
     const admin = a.admin === true
 
     let entry = lookup(u)
@@ -86,8 +86,8 @@ const commands = {
     else if (groupsOf(u).includes('sudo')) run('gpasswd', ['-d', u, 'sudo'])
     if (!DRY && existsSync(entry.home)) chmodSync(entry.home, 0o700)
 
-    // Git identity, only if the member hasn't set one.
-    if (!run('runuser', ['-u', u, '--', 'git', 'config', '--global', '--get', 'user.email'], { allowFail: true })) {
+    // Git identity, only if we know an email and the member hasn't set one.
+    if (mail && !run('runuser', ['-u', u, '--', 'git', 'config', '--global', '--get', 'user.email'], { allowFail: true })) {
       run('runuser', ['-u', u, '--', 'git', 'config', '--global', 'user.name', name])
       run('runuser', ['-u', u, '--', 'git', 'config', '--global', 'user.email', mail])
     }

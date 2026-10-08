@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import type { Db } from '../../core/db.ts'
 import { now } from '../../core/db.ts'
 import { requestLine } from '../../core/unix.ts'
+import { z } from 'zod'
 import type { User } from '../auth/repo.ts'
 
 /**
@@ -22,7 +23,7 @@ export function provisioningService({ db, runDir }: { db: Db; runDir: string }) 
         args: {
           username: u.username,
           name: u.name.replace(/[:,\x00-\x1f\x7f]/g, ' ').trim().slice(0, 80) || u.username,
-          email: u.email,
+          ...(z.email().safeParse(u.email).success ? { email: u.email } : {}), // git identity is skipped without one
           admin: u.role === 'admin',
         },
       }, 120_000)

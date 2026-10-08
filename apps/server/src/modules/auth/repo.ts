@@ -29,6 +29,8 @@ export const toUser = ({ id, email, username, name, role }: User): User => ({ id
 export function authRepo(db: Db) {
   const s = {
     userByEmail: db.prepare('select * from users where email = ?'),
+    userByLogin: db.prepare('select * from users where email = ?1 or username = lower(?1)'),
+    setEmail: db.prepare('update users set email = ? where id = ?'),
     userById: db.prepare('select * from users where id = ?'),
     usernameTaken: db.prepare(`select 1 from users where username = ?1
       union all select 1 from invites where username = ?1 and used_at is null and expires_at > unixepoch()`),
@@ -58,6 +60,9 @@ export function authRepo(db: Db) {
 
   return {
     userByEmail: (email: string) => s.userByEmail.get(email) as UserRow | undefined,
+    /** Sign-in identifier: email (case-insensitive) or username. */
+    userByLogin: (login: string) => s.userByLogin.get(login) as UserRow | undefined,
+    setEmail: (id: number, email: string) => void s.setEmail.run(email, id),
     userById: (id: number) => s.userById.get(id) as UserRow | undefined,
     usernameTaken: (username: string) => s.usernameTaken.get(username) !== undefined,
     insertUser: (u: Omit<User, 'id'> & { passwordHash: string; totpLastStep: number }) =>

@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { IconLock, IconMail, IconShieldLock } from '@tabler/icons-react'
+import { IconLock, IconShieldLock, IconUser } from '@tabler/icons-react'
 import { api, meQuery, spaceQuery, unwrap } from '../../lib/api'
 import { Button, Card, ErrorText, Field, Logo, OtpInput, Toggle } from '../../ui'
 
@@ -9,14 +9,14 @@ export function LoginPage() {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const space = useQuery(spaceQuery)
-  const [email, setEmail] = useState('')
+  const [login, setLogin] = useState('')
   const [password, setPassword] = useState('')
   const [code, setCode] = useState('')
   const [useBackup, setUseBackup] = useState(false)
   const [remember, setRemember] = useState(true)
 
-  const login = useMutation({
-    mutationFn: () => unwrap(api.api.auth.login.$post({ json: { email, password, code, remember } })),
+  const signIn = useMutation({
+    mutationFn: () => unwrap(api.api.auth.login.$post({ json: { login, password, code, remember } })),
     onSuccess: ({ user }) => {
       qc.setQueryData(meQuery.queryKey, user)
       navigate({ to: '/' })
@@ -24,10 +24,10 @@ export function LoginPage() {
     onError: () => setCode(''),
   })
 
-  const ready = email && password && (useBackup ? code.length >= 16 : code.length === 6)
+  const ready = login.trim() && password && (useBackup ? code.length >= 16 : code.length === 6)
   const submit = (e: FormEvent) => {
     e.preventDefault()
-    if (ready && !login.isPending) login.mutate()
+    if (ready && !signIn.isPending) signIn.mutate()
   }
 
   return (
@@ -38,7 +38,7 @@ export function LoginPage() {
           <h1 className="font-head font-medium text-[30px] leading-tight m-0">Welcome back</h1>
           <p className="text-muted m-0">Sign in to {space.data?.name ?? 'your space'}</p>
         </div>
-        <Field label="Email" icon={<IconMail size={18} />} type="email" autoComplete="username" required value={email} onChange={(e) => setEmail(e.target.value)} />
+        <Field label="Email or username" icon={<IconUser size={18} />} autoComplete="username" autoCapitalize="none" spellCheck={false} required value={login} onChange={(e) => setLogin(e.target.value)} />
         <Field label="Password" icon={<IconLock size={18} />} type="password" autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)} />
         <Card>
           <p className="font-semibold m-0">Two-step check</p>
@@ -50,9 +50,9 @@ export function LoginPage() {
             : <OtpInput label="Authenticator code" value={code} onChange={setCode} />}
         </Card>
         <Toggle label="Remember me for 30 days" checked={remember} onChange={setRemember} />
-        <ErrorText error={login.error} />
-        <Button type="submit" variant="primary" full className="h-12" disabled={!ready || login.isPending}>
-          {login.isPending ? 'Signing in…' : 'Sign in'}
+        <ErrorText error={signIn.error} />
+        <Button type="submit" variant="primary" full className="h-12" disabled={!ready || signIn.isPending}>
+          {signIn.isPending ? 'Signing in…' : 'Sign in'}
         </Button>
         <button type="button" className="text-muted text-[13px] underline-offset-2 hover:underline min-h-11" onClick={() => { setUseBackup(!useBackup); setCode('') }}>
           {useBackup ? 'Use my authenticator instead' : 'Use a backup code instead'}

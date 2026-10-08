@@ -53,7 +53,7 @@ function AcceptForm({ token, invite, onDone }: { token: string; invite: Invite; 
     onError: () => setCode(''),
   })
 
-  const ready = name.trim() && password.length >= 12 && code.length === 6
+  const ready = name.trim() && password && code.length === 6
   const submit = (e: FormEvent) => {
     e.preventDefault()
     if (ready && !accept.isPending) accept.mutate()
@@ -66,8 +66,8 @@ function AcceptForm({ token, invite, onDone }: { token: string; invite: Invite; 
         <p className="text-muted m-0">{invite.email} · <span className="font-mono">@{invite.username}</span> {invite.role === 'admin' && <Chip tone="accent">admin</Chip>}</p>
       </div>
       <Field label="Your name" icon={<IconUser size={18} />} autoComplete="name" required value={name} onChange={(e) => setName(e.target.value)} />
-      <Field label="Password" icon={<IconLock size={18} />} type="password" autoComplete="new-password" required minLength={12}
-        hint="At least 12 characters. A passphrase works well." value={password} onChange={(e) => setPassword(e.target.value)} />
+      <Field label="Password" icon={<IconLock size={18} />} type="password" autoComplete="new-password" required
+        value={password} onChange={(e) => setPassword(e.target.value)} />
       <input type="hidden" autoComplete="username" value={invite.email} readOnly />
       <Card>
         <p className="font-semibold m-0">Set up two-step sign-in</p>

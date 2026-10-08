@@ -45,4 +45,7 @@ test('rejects bad input and unknown commands', () => {
   assert.match(call({ cmd: 'sh', args: {} }).error!, /refused: unknown command/)
   assert.match(call({ cmd: 'constructor', args: {} }).error!, /refused: unknown command/)
   assert.match(call('not json\n').error!, /refused/)
+  const noEmail = call({ cmd: 'user-ensure', args: { ...ok, email: undefined } })
+  assert.equal(noEmail.ok, true, 'email is optional')
+  assert.ok(!noEmail.planned.some((c) => c.includes('git config')), 'no git identity without an email')
 })

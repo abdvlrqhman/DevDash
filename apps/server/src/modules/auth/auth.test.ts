@@ -50,24 +50,26 @@ test('invite → accept → me → logout → login with backup code', async () 
   assert.equal((await call('GET', '/api/auth/me')).status, 401)
 
   // Same TOTP code as enrollment: replay must fail.
-  const replay = await call('POST', '/api/auth/login', { email: 'ada@example.com', password: 'a long enough password', code: hotp(secret, totpStep()), remember: true })
+  const replay = await call('POST', '/api/auth/login', { login: 'ada@example.com', password: 'a long enough password', code: hotp(secret, totpStep()), remember: true })
   assert.equal(replay.status, 401)
 
   const backup = acc.body.backupCodes[0].toLowerCase()
-  const ok = await call('POST', '/api/auth/login', { email: 'ada@example.com', password: 'a long enough password', code: backup, remember: true })
+  const ok = await call('POST', '/api/auth/login', { login: 'ada@example.com', password: 'a long enough password', code: backup, remember: true })
   assert.equal(ok.status, 200)
   assert.match(ok.setCookie!, /Max-Age=2592000/, 'remember me = 30 days')
   clearCookie()
-  const reused = await call('POST', '/api/auth/login', { email: 'ada@example.com', password: 'a long enough password', code: backup, remember: true })
+  const reused = await call('POST', '/api/auth/login', { login: 'ada@example.com', password: 'a long enough password', code: backup, remember: true })
   assert.equal(reused.status, 401, 'backup codes are single use')
+  const byUsername = await call('POST', '/api/auth/login', { login: 'ADA', password: 'a long enough password', code: acc.body.backupCodes[1], remember: false })
+  assert.equal(byUsername.status, 200, 'username works as the sign-in identifier')
 })
 
 test('wrong password, unknown email and cross-origin requests are rejected', async () => {
   const { auth, call } = setup()
   auth.createInvite({ email: 'b@example.com', username: 'bob', role: 'member' }, null, null)
-  assert.equal((await call('POST', '/api/auth/login', { email: 'b@example.com', password: 'nope', code: '123456', remember: false })).status, 401)
-  assert.equal((await call('POST', '/api/auth/login', { email: 'ghost@example.com', password: 'nope', code: '123456', remember: false })).status, 401)
-  assert.equal((await call('POST', '/api/auth/login', { email: 'b@example.com', password: 'x', code: '123456', remember: false }, { origin: 'https://evil.test' })).status, 403)
+  assert.equal((await call('POST', '/api/auth/login', { login: 'b@example.com', password: 'nope', code: '123456', remember: false })).status, 401)
+  assert.equal((await call('POST', '/api/auth/login', { login: 'ghost@example.com', password: 'nope', code: '123456', remember: false })).status, 401)
+  assert.equal((await call('POST', '/api/auth/login', { login: 'b@example.com', password: 'x', code: '123456', remember: false }, { origin: 'https://evil.test' })).status, 403)
 })
 
 test('invite validation: usernames and duplicates', () => {
@@ -101,7 +103,7 @@ test('change password: needs the current one, signs out other devices, short pas
   const acc = await call('POST', `/api/auth/invites/${token}`, { name: 'Pat', password: 'old', code: hotp(secret, totpStep()) })
   assert.equal(acc.status, 200, 'no minimum length')
   // a second device
-  const other = await auth.login({ email: 'p@example.com', password: 'old', code: acc.body.backupCodes[0], remember: false }, { ip: 'x', ua: 'x' })
+  const other = await auth.login({ login: 'p@example.com', password: 'old', code: acc.body.backupCodes[0], remember: false }, { ip: 'x', ua: 'x' })
   assert.ok(auth.sessionUser(other.token))
 
   assert.equal((await call('POST', '/api/auth/password', { current: 'nope', next: 'new' })).status, 400)
@@ -110,6 +112,10 @@ test('change password: needs the current one, signs out other devices, short pas
   assert.equal(ok.body.signedOutSessions, 1)
   assert.equal(auth.sessionUser(other.token), null, 'other device signed out')
   assert.equal((await call('GET', '/api/auth/me')).status, 200, 'this device stays signed in')
-  await assert.rejects(auth.login({ email: 'p@example.com', password: 'old', code: acc.body.backupCodes[1], remember: false }, { ip: 'x', ua: 'x' }))
-  assert.ok(await auth.login({ email: 'p@example.com', password: 'new', code: acc.body.backupCodes[2], remember: false }, { ip: 'x', ua: 'x' }))
+  await assert.rejects(auth.login({ login: 'p@example.com', password: 'old', code: acc.body.backupCodes[1], remember: false }, { ip: 'x', ua: 'x' }))
+  assert.ok(await auth.login({ login: 'p@example.com', password: 'new', code: acc.body.backupCodes[2], remember: false }, { ip: 'x', ua: 'x' }))
+
+  assert.equal((await call('POST', '/api/auth/email', { password: 'wrong', email: 'pat@new.com' })).status, 400)
+  const changed = await call('POST', '/api/auth/email', { password: 'new', email: 'pat@new.com' })
+  assert.equal(changed.body.user.email, 'pat@new.com')
 })

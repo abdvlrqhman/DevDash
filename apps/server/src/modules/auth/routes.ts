@@ -36,7 +36,7 @@ export function authMiddleware(auth: AuthService) {
 }
 
 const LoginInput = z.object({
-  email: z.email().max(254),
+  login: z.string().trim().min(1).max(254),
   password: z.string().min(1).max(256),
   code: z.string().min(6).max(32),
   remember: z.boolean(),
@@ -48,12 +48,17 @@ const AcceptInput = z.object({
   code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'),
 })
 
+const EmailInput = z.object({
+  password: z.string().min(1).max(256),
+  email: z.email().max(254),
+})
+
 const PasswordInput = z.object({
   current: z.string().min(1).max(256),
   next: z.string().min(1).max(256),
 })
 
-export function authRoutes(auth: AuthService, mw: ReturnType<typeof authMiddleware>, ip: Ip, onUserCreated: (u: User) => void) {
+export function authRoutes(auth: AuthService, mw: ReturnType<typeof authMiddleware>, ip: Ip, onUserChanged: (u: User) => void) {
   const meta = (c: Context) => ({ ip: ip(c), ua: (c.req.header('user-agent') ?? '').slice(0, 300) })
   return new Hono<AuthEnv>()
     .post('/login', json(LoginInput), async (c) => {
@@ -72,10 +77,16 @@ export function authRoutes(auth: AuthService, mw: ReturnType<typeof authMiddlewa
       const signedOut = await auth.changePassword(c.get('user').id, current, next, c.get('sessionToken'), meta(c).ip)
       return c.json({ ok: true, signedOutSessions: signedOut })
     })
+    .post('/email', mw.requireUser, json(EmailInput), async (c) => {
+      const { password, email } = c.req.valid('json')
+      const user = await auth.changeEmail(c.get('user').id, password, email, meta(c).ip)
+      onUserChanged(user)
+      return c.json({ user })
+    })
     .get('/invites/:token', (c) => c.json(auth.getInvite(c.req.param('token'))))
     .post('/invites/:token', json(AcceptInput), async (c) => {
       const r = await auth.acceptInvite(c.req.param('token'), c.req.valid('json'), meta(c))
-      onUserCreated(r.user)
+      onUserChanged(r.user)
       setSessionCookie(c, r.token, false)
       return c.json({ user: r.user, backupCodes: r.backupCodes })
     })
