@@ -77,12 +77,7 @@ jobs:
           export NDK_HOME="$ANDROID_NDK_LATEST_HOME"
           npx tauri android init --ci
           npx tauri icon app-icon.png
-          main=$(find src-tauri/gen/android -name MainActivity.kt | head -1)
-          echo "generated $main:"; cat "$main"
-          cp android/MainActivity.kt android/NotifyService.kt android/BootReceiver.kt "$(dirname "$main")/"
-          app=$(find src-tauri/gen/android -path '*/app/src/main/AndroidManifest.xml' | head -1)
-          mkdir -p "$(dirname "$app")/res/drawable" && cp android/res/drawable/ic_stat_devdash.xml "$(dirname "$app")/res/drawable/"
-          node android/patch-manifest.mjs "$app"
+          bash android/prepare.sh
           npx tauri android build --apk --ci
       - name: Sign APK
         env:
