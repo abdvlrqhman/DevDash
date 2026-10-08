@@ -10,7 +10,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -19,6 +19,9 @@ import { Textarea } from '@/components/ui/textarea'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { api, meQuery, unwrap } from '@/lib/api'
 import { ErrorAlert } from '../auth/LoginPage'
+import { NativeSelect } from '@/components/app/native-select'
+import { Switch } from '@/components/ui/switch'
+import { projectsQuery } from '../work/data'
 import { byFolder, FALLBACK_MODELS, PERMISSION_MODES, profilesQuery, relativeTime, sessionsQuery, shortPath, type PermissionMode, type Session } from './data'
 
 export function SessionsPage() {
@@ -119,7 +122,9 @@ function Choice({ id, label, value, options, onChange, description }: {
   )
 }
 
-export function NewSession({ open, onClose, initialPrompt = '', initialCwd }: { open: boolean; onClose: () => void; initialPrompt?: string; initialCwd?: string }) {
+export function NewSession({ open, onClose, initialPrompt = '', initialCwd, initialProject }: {
+  open: boolean; onClose: () => void; initialPrompt?: string; initialCwd?: string; initialProject?: string
+}) {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const setup = useQuery({ ...profilesQuery, enabled: open })
@@ -130,6 +135,9 @@ export function NewSession({ open, onClose, initialPrompt = '', initialCwd }: { 
   const [model, setModel] = useState('')
   const [perm, setPerm] = useState<PermissionMode>('bypassPermissions')
   const [openIn, setOpenIn] = useState<'chat' | 'cli'>('chat')
+  const projects = useQuery({ ...projectsQuery, enabled: open }).data?.projects ?? []
+  const [project, setProject] = useState(initialProject ?? '')
+  const [worktree, setWorktree] = useState(true)
   useEffect(() => {
     if (!d) return
     setProfile(d.profile)
@@ -137,7 +145,7 @@ export function NewSession({ open, onClose, initialPrompt = '', initialCwd }: { 
     setPerm(d.permission_mode as PermissionMode)
     setOpenIn(d.open_in)
   }, [d])
-  useEffect(() => { if (open) { setPrompt(initialPrompt); if (initialCwd) setCwd(initialCwd) } }, [open, initialPrompt, initialCwd])
+  useEffect(() => { if (open) { setPrompt(initialPrompt); if (initialCwd) setCwd(initialCwd); setProject(initialProject ?? '') } }, [open, initialPrompt, initialCwd, initialProject])
 
   const profiles = (setup.data?.profiles as { name: string; loggedIn: boolean }[] | undefined) ?? []
   const chosen = profiles.find((p) => p.name === profile)
@@ -145,6 +153,7 @@ export function NewSession({ open, onClose, initialPrompt = '', initialCwd }: { 
     mutationFn: () => unwrap(api.api.claude.sessions.$post({
       json: {
         prompt, images: [], cwd, profile, model: model || null, effort: null, permissionMode: perm, mode: openIn,
+        project: project || undefined, worktree: project ? worktree : undefined,
         cols: Math.max(40, Math.min(220, Math.floor(innerWidth / 8.2))), rows: Math.max(15, Math.min(80, Math.floor(innerHeight / 19))),
       },
     })),
@@ -169,11 +178,30 @@ export function NewSession({ open, onClose, initialPrompt = '', initialCwd }: { 
               <Textarea id="ns-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} required autoFocus className="min-h-24 text-base md:text-sm" />
             </Field>
           )}
-          <Field>
-            <FieldLabel htmlFor="ns-cwd">Folder</FieldLabel>
-            <Input id="ns-cwd" className="h-10 font-mono" value={cwd} onChange={(e) => setCwd(e.target.value)} spellCheck={false} autoCapitalize="none" />
-            <FieldDescription>~ is your home folder on the server.</FieldDescription>
-          </Field>
+          {projects.length > 0 && (
+            <Field>
+              <FieldLabel htmlFor="ns-project">Project</FieldLabel>
+              <NativeSelect id="ns-project" value={project} onChange={(e) => setProject(e.target.value)}>
+                <option value="">None, pick a folder</option>
+                {projects.map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}
+              </NativeSelect>
+            </Field>
+          )}
+          {project ? (
+            <Field orientation="horizontal">
+              <FieldContent>
+                <FieldLabel htmlFor="ns-wt">Work on a separate branch</FieldLabel>
+                <FieldDescription>A worktree of its own, so several sessions can work in this project at once without colliding.</FieldDescription>
+              </FieldContent>
+              <Switch id="ns-wt" checked={worktree} onCheckedChange={setWorktree} />
+            </Field>
+          ) : (
+            <Field>
+              <FieldLabel htmlFor="ns-cwd">Folder</FieldLabel>
+              <Input id="ns-cwd" className="h-10 font-mono" value={cwd} onChange={(e) => setCwd(e.target.value)} spellCheck={false} autoCapitalize="none" />
+              <FieldDescription>~ is your home folder on the server.</FieldDescription>
+            </Field>
+          )}
           {profiles.length > 1 && (
             <Choice id="ns-profile" label="Claude profile" value={profile} onChange={setProfile} options={profiles.map((p) => ({ value: p.name, label: p.name }))} />
           )}

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import {
-  ArrowLeftRight, ChevronsUpDown, Download, Ellipsis, House, LogOut, Monitor, Moon, Server, Settings, Sparkles, SquareTerminal, Sun, Users,
+  ArrowLeftRight, ChevronsUpDown, Download, Ellipsis, FolderGit2, House, ListTodo, LogOut, Monitor, Moon, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Sun, Users,
 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -23,10 +23,14 @@ import { sessionsQuery, useLiveSessions } from '@/features/claude/data'
 import { useNotificationEvents } from '@/features/notifications/Notifications'
 import { initials, Logo } from './brand'
 import { useDragWidth, useStoredWidth } from './resize-handle'
+import { SearchDialog, showSearch } from './search'
 
 const NAV = [
   { to: '/', label: 'Home', icon: House, exact: true },
+  { to: '/projects', label: 'Projects', icon: FolderGit2 },
+  { to: '/tasks', label: 'Tasks', icon: ListTodo },
   { to: '/claude', label: 'Claude', icon: Sparkles },
+  { to: '/notes', label: 'Notes', icon: StickyNote },
   { to: '/terminal', label: 'Terminal', icon: SquareTerminal },
   { to: '/services', label: 'Services', icon: Server },
   { to: '/members', label: 'Members', icon: Users },
@@ -94,6 +98,7 @@ export function AppShell() {
         </SidebarInset>
       </SidebarProvider>
       <Toaster position="top-center" />
+      <SearchDialog />
     </TooltipProvider>
   )
 }
@@ -132,6 +137,11 @@ function AppSidebar({ waiting, pane }: { waiting: number; pane: ReturnType<typeo
       <SidebarContent>
         <SidebarGroup>
           <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton tooltip="Search" onClick={showSearch} className="text-muted-foreground">
+                <Search /><span>Search</span><kbd className="ml-auto rounded border px-1 font-mono text-[10px]">⌘K</kbd>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
             {NAV.map((n) => (
               <SidebarMenuItem key={n.to}>
                 <SidebarMenuButton asChild isActive={active(n.to, 'exact' in n)} tooltip={n.label}>
@@ -220,16 +230,17 @@ function UserMenu() {
 
 const TABS = [
   { to: '/', label: 'Home', icon: House, exact: true },
+  { to: '/projects', label: 'Projects', icon: FolderGit2 },
   { to: '/claude', label: 'Claude', icon: Sparkles },
-  { to: '/terminal', label: 'Terminal', icon: SquareTerminal },
+  { to: '/tasks', label: 'Tasks', icon: ListTodo },
   { to: '/more', label: 'More', icon: Ellipsis },
 ] as const
 
 function MobileTabs({ waiting }: { waiting: number }) {
   const active = useActive()
-  const moreActive = ['/more', '/members', '/account'].some((p) => active(p)) || active('/claude/setup')
+  const moreActive = ['/more', '/members', '/account', '/notes', '/terminal', '/services'].some((p) => active(p)) || active('/claude/setup')
   return (
-    <nav aria-label="Sections" className="grid shrink-0 grid-cols-4 border-t bg-background pb-[env(safe-area-inset-bottom)] md:hidden [.keyboard-open_&]:hidden">
+    <nav aria-label="Sections" className="grid shrink-0 grid-cols-5 border-t bg-background pb-[env(safe-area-inset-bottom)] md:hidden [.keyboard-open_&]:hidden">
       {TABS.map((t) => {
         const on = t.to === '/more' ? moreActive : t.to === '/claude' ? active(t.to) && !active('/claude/setup') : active(t.to, 'exact' in t)
         return (

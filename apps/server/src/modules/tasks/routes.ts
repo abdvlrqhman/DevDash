@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { json } from '../../core/http.ts'
+import { json, query } from '../../core/http.ts'
 import type { AuthEnv, authMiddleware } from '../auth/routes.ts'
 import { PRIORITIES, STATUSES, type TasksService } from './service.ts'
 
@@ -21,13 +21,13 @@ export function tasksRoutes(tasks: TasksService, giveToClaude: GiveToClaude, mw:
   const num = (v: string) => Number.parseInt(v, 10)
   return new Hono<AuthEnv>()
     .use(mw.requireUser)
-    .get('/', (c) => {
-      const a = c.req.query('assignee')
+    .get('/', query(z.object({ project: z.string().max(40).optional(), assignee: z.string().max(12).optional(), done: z.enum(['recent', 'all']).optional() })), (c) => {
+      const f = c.req.valid('query')
       return c.json({
         tasks: tasks.list({
-          project: c.req.query('project') || undefined,
-          assignee: a === 'me' ? c.get('user').id : a ? num(a) : undefined,
-          includeOldDone: c.req.query('done') === 'all',
+          project: f.project || undefined,
+          assignee: f.assignee === 'me' ? c.get('user').id : f.assignee ? num(f.assignee) : undefined,
+          includeOldDone: f.done === 'all',
         }),
       })
     })

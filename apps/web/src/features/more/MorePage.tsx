@@ -1,17 +1,20 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { ArrowLeftRight, ChevronRight, Download, LogOut, Server, Settings, Sparkles, Users } from 'lucide-react'
+import { ArrowLeftRight, ChevronRight, Download, LogOut, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Users } from 'lucide-react'
 import { initials } from '@/components/app/brand'
 import { PageBody, PageHeader, Section } from '@/components/app/page'
 import { useSignOut } from '@/components/app/shell'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { showSearch } from '@/components/app/search'
 import { meQuery } from '@/lib/api'
 import { APP_DOWNLOADS, inShell, openExternal } from '@/lib/shell'
 import { setTheme, useTheme, type ThemePref } from '@/lib/theme'
 
 const LINKS = [
+  { to: '/notes', label: 'Notes', description: 'Decisions, setup steps and links for the team', icon: StickyNote },
+  { to: '/terminal', label: 'Terminal', description: 'Shells on the server that keep running', icon: SquareTerminal },
   { to: '/services', label: 'Services', description: 'Websites, APIs and containers that stay up', icon: Server },
   { to: '/members', label: 'Members', description: 'Invite people and see who has access', icon: Users },
   { to: '/claude/setup', label: 'Claude setup', description: 'Profiles, sign-in and defaults', icon: Sparkles },
@@ -33,6 +36,9 @@ export function MorePage() {
             <ItemTitle>{me.name}</ItemTitle>
             <ItemDescription>{me.email}</ItemDescription>
           </ItemContent>
+        </Item>
+        <Item variant="outline" asChild>
+          <button onClick={showSearch}><ItemMedia variant="icon"><Search /></ItemMedia><ItemContent><ItemTitle>Search</ItemTitle><ItemDescription>Projects, tasks, notes, sessions and services</ItemDescription></ItemContent></button>
         </Item>
         <ItemGroup className="rounded-xl border">
           {LINKS.map((l) => (

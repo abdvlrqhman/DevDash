@@ -9,7 +9,7 @@ export function activityService({ db, hub }: { db: Db; hub: Hub }) {
     insert: db.prepare('insert into activity (project_id, user_id, via_claude, kind, summary, url) values (?, ?, ?, ?, ?, ?)'),
     list: db.prepare(`select a.id, a.kind, a.summary, a.url, a.via_claude, a.created_at, u.name as user_name, p.slug as project_slug, p.name as project_name
       from activity a left join users u on u.id = a.user_id left join projects p on p.id = a.project_id
-      where (?1 is null or a.project_id = ?1) order by a.id desc limit ?2`),
+      where (?1 is null or a.project_id = ?1) order by a.created_at desc, a.id desc limit ?2`),
     prune: db.prepare('delete from activity where created_at < unixepoch() - 90 * 86400'),
   }
   setInterval(() => q.prune.run(), 24 * 3_600_000).unref()

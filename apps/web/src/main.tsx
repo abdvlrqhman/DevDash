@@ -64,6 +64,18 @@ const terminal = createRoute({
 })
 const account = createRoute({ getParentRoute: () => app, path: '/account', component: AccountPage })
 const more = createRoute({ getParentRoute: () => app, path: '/more', component: MorePage })
+const lazy = (load: () => Promise<Record<string, unknown>>, name: string) => lazyRouteComponent(load as never, name as never)
+const projects = createRoute({ getParentRoute: () => app, path: '/projects', component: lazy(() => import('./features/projects/ProjectsPage'), 'ProjectsPage') })
+const project = createRoute({ getParentRoute: () => app, path: '/projects/$slug', component: lazy(() => import('./features/projects/ProjectPage'), 'ProjectPage') })
+const tasks = createRoute({ getParentRoute: () => app, path: '/tasks', component: lazy(() => import('./features/tasks/TasksPage'), 'TasksPage') })
+const task = createRoute({ getParentRoute: () => app, path: '/tasks/$slug/$number', component: lazy(() => import('./features/tasks/TaskPage'), 'TaskPage') })
+const notes = createRoute({ getParentRoute: () => app, path: '/notes', component: lazy(() => import('./features/notes/NotesPage'), 'NotesPage') })
+const note = createRoute({
+  getParentRoute: () => app,
+  path: '/notes/$id',
+  component: lazy(() => import('./features/notes/NotePage'), 'NotePage'),
+  validateSearch: (s: Record<string, unknown>): { project?: string } => (typeof s.project === 'string' ? { project: s.project } : {}),
+})
 const services = createRoute({ getParentRoute: () => app, path: '/services', component: lazyRouteComponent(() => import('./features/services/ServicesPage'), 'ServicesPage') })
 const service = createRoute({ getParentRoute: () => app, path: '/services/$name', component: lazyRouteComponent(() => import('./features/services/ServicePage'), 'ServicePage') })
 // Claude is master-detail on wide screens: ClaudeLayout keeps the session list beside whatever is open.
@@ -77,7 +89,7 @@ const claudeSession = createRoute({
 })
 
 const router = createRouter({
-  routeTree: root.addChildren([login, invite, app.addChildren([home, claude.addChildren([claudeIndex, claudeSetup, claudeSession]), terminal, services, service, members, account, more])]),
+  routeTree: root.addChildren([login, invite, app.addChildren([home, claude.addChildren([claudeIndex, claudeSetup, claudeSession]), terminal, services, service, projects, project, tasks, task, notes, note, members, account, more])]),
   context: { queryClient },
   defaultPreload: 'intent',
 })

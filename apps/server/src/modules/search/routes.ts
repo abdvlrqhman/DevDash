@@ -1,4 +1,6 @@
 import { Hono } from 'hono'
+import { z } from 'zod'
+import { query } from '../../core/http.ts'
 import type { Db } from '../../core/db.ts'
 import type { ActivityService } from '../activity/service.ts'
 import type { AuthEnv, authMiddleware } from '../auth/routes.ts'
@@ -15,9 +17,9 @@ export function searchRoutes(d: {
   const taskById = d.db.prepare(`select t.id, t.number, t.title, t.status, p.slug from tasks t join projects p on p.id = t.project_id where t.id = ?`)
   return new Hono<AuthEnv>()
     .use(mw.requireUser)
-    .get('/search', (c) => {
+    .get('/search', query(z.object({ q: z.string().max(200).default('') })), (c) => {
       const user = c.get('user')
-      const text = (c.req.query('q') ?? '').trim().slice(0, 100)
+      const text = c.req.valid('query').q.trim().slice(0, 100)
       if (!text) return c.json({ projects: [], tasks: [], notes: [], sessions: [], services: [] })
       const needle = text.toLowerCase()
       const hits = d.search.find(text)

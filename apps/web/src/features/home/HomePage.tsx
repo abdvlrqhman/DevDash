@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { ChevronRight, Plus, Settings2, Sparkles, SquareTerminal, UserPlus } from 'lucide-react'
+import { ChevronRight, ListTodo, Plus, Settings2, Sparkles, SquareTerminal, UserPlus } from 'lucide-react'
 import { initials, StatusLight } from '@/components/app/brand'
 import { PageBody, PageHeader, Section } from '@/components/app/page'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -10,6 +10,9 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTi
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item'
 import { api, meQuery, spaceQuery, unwrap } from '@/lib/api'
 import { NewSession } from '@/features/claude/SessionsPage'
+import { ActivityList } from '@/features/work/Activity'
+import { activityQuery, tasksQuery, useLiveWork } from '@/features/work/data'
+import { NewTask, TaskRow } from '@/features/work/TaskBits'
 import { relativeTime, sessionsQuery, shortPath } from '@/features/claude/data'
 
 const greeting = () => {
@@ -23,6 +26,12 @@ export function HomePage() {
   const sessions = useQuery(sessionsQuery(false))
   const members = useQuery({ queryKey: ['members'], queryFn: () => unwrap(api.api.members.$get()) })
   const [creating, setCreating] = useState(false)
+  const [newTask, setNewTask] = useState(false)
+  useLiveWork()
+  const myTasks = (useQuery(tasksQuery({ assignee: 'me' })).data?.tasks ?? [])
+    .filter((t) => t.status !== 'done')
+    .sort((a, b) => (a.due ?? '9999').localeCompare(b.due ?? '9999') || ['urgent', 'high', 'medium', 'low', 'none'].indexOf(a.priority) - ['urgent', 'high', 'medium', 'low', 'none'].indexOf(b.priority))
+  const activity = useQuery(activityQuery()).data?.activity ?? []
 
   const all = sessions.data?.sessions ?? []
   const waiting = all.filter((s) => s.status === 'waiting')
@@ -89,6 +98,20 @@ export function HomePage() {
             </ItemGroup>
           )}
         </Section>
+
+        {myTasks.length > 0 && (
+          <Section title="Your tasks" action={<Button variant="link" size="sm" asChild className="h-auto p-0"><Link to="/tasks">All tasks</Link></Button>}>
+            <div className="overflow-hidden rounded-xl border">
+              {myTasks.slice(0, 8).map((t) => <TaskRow key={t.key} t={t} showProject />)}
+            </div>
+          </Section>
+        )}
+
+        {activity.length > 0 && (
+          <Section title="Activity">
+            <ActivityList items={activity.slice(0, 15)} showProject />
+          </Section>
+        )}
         </div>
 
         <div className="flex flex-col gap-6">
@@ -96,6 +119,9 @@ export function HomePage() {
             <ItemGroup className="rounded-xl border">
               <Item asChild size="sm" className="rounded-none border-0 border-b">
                 <button onClick={() => setCreating(true)}><ItemMedia variant="icon"><Plus /></ItemMedia><ItemContent><ItemTitle>New Claude session</ItemTitle></ItemContent></button>
+              </Item>
+              <Item asChild size="sm" className="rounded-none border-0 border-b">
+                <button onClick={() => setNewTask(true)}><ItemMedia variant="icon"><ListTodo /></ItemMedia><ItemContent><ItemTitle>New task</ItemTitle></ItemContent></button>
               </Item>
               <Item asChild size="sm" className="rounded-none border-0 border-b">
                 <Link to="/terminal"><ItemMedia variant="icon"><SquareTerminal /></ItemMedia><ItemContent><ItemTitle>Open a terminal</ItemTitle></ItemContent></Link>
@@ -126,6 +152,7 @@ export function HomePage() {
         </div>
       </PageBody>
       <NewSession open={creating} onClose={() => setCreating(false)} />
+      <NewTask open={newTask} onClose={() => setNewTask(false)} />
     </>
   )
 }
