@@ -30,7 +30,8 @@ async function ensureTerminal(name: string, cols: number, rows: number) {
   if (name === ADMIN) return void (await tmux(...base, 'sudo -i')) // asks for the admin's Linux password
   // Connect GitHub: gh signs in with a one-time code in the browser, then git uses it for https remotes.
   if (name === GH_LOGIN) {
-    const script = 'gh auth login --hostname github.com --git-protocol https --web --insecure-storage && gh auth setup-git --hostname github.com'
+    const script = 'echo "Connect GitHub: open the link below, type the code, and approve. This tab closes by itself." && echo'
+      + ' && GH_PROMPT_DISABLED=1 gh auth login --hostname github.com --git-protocol https --web --insecure-storage && gh auth setup-git --hostname github.com'
       + ' && echo && echo "GitHub is connected. This tab closes in a few seconds." && sleep 4'
       + ' || { echo; echo "GitHub sign-in did not finish."; read -r -p "Press Enter to close this tab. " _; }'
     return void (await tmux(...base, '-e', 'BROWSER=echo', 'bash', '-lc', script))
