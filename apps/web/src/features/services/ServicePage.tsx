@@ -134,5 +134,4 @@ function EditService({ s, onClose }: { s: Service; onClose: () => void }) {
   )
 }
 
-const envCount = (env: string | null) => (env ?? '').split('
-').filter((l) => l.trim() && !l.trim().startsWith('#')).length
+const envCount = (env: string | null) => (env ?? '').split('\n').filter((l) => l.trim() && !l.trim().startsWith('#')).length
