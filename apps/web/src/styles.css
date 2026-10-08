@@ -175,6 +175,8 @@
   padding-inline: max(var(--gutter), calc((100% - var(--page-max, 56rem)) / 2));
 }
 @media (min-width: 768px) { .page-col { --gutter: 1.5rem; } }
+/* Canvases (a terminal, the shared browser, logs) keep a tighter edge on phones, where every column of text counts. */
+@media (max-width: 767px) { .page-col.canvas { --gutter: 0.5rem; } }
 
 /* Motion tokens. Responses are quick and decelerate; nothing the member triggers eases in. */
 :root {

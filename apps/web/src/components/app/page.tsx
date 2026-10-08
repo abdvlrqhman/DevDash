@@ -4,11 +4,14 @@ import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
-/** Content widths. A page passes the same one to its header and body so both share one column (see .page-col). */
-const WIDTHS = { narrow: '42rem', default: '56rem', wide: '72rem', full: '100%' } as const
+/**
+ * Every page uses one column, so titles, actions and content start at the same place on every page (see .page-col).
+ * "full" is only for canvases that want every pixel (a board or a terminal); their headers still use the column.
+ */
+const WIDTHS = { default: '72rem', full: '100%' } as const
 export type PageWidth = keyof typeof WIDTHS
 /** Style for a custom body that sits in the page column (with className="page-col"). */
-export const pageCol = (width: PageWidth) => ({ '--page-max': WIDTHS[width] }) as CSSProperties
+export const pageCol = (width: PageWidth = 'default') => ({ '--page-max': WIDTHS[width] }) as CSSProperties
 const col = pageCol
 
 /** Top bar of every app page: optional back link, title, actions; aligned with the page's content column. */
@@ -44,6 +47,19 @@ export function PageHeader({ title, description, back, backOnSmall, actions, wid
 /** Standard content column under a PageHeader. */
 export function PageBody({ children, width = 'default', className }: { children: ReactNode; width?: PageWidth; className?: string }) {
   return <div style={col(width)} className={cn('page-col flex w-full flex-col gap-6 py-6', className)}>{children}</div>
+}
+
+/** A settings group: what it is on the left (wide screens), its controls on the right; stacked on phones. */
+export function SettingsSection({ title, description, children }: { title: ReactNode; description?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="grid gap-4 border-t pt-6 first:border-t-0 first:pt-0 lg:grid-cols-[17rem_minmax(0,1fr)] lg:gap-12">
+      <div className="min-w-0">
+        <h2 className="text-sm font-semibold">{title}</h2>
+        {description && <p className="mt-1 text-sm text-pretty text-muted-foreground">{description}</p>}
+      </div>
+      <div className="flex min-w-0 flex-col gap-4">{children}</div>
+    </section>
+  )
 }
 
 /** A titled group of content inside a page. */

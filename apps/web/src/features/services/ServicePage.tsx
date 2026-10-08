@@ -4,7 +4,7 @@ import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { ExternalLink, Pencil, Play, RotateCw, Square, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
-import { PageHeader } from '@/components/app/page'
+import { PageHeader, pageCol } from '@/components/app/page'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
 import { Button } from '@/components/ui/button'
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
@@ -57,7 +57,7 @@ function ServicePageView() {
   const hasOutput = s.state !== 'stopped' && s.state !== 'unknown'
   return (
     <div className="flex h-full flex-col">
-      <PageHeader back="/services" width="full" title={<span className="font-mono">{s.name}</span>}
+      <PageHeader back="/services" title={<span className="font-mono">{s.name}</span>}
         description={<span className="flex items-center gap-1.5"><StatusLight state={st.light} />{st.label}</span>}
         actions={<>
           {s.previewUrl && <Button size="sm" variant="outline" onClick={() => openExternal(s.previewUrl!)}><ExternalLink /><span className="hidden sm:inline">Open</span></Button>}
@@ -73,7 +73,7 @@ function ServicePageView() {
           </>}
         </>} />
 
-      <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 border-b px-4 py-3 text-sm md:px-6">
+      <dl style={pageCol()} className="page-col grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 border-b py-3 text-sm">
         <dt className="text-muted-foreground">Port</dt>
         <dd className="font-mono">{s.port} <span className="font-sans text-muted-foreground">{s.listening ? 'listening on 127.0.0.1' : 'not listening'}</span></dd>
         {s.previewUrl && <><dt className="text-muted-foreground">Address</dt><dd className="flex items-center gap-2"><button className="truncate font-mono text-left underline-offset-4 hover:underline" onClick={() => openExternal(s.previewUrl!)}>{s.previewUrl.replace(/^https:\/\//, '').replace(/\/$/, '')}</button><span className="shrink-0 text-xs text-muted-foreground">{s.public ? 'anyone with the link' : 'members only'}</span></dd></>}
@@ -87,11 +87,11 @@ function ServicePageView() {
         {s.state === 'crashed' && <><dt className="text-muted-foreground">Exit code</dt><dd className="font-mono">{s.exitCode ?? 'unknown'}</dd></>}
       </dl>
 
-      <div className="relative m-2 min-h-0 flex-1 overflow-hidden rounded-lg bg-term-bg p-2 md:m-4">
+      <div style={pageCol()} className="page-col canvas flex min-h-0 flex-1 flex-col"><div className="relative my-2 min-h-0 flex-1 overflow-hidden rounded-lg bg-term-bg p-2 md:my-4">
         {hasOutput
           ? <TerminalView key={`${s.name}:${s.state === 'crashed'}`} path={`/api/services/${s.name}/logs`} onStatus={setLogStatus} />
           : <p className="flex h-full items-center justify-center px-6 text-center text-sm text-term-fg/70">Stopped. Its output shows here while it runs.</p>}
-      </div>
+      </div></div>
 
       {editing && <EditService s={s} onClose={() => setEditing(false)} />}
 

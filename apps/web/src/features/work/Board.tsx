@@ -59,7 +59,7 @@ export function Board({ tasks, project, showProject }: { tasks: Task[]; project?
   if (mobile) {
     return (
       <div className="flex flex-col gap-3">
-        <ToggleGroup type="single" variant="outline" size="sm" value={column} onValueChange={(v) => v && setColumn(v as Status)} className="-mx-4 w-auto self-stretch overflow-x-auto px-4" aria-label="Column">
+        <ToggleGroup type="single" variant="outline" size="sm" value={column} onValueChange={(v) => v && setColumn(v as Status)} className="-mx-4 w-auto self-stretch overflow-x-auto px-4 [mask-image:linear-gradient(to_right,black_calc(100%-2.5rem),transparent)]" aria-label="Column">
           {STATUSES.map((s) => (
             <ToggleGroupItem key={s.value} value={s.value} className="shrink-0 gap-1.5 px-2.5">
               {s.label}<span className="tabular-nums text-muted-foreground">{cols[s.value].length}</span>

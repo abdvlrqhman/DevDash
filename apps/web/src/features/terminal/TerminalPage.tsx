@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearch } from '@tanstack/react-router'
 import { Plus, ShieldAlert, SquareTerminal, X } from 'lucide-react'
 import { StatusLight } from '@/components/app/brand'
-import { PageHeader } from '@/components/app/page'
+import { PageHeader, pageCol } from '@/components/app/page'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
@@ -60,7 +60,7 @@ export function TerminalPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <PageHeader title="Terminal" width="full" description={<span className="font-mono">{me.username}@server</span>}
+      <PageHeader title="Terminal" description={<span className="font-mono">{me.username}@server</span>}
         actions={active &&
           <span role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <StatusLight state={status === 'live' ? 'live' : status === 'ended' ? 'idle' : 'waiting'} />
@@ -68,8 +68,9 @@ export function TerminalPage() {
           </span>
         } />
 
+      <div style={pageCol()} className="page-col canvas flex min-h-0 flex-1 flex-col">
       {isAdmin ? (
-        <div className="mx-2 mt-2 flex items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 md:mx-4">
+        <div className="mt-2 flex items-center gap-3 rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2">
           <ShieldAlert className="size-5 shrink-0 text-destructive" />
           <div className="min-w-0 flex-1 text-sm">
             <div className="font-medium text-destructive">Admin shell</div>
@@ -78,7 +79,7 @@ export function TerminalPage() {
           <Button size="sm" variant="outline" onClick={() => setActive(null)}>Leave</Button>
         </div>
       ) : (
-        <div className="flex items-center gap-1 overflow-x-auto border-b px-2 md:px-4" role="tablist" aria-label="Terminals">
+        <div className="flex items-center gap-1 overflow-x-auto border-b" role="tablist" aria-label="Terminals">
           {names.map((n) => (
             <div key={n} className={cn('flex shrink-0 items-center border-b-2 font-mono text-[13px]', n === active ? 'border-foreground text-foreground' : 'border-transparent text-muted-foreground')}>
               <button role="tab" aria-selected={n === active} className="h-10 px-2.5 hover:text-foreground" onClick={() => open(n)}>{n}</button>
@@ -99,7 +100,7 @@ export function TerminalPage() {
         </div>
       )}
 
-      {list.error && <div className="mx-2 mt-2 md:mx-4"><ErrorAlert error={list.error} /></div>}
+      {list.error && <div className="mt-2"><ErrorAlert error={list.error} /></div>}
       {!active ? (
         <Empty className="flex-1">
           <EmptyHeader>
@@ -120,7 +121,7 @@ export function TerminalPage() {
           </EmptyContent>
         </Empty>
       ) : <>
-      <div className={cn('relative m-2 min-h-0 flex-1 overflow-hidden rounded-lg bg-term-bg p-2 md:m-4', isAdmin && 'ring-2 ring-destructive')}>
+      <div className={cn('relative my-2 min-h-0 flex-1 overflow-hidden rounded-lg bg-term-bg p-2 md:my-4', isAdmin && 'ring-2 ring-destructive')}>
         <TerminalView key={`${active}:${epoch}`} ref={term} path={`/api/terminals/${active}/ws`} onStatus={onStatus} onMods={setMods} />
         {status === 'ended' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-term-bg/95 px-6 text-center text-term-fg">
@@ -144,6 +145,7 @@ export function TerminalPage() {
       </ResponsiveDialog>
 
       <AdminUnlock open={unlocking} onOpenChange={setUnlocking} onUnlocked={() => { setUnlocking(false); setEpoch((e) => e + 1); open(ADMIN) }} />
+      </div>
     </div>
   )
 }

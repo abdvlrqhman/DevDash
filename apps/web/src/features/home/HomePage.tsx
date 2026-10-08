@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { ChevronRight, ListTodo, Plus, Search, Sparkles, StickyNote } from 'lucide-react'
+import { ChevronRight, ListTodo, Plus, Search, StickyNote } from 'lucide-react'
 import { initials, StatusLight } from '@/components/app/brand'
 import { PageHeader, pageCol } from '@/components/app/page'
 import { showSearch } from '@/components/app/search'
@@ -13,7 +13,7 @@ import { cn } from '@/lib/utils'
 import { relativeTime, sessionsQuery, shortPath, type Session } from '@/features/claude/data'
 import { NewSession } from '@/features/claude/SessionsPage'
 import { servicesQuery, useLiveServices } from '@/features/services/data'
-import { activityQuery, dueLabel, tasksQuery, useLiveWork, type Activity, type Task } from '@/features/work/data'
+import { activityQuery, tasksQuery, useLiveWork, type Activity, type Task } from '@/features/work/data'
 import { Due, NewTask, PriorityIcon, StatusIcon } from '@/features/work/TaskBits'
 
 const greeting = () => {
@@ -26,9 +26,9 @@ const now = () => Math.floor(Date.now() / 1000)
 /** When a line happened: the time today, the date before that. */
 const clock = (at: number) => {
   const d = new Date(at * 1000)
-  return d.toDateString() === new Date().toDateString()
-    ? d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-    : d.toLocaleDateString([], { month: 'short', day: 'numeric' })
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 86_400_000)
+  return days === 0 ? time : days === 1 ? `Yesterday ${time}` : d.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 const where = (s: Session) => s.project?.name ?? (shortPath(s.cwd, s.owner.username) === '~' ? 'home folder' : shortPath(s.cwd, s.owner.username))
 
@@ -70,6 +70,7 @@ export function HomePage() {
   const servicesQ = useQuery(servicesQuery)
   const activityQ = useQuery(activityQuery())
   const members = useQuery({ queryKey: ['members'], queryFn: () => unwrap(api.api.members.$get()) }).data?.users ?? []
+  const status = useQuery({ queryKey: ['status'], queryFn: () => unwrap(api.api.status.$get()), refetchInterval: 60_000 }).data
   const lastHere = useLastHere()
   const [creating, setCreating] = useState(false)
   const [newTask, setNewTask] = useState(false)
@@ -85,7 +86,21 @@ export function HomePage() {
     .sort((a, b) => (a.due ?? '9999').localeCompare(b.due ?? '9999') || rank(a) - rank(b))
   const crashed = services.filter((s) => s.state === 'crashed' && s.owner.id === me.id)
   const up = services.filter((s) => s.state === 'running')
-  const needsYou = waiting.length + urgent.length + crashed.length
+  // Trouble on the server itself: everyone hears about their own account; admins hear about the rest.
+  const trouble: { key: string; title: string; detail: string }[] = []
+  if (status) {
+    const disk = status.host.disk
+    const used = disk ? (disk.total - disk.free) / disk.total : 0
+    if (used >= 0.9) trouble.push({ key: 'disk', title: `The server's disk is ${Math.round(used * 100)}% full`, detail: 'Sessions, builds and backups fail when it fills up. Free some space.' })
+    if (me.role === 'admin' && status.backup && !status.backup.ok) trouble.push({ key: 'backup', title: 'The last backup failed', detail: 'The Server page says why, and can run one now.' })
+    for (const a of status.agents.filter((a) => !a.ok && (a.username === me.username || me.role === 'admin'))) {
+      trouble.push({
+        key: `agent:${a.username}`, detail: 'Claude sessions, terminals and files need it.',
+        title: a.username === me.username ? 'Your server account is not responding' : `${a.name}'s server account is not responding`,
+      })
+    }
+  }
+  const needsYou = trouble.length + waiting.length + urgent.length + crashed.length
   const loaded = sessionsQ.isSuccess && tasksQ.isSuccess && servicesQ.isSuccess
 
   // The log: what the team (and Claude) did, plus my sessions that finished. My own clicks aren't news.
@@ -111,7 +126,7 @@ export function HomePage() {
 
   const needsList = useRef<HTMLUListElement>(null)
   const runningList = useRef<HTMLUListElement>(null)
-  useArrivals(needsList, loaded ? [...waiting.map((s) => s.id), ...crashed.map((s) => s.name), ...urgent.map((t) => t.key)] : undefined)
+  useArrivals(needsList, loaded ? [...trouble.map((t) => t.key), ...waiting.map((s) => s.id), ...crashed.map((s) => s.name), ...urgent.map((t) => t.key)] : undefined)
   useArrivals(runningList, loaded ? [...working.map((s) => s.id), ...up.map((s) => s.name)] : undefined)
   useArrivals(log, activityQ.isSuccess ? lines.map((l) => l.key) : undefined)
 
@@ -121,8 +136,8 @@ export function HomePage() {
 
   return (
     <>
-      <PageHeader title={space?.name ?? 'Home'} width="wide" actions={<Button size="sm" onClick={() => setCreating(true)}><Plus />New session</Button>} />
-      <div style={pageCol('wide')} className="page-col flex flex-col gap-10 py-6 md:py-8 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start lg:gap-x-12">
+      <PageHeader title={space?.name ?? 'Home'} actions={<Button size="sm" onClick={() => setCreating(true)}><Plus />New session</Button>} />
+      <div style={pageCol()} className="page-col flex flex-col gap-10 py-6 md:py-8 lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start lg:gap-x-12">
         {/* On phones both columns melt into one list (display: contents) and `order` sets the reading order. */}
         <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-10">
           <header className="order-1 flex flex-col gap-4">
@@ -137,7 +152,7 @@ export function HomePage() {
                   : working.length ? `Nothing needs you. Claude is working on ${plural(working.length, 'session')}.`
                   : 'All quiet. Nothing needs you.'}
               </h2>
-              {loaded && <Facts waiting={waiting.length} urgent={urgent} crashed={crashed.length} up={up.length} total={services.length} />}
+              {loaded && <Facts working={needsYou ? working.length : 0} up={up.length} total={services.length} />}
             </div>
             <div className="-mx-4 flex gap-2 overflow-x-auto px-4 md:mx-0 md:px-0">
               <Button variant="outline" size="sm" onClick={() => setNewTask(true)}><ListTodo />New task</Button>
@@ -149,6 +164,9 @@ export function HomePage() {
           {needsYou > 0 && (
             <Block title="Needs you" count={needsYou} className="order-2">
               <ul ref={needsList} className="divide-y overflow-hidden rounded-xl border">
+                {trouble.map((t) => (
+                  <Row key={t.key} k={t.key} to="/server" lead={<StatusLight state="error" />} title={t.title} detail={t.detail} />
+                ))}
                 {waiting.map((s) => (
                   <Row key={s.id} k={s.id} to={`/claude/${s.id}`} attention lead={<StatusLight state="waiting" />}
                     title={s.title} detail={`Claude is waiting for your answer, in ${where(s)}`} />
@@ -172,7 +190,7 @@ export function HomePage() {
                   <li key={l.key} data-key={l.key} {...(i < fresh ? { 'data-fresh': '' } : {})}>
                     {i === fresh && fresh > 0 && (
                       <div className="flex items-center gap-3 py-2 text-xs text-muted-foreground">
-                        <span className="h-px flex-1 bg-border" />Earlier<span className="h-px flex-1 bg-border" />
+                        <span className="h-px flex-1 bg-border" />Last here {clock(lastHere!)}<span className="h-px flex-1 bg-border" />
                       </div>
                     )}
                     <LogLine line={l} />
@@ -268,7 +286,7 @@ const activityLine = (a: Activity): Line => ({
   key: `a:${a.id}`, at: a.at, to: a.url ?? undefined,
   text: <>
     <span className="font-medium text-foreground">{a.user ?? 'Someone'}</span>
-    {a.viaClaude && <> <Sparkles className="inline size-3 align-[-1px]" aria-label="via Claude" /></>} {a.summary}
+    {a.viaClaude && ' (via Claude)'} {a.summary}
     {a.project && <> in {a.project.name}</>}
   </>,
 })
@@ -286,14 +304,10 @@ function LogLine({ line }: { line: Line }) {
   return line.to ? <Link to={line.to} className="-mx-2 block rounded-md px-2 transition-colors duration-150 hover:bg-accent/50">{body}</Link> : body
 }
 
-/** The facts behind the headline, each a link to where you act on it. */
-function Facts({ waiting, urgent, crashed, up, total }: { waiting: number; urgent: Task[]; crashed: number; up: number; total: number }) {
-  const late = urgent.filter((t) => dueLabel(t.due)?.late).length
+/** What the headline leaves out (Needs you lists the rest right below), each a link to where it lives. */
+function Facts({ working, up, total }: { working: number; up: number; total: number }) {
   const parts: ReactNode[] = []
-  if (waiting) parts.push(<Fact key="w" to="/claude">Claude is waiting on {plural(waiting, 'session')}</Fact>)
-  if (late) parts.push(<Fact key="l" to="/tasks">{plural(late, 'task')} overdue</Fact>)
-  if (urgent.length - late) parts.push(<Fact key="t" to="/tasks">{plural(urgent.length - late, 'task')} due today</Fact>)
-  if (crashed) parts.push(<Fact key="c" to="/services">{plural(crashed, 'service')} crashed</Fact>)
+  if (working) parts.push(<Fact key="r" to="/claude">Claude is working on {plural(working, 'session')}</Fact>)
   if (total) parts.push(<Fact key="s" to="/services">{up} of {plural(total, 'service')} up</Fact>)
   if (!parts.length) return null
   return (
@@ -304,14 +318,14 @@ function Facts({ waiting, urgent, crashed, up, total }: { waiting: number; urgen
 }
 
 const Fact = ({ to, children }: { to: string; children: ReactNode }) => (
-  <Link to={to} className="text-foreground underline decoration-foreground/25 underline-offset-4 transition-colors duration-150 hover:decoration-foreground">{children}</Link>
+  <Link to={to} className="underline decoration-muted-foreground/40 underline-offset-4 transition-colors duration-150 hover:text-foreground hover:decoration-foreground">{children}</Link>
 )
 
 function Block({ title, count, link, className, children }: { title: string; count?: number; link?: { to: string; label: string }; className?: string; children: ReactNode }) {
   return (
     <section className={cn('flex min-w-0 flex-col gap-3', className)}>
       <div className="flex items-baseline justify-between gap-3">
-        <h3 className="text-sm font-semibold">{title}{count ? <span className="ml-1.5 font-normal text-muted-foreground tabular-nums">{count}</span> : null}</h3>
+        <h3 className="text-[15px] font-semibold">{title}{count ? <span className="ml-1.5 font-normal text-muted-foreground tabular-nums">{count}</span> : null}</h3>
         {link && <Link to={link.to} className="-my-1 rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors duration-150 hover:bg-accent/60 hover:text-foreground">{link.label}</Link>}
       </div>
       {children}

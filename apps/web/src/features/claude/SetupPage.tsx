@@ -4,9 +4,8 @@ import { useNavigate } from '@tanstack/react-router'
 import { LogIn, Plus } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
-import { PageBody, PageHeader } from '@/components/app/page'
+import { PageBody, PageHeader, SettingsSection } from '@/components/app/page'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item'
@@ -37,16 +36,11 @@ export function SetupPage() {
 
   return (
     <>
-      <PageHeader title="Claude setup" back="/claude" width="narrow" />
-      <PageBody width="narrow">
-        <Card>
-          <CardHeader>
-            <CardTitle>Profiles</CardTitle>
-            <CardDescription>
+      <PageHeader title="Claude setup" back="/claude" />
+      <PageBody>
+        <SettingsSection title="Profiles" description={<>
               A profile is its own Claude configuration: settings, skills, agents, plugins, memory and sign-in. The same Claude account can sign in to any number of profiles.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-4">
+        </>}>
             <ErrorAlert error={q.error} />
             {q.isPending ? <Skeleton className="h-16" /> : (
               <ItemGroup className="rounded-lg border">
@@ -78,8 +72,7 @@ export function SetupPage() {
             <p className="text-sm text-muted-foreground">
               Signing in opens a terminal running Claude's own sign-in. Open the link it prints, approve, then paste the code back. DevDash never sees your Claude credentials.
             </p>
-          </CardContent>
-        </Card>
+        </SettingsSection>
         {q.data && <DefaultsCard profiles={profiles} initial={q.data.defaults} />}
       </PageBody>
     </>
@@ -112,12 +105,7 @@ function DefaultsCard({ profiles, initial }: { profiles: Profile[]; initial: Def
     </Field>
   )
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Defaults for new sessions</CardTitle>
-        <CardDescription>You can change any of these per session.</CardDescription>
-      </CardHeader>
-      <CardContent>
+    <SettingsSection title="Defaults for new sessions" description="You can change any of these per session.">
         <FieldGroup>
           {profiles.length > 1 && <Row id="d-profile" label="Profile" value={d.profile} onPick={(v) => set({ profile: v })} options={profiles.map((p) => ({ value: p.name, label: p.name }))} />}
           <Row id="d-model" label="Model" value={d.model ?? ''} onPick={(v) => set({ model: v || null })} options={FALLBACK_MODELS.map((m) => ({ value: m.value, label: m.displayName }))} />
@@ -126,7 +114,6 @@ function DefaultsCard({ profiles, initial }: { profiles: Profile[]; initial: Def
           <Row id="d-open" label="Open sessions in" value={d.open_in} onPick={(v) => set({ open_in: v as 'chat' | 'cli' })} options={[{ value: 'chat', label: 'Chat' }, { value: 'cli', label: 'CLI' }]} />
           <ErrorAlert error={save.error} />
         </FieldGroup>
-      </CardContent>
-    </Card>
+    </SettingsSection>
   )
 }

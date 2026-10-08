@@ -37,7 +37,7 @@ export function StatusLight({ state, label, className }: { state: LightState; la
         'inline-block size-2.5 shrink-0 rounded-[3px]',
         state === 'live' && 'bg-live',
         state === 'waiting' && 'needs-you bg-attention',
-        state === 'idle' && 'border-[1.5px] border-muted-foreground/60',
+        state === 'idle' && 'bg-muted-foreground/55',
         state === 'error' && 'bg-destructive',
         changes > 0 && (state === 'live' || state === 'error') && 'led-on',
         className,

@@ -1,12 +1,11 @@
-import { useState, type FormEvent, type ReactNode } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, LogOut } from 'lucide-react'
 import { toast } from 'sonner'
-import { PageBody, PageHeader } from '@/components/app/page'
+import { PageBody, PageHeader, SettingsSection } from '@/components/app/page'
 import { useSignOut } from '@/components/app/shell'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -17,17 +16,7 @@ import { CodeInput, ErrorAlert } from '../auth/LoginPage'
 import { NotificationsPanel } from '../notifications/Notifications'
 import { GitHubConnection } from '../work/GitHub'
 
-function Panel({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        {description && <CardDescription>{description}</CardDescription>}
-      </CardHeader>
-      <CardContent>{children}</CardContent>
-    </Card>
-  )
-}
+const Panel = SettingsSection
 
 export function AccountPage() {
   const me = useQuery(meQuery).data!
@@ -36,8 +25,8 @@ export function AccountPage() {
 
   return (
     <>
-      <PageHeader title="Account" width="narrow" />
-      <PageBody width="narrow">
+      <PageHeader title="Account" />
+      <PageBody>
         <Panel title="Profile" description="You can sign in with your email or your username.">
           <dl className="grid grid-cols-[auto_1fr] gap-x-8 gap-y-2 text-sm">
             <dt className="text-muted-foreground">Name</dt><dd>{me.name}</dd>
@@ -71,7 +60,7 @@ export function AccountPage() {
             <Button variant="outline" onClick={() => openExternal(APP_DOWNLOADS)}><Download />Download DevDash</Button>
           </Panel>
         )}
-        <div><Button variant="destructive" onClick={() => void signOut()}><LogOut />Sign out</Button></div>
+        <div className="border-t pt-6 lg:pl-[calc(17rem+3rem)]"><Button variant="destructive" onClick={() => void signOut()}><LogOut />Sign out</Button></div>
       </PageBody>
     </>
   )

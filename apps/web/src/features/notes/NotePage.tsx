@@ -78,7 +78,7 @@ function Editor({ note, initialProject }: { note: Note | null; initialProject: s
   const status = save.isPending ? 'Saving…' : dirty ? 'Unsaved' : note || idRef.current ? `Saved${note ? `, ${note.editor} ${relativeTime(note.updatedAt)}` : ''}` : 'New note'
   return (
     <div className="flex h-full flex-col">
-      <PageHeader back="/notes" width="narrow" title={d.title || 'Untitled'} description={status}
+      <PageHeader back="/notes" title={d.title || 'Untitled'} description={status}
         actions={<>
           <Toggle size="sm" pressed={d.pinned} onPressedChange={(v) => change({ pinned: v })} aria-label="Pin to the top"><Pin /></Toggle>
           {isAuthor && <Toggle size="sm" pressed={d.private} onPressedChange={(v) => change({ private: v })} aria-label="Only me"><Lock /></Toggle>}
@@ -92,7 +92,7 @@ function Editor({ note, initialProject }: { note: Note | null; initialProject: s
             </DropdownMenu>
           )}
         </>} />
-      <div style={pageCol('narrow')} className="page-col flex w-full min-h-0 flex-1 flex-col gap-3 py-6">
+      <div style={pageCol()} className="page-col flex w-full min-h-0 flex-1 flex-col gap-3 py-6 *:max-w-3xl">
         <input aria-label="Title" placeholder="Title" value={d.title} onChange={(e) => change({ title: e.target.value })}
           className="bg-transparent text-2xl font-semibold tracking-tight outline-none placeholder:text-muted-foreground/60" autoFocus={!note} />
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">

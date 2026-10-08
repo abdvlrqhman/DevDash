@@ -67,7 +67,7 @@ export function dueLabel(due: string | null) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const days = Math.round((d.getTime() - today.getTime()) / 86_400_000)
-  if (days === 0) return { text: 'Today', late: false, soon: true }
+  if (days === 0) return { text: 'Today', late: false, soon: true, today: true }
   if (days === 1) return { text: 'Tomorrow', late: false, soon: true }
   if (days < 0) return { text: days === -1 ? 'Yesterday' : `${-days} days late`, late: true, soon: false }
   return { text: d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }), late: false, soon: days < 4 }

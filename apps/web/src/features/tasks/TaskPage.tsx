@@ -50,10 +50,10 @@ function TaskPageView() {
 
   return (
     <>
-      <PageHeader back="/tasks" width="wide" title={<span className="font-mono">{t.key}</span>}
+      <PageHeader back="/tasks" title={<span className="font-mono">{t.key}</span>}
         description={<Link to="/projects/$slug" params={{ slug: t.project.slug }} className="hover:underline">{t.project.name}</Link>}
         actions={<Button size="sm" onClick={() => setGiving(true)}><Sparkles />Give to Claude</Button>} />
-      <div style={pageCol('wide')} className="page-col grid w-full gap-6 py-6 lg:grid-cols-[minmax(0,1fr)_16rem]">
+      <div style={pageCol()} className="page-col grid w-full gap-6 py-6 lg:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col gap-6">
           <Title t={t} onSave={(title) => update.mutate({ title })} />
           <Body t={t} onSave={(body) => update.mutate({ body })} />

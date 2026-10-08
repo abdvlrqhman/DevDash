@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Copy, Globe, Maximize, Power, UserPlus } from 'lucide-react'
 import { toast } from 'sonner'
-import { PageHeader } from '@/components/app/page'
+import { PageHeader, pageCol } from '@/components/app/page'
 import { NativeSelect } from '@/components/app/native-select'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
 import { Button } from '@/components/ui/button'
@@ -45,7 +45,7 @@ export function BrowserPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <PageHeader title="Browser" width="full" description="One shared browser on the server, signed in to your team's tools"
+      <PageHeader title="Browser" description="One shared browser on the server, signed in to your team's tools"
         actions={<>
           <Button size="sm" variant="outline" onClick={() => setInviting(true)}><UserPlus /><span className="hidden sm:inline">Invite to watch</span></Button>
           {url && !inShell() && <Button size="sm" variant="outline" onClick={() => document.getElementById('dd-browser')?.requestFullscreen?.()}><Maximize /><span className="hidden sm:inline">Full screen</span></Button>}
@@ -53,8 +53,8 @@ export function BrowserPage() {
         </>} />
       {inviting && <Invites onClose={() => setInviting(false)} />}
       {url ? (
-        <iframe id="dd-browser" title="Shared browser" src={url} className="min-h-0 w-full flex-1 border-0 bg-black"
-          allow="autoplay; clipboard-read; clipboard-write; fullscreen; microphone" />
+        <div style={pageCol()} className="page-col canvas flex min-h-0 flex-1 flex-col py-2 md:py-4"><iframe id="dd-browser" title="Shared browser" src={url} className="min-h-0 w-full flex-1 rounded-lg border-0 bg-black"
+          allow="autoplay; clipboard-read; clipboard-write; fullscreen; microphone" /></div>
       ) : (
         <div className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
           <span className="flex size-12 items-center justify-center rounded-full bg-muted"><Globe className="size-5" /></span>

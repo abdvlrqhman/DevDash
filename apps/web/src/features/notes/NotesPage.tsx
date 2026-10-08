@@ -47,8 +47,8 @@ export function NotesPage() {
   const list = notes.data?.notes ?? []
   return (
     <>
-      <PageHeader title="Notes" width="wide" actions={<Button size="sm" asChild><Link to="/notes/$id" params={{ id: 'new' }} search={{ project: project || undefined }}><Plus />New</Link></Button>} />
-      <PageBody width="wide">
+      <PageHeader title="Notes" actions={<Button size="sm" asChild><Link to="/notes/$id" params={{ id: 'new' }} search={{ project: project || undefined }}><Plus />New</Link></Button>} />
+      <PageBody>
         {projects.length > 0 && (
           <NativeSelect aria-label="Project" className="w-56 [&_select]:h-8" value={project} onChange={(e) => setProject(e.target.value)}>
             <option value="">All notes</option>

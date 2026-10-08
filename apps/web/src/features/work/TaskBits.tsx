@@ -41,7 +41,7 @@ export function Due({ due, done }: { due: string | null; done?: boolean }) {
   const d = dueLabel(due)
   if (!d) return null
   return (
-    <span className={cn('inline-flex items-center gap-1 text-xs', !done && d.late ? 'text-destructive' : !done && d.soon ? 'text-attention-foreground' : 'text-muted-foreground')}>
+    <span className={cn('inline-flex items-center gap-1 text-xs', !done && d.late ? 'text-destructive' : !done && 'today' in d ? 'text-attention-foreground' : 'text-muted-foreground')}>
       <CalendarClock className="size-3.5" />{d.text}
     </span>
   )
