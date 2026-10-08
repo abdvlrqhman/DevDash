@@ -10,6 +10,12 @@ use tauri_plugin_opener::OpenerExt;
 /// URL of the bundled connect screen, so "Switch space" can return to it from the space.
 struct Home(Url);
 
+/// Where Tauri serves the bundled UI when the WebView can't say yet (on Android it has no URL until it has loaded).
+#[cfg(any(windows, target_os = "android"))]
+const BUNDLED_HOME: &str = "http://tauri.localhost/index.html";
+#[cfg(not(any(windows, target_os = "android")))]
+const BUNDLED_HOME: &str = "tauri://localhost/index.html";
+
 const BRIDGE: &str = r#"
   window.devdashShell = {
     switchSpace() { location.href = 'devdash-shell://switch' },
@@ -118,7 +124,8 @@ pub fn run() {
                 _ => tauri::webview::Color(250, 250, 250, 255),
             };
             let _ = window.set_background_color(Some(bg));
-            app.manage(Home(window.url()?));
+            let home = window.url().ok().filter(|u| u.scheme() != "about").unwrap_or_else(|| Url::parse(BUNDLED_HOME).expect("valid URL"));
+            app.manage(Home(home));
             Ok(())
         })
         .run(tauri::generate_context!())

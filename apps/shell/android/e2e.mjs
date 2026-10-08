@@ -98,7 +98,8 @@ async function run() {
   writeFileSync(join(out, 'launch.txt'), adb('shell', 'am', 'start', '-W', '-n', `${PKG}/.MainActivity`))
   await sleep(8000)
   screenshot('0-launch.png')
-  if (!adb('shell', 'pidof', PKG).trim()) {
+  const alive = (() => { try { return !!adb('shell', 'pidof', PKG).trim() } catch { return false } })()
+  if (!alive) {
     writeFileSync(join(out, 'crash.txt'), adb('logcat', '-d', '-b', 'crash'))
     const nl = String.fromCharCode(10)
     writeFileSync(join(out, 'app-log.txt'), adb('logcat', '-d', '-v', 'time').split(nl).filter((l) => /abdvlrqhman|AndroidRuntime|libc|DEBUG|tauri|Tauri|RustStdout|chromium|WebView/.test(l)).join(nl))
