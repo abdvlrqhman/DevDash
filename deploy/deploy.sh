@@ -10,4 +10,6 @@ SHA="$(git rev-parse --short=12 HEAD)"
 REL="/opt/devdash/releases/$SHA"
 
 git archive --format=tar HEAD | ssh "$HOST" "set -e; rm -rf '$REL'; mkdir -p '$REL'; tar -x -C '$REL'"
-ssh "$HOST" "'$REL/deploy/activate.sh' $(printf '%q ' "$@")"
+ARGS=""
+[[ $# -gt 0 ]] && ARGS="$(printf '%q ' "$@")"
+ssh "$HOST" "'$REL/deploy/activate.sh' $ARGS"
