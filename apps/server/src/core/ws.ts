@@ -15,11 +15,13 @@ type Route = { re: RegExp; handle: (ws: WebSocket, ctx: WsContext) => void; chec
  * hijacking) and a valid session cookie; then the route's own check. Every socket gets a ping every 30 s, because
  * Cloudflare closes idle WebSockets after ~100 s.
  */
-export function wsRouter(server: Server, deps: { auth: AuthService; origin: string }) {
+export function wsRouter(server: Server, deps: { auth: AuthService; origin: string; other?: (req: IncomingMessage, socket: Duplex, head: Buffer) => boolean }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: 16 * 1024 * 1024 })
   const routes: Route[] = []
 
   server.on('upgrade', (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+    socket.on('error', () => {}) // a client hanging up mid-handshake must never take the server down
+    if (deps.other?.(req, socket, head)) return // e.g. a service preview's own WebSocket
     const reject = (code: number) =>
       socket.end(`HTTP/1.1 ${code} ${STATUS_CODES[code]}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`)
     void (async () => {

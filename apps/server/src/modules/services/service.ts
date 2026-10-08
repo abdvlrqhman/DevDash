@@ -16,8 +16,9 @@ const RESTART_WINDOW_MS = 10 * 60_000
 type Row = {
   id: number; name: string; owner_id: number; owner_username: string; owner_name: string; cwd: string; command: string; port: number
   desired: 'running' | 'stopped'; created_at: number; session_id: string | null; session_title: string | null; autostart: number; restart: number; env: string
+  public: number
 }
-export type Options = { autostart?: boolean; restart?: boolean; env?: string }
+export type Options = { autostart?: boolean; restart?: boolean; env?: string; public?: boolean }
 export type State = 'running' | 'starting' | 'stopped' | 'crashed' | 'unknown'
 type Runtime = { state: State; listening: boolean; exitCode: number | null; error: string | null; restarts: number[] }
 
@@ -37,14 +38,14 @@ const SELECT = `select s.*, u.username as owner_username, u.name as owner_name, 
  * The services center. The registry lives here; the processes run in each owner's agent (tmux, as the owner),
  * so they survive DevDash restarts. A monitor keeps every service whose desired state is "running" up.
  */
-export function servicesService({ db, agents, hub, notify }: { db: Db; agents: AgentsService; hub: Hub; notify: NotificationsService['notify'] }) {
+export function servicesService({ db, agents, hub, notify, previewUrl }: { db: Db; agents: AgentsService; hub: Hub; notify: NotificationsService['notify']; previewUrl: (name: string) => string | null }) {
   const q = {
     all: db.prepare(`${SELECT} order by s.name`),
     byName: db.prepare(`${SELECT} where s.name = ?`),
     ports: db.prepare('select port from services'),
     insert: db.prepare('insert into services (name, owner_id, cwd, command, port, session_id, autostart, restart, env) values (?, ?, ?, ?, ?, ?, ?, ?, ?)'),
     desired: db.prepare('update services set desired = ? where id = ?'),
-    edit: db.prepare('update services set command = ?, cwd = ?, autostart = ?, restart = ?, env = ? where id = ?'),
+    edit: db.prepare('update services set command = ?, cwd = ?, autostart = ?, restart = ?, env = ?, public = ? where id = ?'),
     ownSession: db.prepare('select 1 from claude_sessions where id = ? and owner_id = ?'),
     remove: db.prepare('delete from services where id = ?'),
     user: db.prepare("select id, username, name, role from users where username = ? and disabled_at is null"),
@@ -75,7 +76,7 @@ export function servicesService({ db, agents, hub, notify }: { db: Db; agents: A
       name: s.name, cwd: s.cwd, command: s.command, port: s.port, desired: s.desired, createdAt: s.created_at,
       owner: { id: s.owner_id, username: s.owner_username, name: s.owner_name },
       session: s.session_id ? { id: s.session_id, title: s.session_title ?? 'Claude session' } : null,
-      autostart: s.autostart === 1, restart: s.restart === 1,
+      autostart: s.autostart === 1, restart: s.restart === 1, public: s.public === 1, previewUrl: previewUrl(s.name),
       env: mine ? s.env : null, // may hold secrets: only for whoever can change the service
       state: s.desired === 'stopped' && r.state !== 'running' ? 'stopped' as State : r.state,
       listening: r.listening, exitCode: r.exitCode, error: r.error, canControl: canControl(u, s),
@@ -190,7 +191,7 @@ export function servicesService({ db, agents, hub, notify }: { db: Db; agents: A
       const s = control(u, name)
       const cwd = input.cwd === undefined ? s.cwd : (await agents.request<{ path: string }>(s.owner_username, { op: 'fs.dir', path: input.cwd })).path
       const flag = (v: boolean | undefined, old: number) => (v === undefined ? old : v ? 1 : 0)
-      q.edit.run(input.command ?? s.command, cwd, flag(input.autostart, s.autostart), flag(input.restart, s.restart), input.env === undefined ? s.env : checkEnv(input.env), s.id)
+      q.edit.run(input.command ?? s.command, cwd, flag(input.autostart, s.autostart), flag(input.restart, s.restart), input.env === undefined ? s.env : checkEnv(input.env), flag(input.public, s.public), s.id)
       if (s.desired === 'running') await api.restart(u, name)
       else changed()
       return dto(get(name), u)

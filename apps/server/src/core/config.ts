@@ -12,6 +12,8 @@ export type Config = {
   runDir: string
   /** Shared git checkouts and worktrees live under <projectsRoot>/projects and <projectsRoot>/worktrees. */
   projectsRoot: string
+  /** Address pattern for service previews, e.g. "{name}-dev.example.com" (needs a wildcard DNS record). Empty: off. */
+  previewHost: string
   version: string
 }
 
@@ -38,6 +40,7 @@ export function loadConfig(): Config {
     trustCfIp: process.env.DEVDASH_TRUST_CF_IP === '1',
     runDir: process.env.DEVDASH_RUN_DIR ?? (existsSync('/run/devdash') ? '/run/devdash' : ''),
     projectsRoot: process.env.DEVDASH_PROJECTS_ROOT || '/srv/devdash',
+    previewHost: (process.env.DEVDASH_PREVIEW_HOST ?? '').trim().toLowerCase(),
     version: pkg.version,
   }
 }

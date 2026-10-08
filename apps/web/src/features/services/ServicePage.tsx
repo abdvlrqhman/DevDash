@@ -1,13 +1,15 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { Pencil, Play, RotateCw, Square, Trash2 } from 'lucide-react'
+import { ExternalLink, Pencil, Play, RotateCw, Square, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
 import { PageHeader } from '@/components/app/page'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
 import { Button } from '@/components/ui/button'
-import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Switch } from '@/components/ui/switch'
+import { openExternal } from '@/lib/shell'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api, unwrap } from '@/lib/api'
@@ -57,7 +59,9 @@ function ServicePageView() {
     <div className="flex h-full flex-col">
       <PageHeader back="/services" title={<span className="font-mono">{s.name}</span>}
         description={<span className="flex items-center gap-1.5"><StatusLight state={st.light} />{st.label}</span>}
-        actions={s.canControl && <>
+        actions={<>
+          {s.previewUrl && <Button size="sm" variant="outline" onClick={() => openExternal(s.previewUrl!)}><ExternalLink /><span className="hidden sm:inline">Open</span></Button>}
+          {s.canControl && <>
           {s.desired === 'stopped'
             ? <Button size="sm" disabled={act.isPending} onClick={() => act.mutate('start')}><Play />Start</Button>
             : <>
@@ -66,11 +70,13 @@ function ServicePageView() {
               </>}
           <Button size="icon-sm" variant="ghost" aria-label="Edit service" onClick={() => setEditing(true)}><Pencil /></Button>
           <Button size="icon-sm" variant="ghost" aria-label="Remove service" onClick={() => setRemoving(true)}><Trash2 /></Button>
+          </>}
         </>} />
 
       <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 border-b px-4 py-3 text-sm md:px-6">
         <dt className="text-muted-foreground">Port</dt>
         <dd className="font-mono">{s.port} <span className="font-sans text-muted-foreground">{s.listening ? 'listening on 127.0.0.1' : 'not listening'}</span></dd>
+        {s.previewUrl && <><dt className="text-muted-foreground">Address</dt><dd className="flex items-center gap-2"><button className="truncate font-mono text-left underline-offset-4 hover:underline" onClick={() => openExternal(s.previewUrl!)}>{s.previewUrl.replace(/^https:\/\//, '').replace(/\/$/, '')}</button><span className="shrink-0 text-xs text-muted-foreground">{s.public ? 'anyone with the link' : 'members only'}</span></dd></>}
         <dt className="text-muted-foreground">Command</dt><dd className="font-mono break-all">{s.command}</dd>
         <dt className="text-muted-foreground">Folder</dt><dd className="font-mono break-all">{s.cwd}</dd>
         <dt className="text-muted-foreground">Owner</dt><dd>{s.owner.name}</dd>
@@ -104,7 +110,7 @@ function ServicePageView() {
 
 function EditService({ s, onClose }: { s: Service; onClose: () => void }) {
   const qc = useQueryClient()
-  const [f, setF] = useState({ command: s.command, cwd: s.cwd, autostart: s.autostart, restart: s.restart, env: s.env ?? '' })
+  const [f, setF] = useState({ command: s.command, cwd: s.cwd, autostart: s.autostart, restart: s.restart, env: s.env ?? '', public: s.public })
   const set = (v: Partial<typeof f>) => setF((o) => ({ ...o, ...v }))
   const save = useMutation({
     mutationFn: () => unwrap(api.api.services[':name'].$patch({ param: { name: s.name }, json: f })),
@@ -132,6 +138,15 @@ function EditService({ s, onClose }: { s: Service; onClose: () => void }) {
             <Input id="svc-e-cwd" required className="h-10 font-mono" value={f.cwd} onChange={(e) => set({ cwd: e.target.value })} />
           </Field>
           <ServiceOptions autostart={f.autostart} restart={f.restart} env={f.env} onChange={set} />
+          {s.previewUrl && (
+            <Field orientation="horizontal">
+              <FieldContent>
+                <FieldLabel htmlFor="svc-public">Anyone with the link can open it</FieldLabel>
+                <FieldDescription>For testers without a DevDash account. Off: only signed-in members.</FieldDescription>
+              </FieldContent>
+              <Switch id="svc-public" checked={f.public} onCheckedChange={(v) => set({ public: v })} />
+            </Field>
+          )}
           <ErrorAlert error={save.error} />
           <Button type="submit" className="h-10" disabled={!f.command || !f.cwd || save.isPending}>Save changes</Button>
         </FieldGroup>

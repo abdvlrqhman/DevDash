@@ -4,7 +4,7 @@ import { json } from '../../core/http.ts'
 import type { AuthEnv, authMiddleware } from '../auth/routes.ts'
 import type { ServicesService } from './service.ts'
 
-const Options = { autostart: z.boolean().optional(), restart: z.boolean().optional(), env: z.string().max(10_000).optional() }
+const Options = { autostart: z.boolean().optional(), restart: z.boolean().optional(), env: z.string().max(10_000).optional(), public: z.boolean().optional() }
 const Create = z.object({ name: z.string().max(31), cwd: z.string().min(1).max(500), command: z.string().min(1).max(2000), ...Options })
 const Edit = z.object({ cwd: z.string().min(1).max(500).optional(), command: z.string().min(1).max(2000).optional(), ...Options })
 
