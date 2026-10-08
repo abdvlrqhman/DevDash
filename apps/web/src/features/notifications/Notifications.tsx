@@ -23,8 +23,9 @@ export function useNotificationEvents() {
     if (looking()) {
       if (location.pathname === n.url) return // already on it
       toast(n.title, { description: n.body || undefined, action: { label: 'Open', onClick: () => void navigate({ to: n.url }) } })
-    } else window.devdashShell?.notify?.(n.title, n.body)
-    // Browsers that aren't looking get Web Push from the server instead.
+    } else if (window.devdashShell?.notify) window.devdashShell.notify(n.title, n.body)
+    // A browser that isn't being looked at gets Web Push from the server; the toast waits for whoever comes back.
+    else toast(n.title, { description: n.body || undefined, duration: Infinity, closeButton: true, action: { label: 'Open', onClick: () => void navigate({ to: n.url }) } })
   })
 }
 
@@ -93,6 +94,7 @@ function ThisDevice({ publicKey }: { publicKey?: string }) {
       const s = await window.devdashShell!.notificationPermission!(true)
       if (s !== 'granted') throw new Error('Notifications are off for DevDash. Turn them on in your phone’s settings, then come back.')
       setOn(true)
+      window.devdashShell!.notify!('DevDash', 'Notifications are on for this device.') // the real system path, not a toast
     } else {
       await enablePush(publicKey!)
       setOn(true)

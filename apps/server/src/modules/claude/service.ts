@@ -58,8 +58,15 @@ function describeRequest(toolName: string, input: Record<string, unknown>) {
 
 export function claudeService({ db, agents, hub, notify }: { db: Db; agents: AgentsService; hub: Hub; notify: Notify }) {
   const repo = claudeRepo(db)
-  const alert = (s: SessionRow, kind: NotificationKind, title: string, body?: string) =>
+  // A failing turn can report twice (its result, then the process exiting): one error alert per session per minute.
+  const lastError = new Map<string, number>()
+  const alert = (s: SessionRow, kind: NotificationKind, title: string, body?: string) => {
+    if (kind === 'errors') {
+      if (Date.now() - (lastError.get(s.id) ?? 0) < 60_000) return
+      lastError.set(s.id, Date.now())
+    }
     void notify(s.owner_id, kind, { title, body, url: `/claude/${s.id}`, tag: `session:${s.id}` }).catch((err) => console.error('notify:', err))
+  }
 
   function find(user: User, id: string) {
     const s = repo.byId(id)
@@ -106,10 +113,11 @@ export function claudeService({ db, agents, hub, notify }: { db: Db; agents: Age
         return publish(s.id)
       }
       case 'claude.msg': {
-        const m = ev.msg as { type?: string; subtype?: string; result?: unknown; is_error?: boolean }
-        if (m.type === 'result') {
+        const m = ev.msg as { type?: string; subtype?: string; result?: unknown; is_error?: boolean; terminal_reason?: string }
+        // Pressing Stop ends the turn with an "aborted" reason: nothing to tell anyone.
+        if (m.type === 'result' && !m.terminal_reason?.startsWith('aborted')) {
           if (m.subtype === 'success' && !m.is_error) alert(s, 'finished', `Claude finished: ${s.title}`, typeof m.result === 'string' ? clip(m.result) : undefined)
-          else alert(s, 'errors', `Claude stopped with an error: ${s.title}`)
+          else alert(s, 'errors', `Claude stopped with an error: ${s.title}`, typeof m.result === 'string' ? clip(m.result) : undefined)
         }
         return hub.publish(`session:${s.id}`, { type: 'msg', msg: ev.msg }, viewers)
       }
@@ -162,10 +170,13 @@ export function claudeService({ db, agents, hub, notify }: { db: Db; agents: Age
   async function sendTo(user: User, s: SessionRow, text: string, images: Image[]) {
     const uuid = randomUUID()
     repo.addSender(s.id, uuid, user.id)
-    await agents.request(s.owner_username, { op: 'claude.send', launch: launch(s), content: content(text, images), uuid })
+    const message = { role: 'user', content: content(text, images) }
+    await agents.request(s.owner_username, { op: 'claude.send', launch: launch(s), content: message.content, uuid })
     if (!s.started) repo.patch(s.id, { started: 1 })
     repo.touch(s.id)
     publish(s.id)
+    // Everyone watching sees the message right away (the sender's page already shows it; the uuid dedupes).
+    hub.publish(`session:${s.id}`, { type: 'msg', msg: { type: 'user', uuid, message } }, (u) => canView(u, s))
     return uuid
   }
 

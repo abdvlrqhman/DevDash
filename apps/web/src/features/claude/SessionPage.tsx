@@ -40,10 +40,13 @@ export function SessionPage() {
   const me = useQuery(meQuery).data!
   const qc = useQueryClient()
   const info = useQuery(sessionQuery(id))
+  // The transcript on disk is the truth: the CLI, other devices and other people add to it while this page isn't
+  // looking. Re-read it whenever the page opens or comes back, and when the CLI hands back to Chat.
   const history = useQuery({
     queryKey: ['claude', 'history', id],
     queryFn: () => unwrap(api.api.claude.sessions[':id'].messages.$get({ param: { id } })),
-    staleTime: Infinity,
+    staleTime: 0,
+    refetchOnMount: 'always',
   })
   const [raw, setRaw] = useState<Raw[]>([])
   const [liveText] = useState(createLiveText)
@@ -78,6 +81,12 @@ export function SessionPage() {
   })
 
   useEffect(() => { if (history.data) setRaw((live) => mergeRaw(history.data.messages as Raw[], live)) }, [history.data])
+  const mode = info.data?.session.mode
+  const lastMode = useRef(mode)
+  useEffect(() => {
+    if (lastMode.current === 'cli' && mode === 'chat') void history.refetch()
+    lastMode.current = mode
+  }, [mode, history])
   useEffect(() => { if (info.data) setPending(info.data.pending as PendingRequest[]) }, [info.data])
   const blocks = useMemo(() => buildTranscript(raw), [raw])
   const toBottom = () => {
