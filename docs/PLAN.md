@@ -332,8 +332,8 @@ Times are build time for Claude, excluding your review.
 | Phase | Ships | Est. | Needs from you |
 |---|---|---|---|
 | **0. Harden server** ✅ | Rotate root password, admin user + SSH key, disable root/password SSH, ufw, swap, Node 24, tmux, Caddy, bubblewrap | ~1 h | Your SSH public key; Cloudflare Origin cert + AOP toggle |
-| **1. Foundation** | Repo hygiene + CI + gitleaks, monorepo, server/web skeleton, design system from mockup, auth (invite, TOTP, remember me), `/.well-known/devdash.json`, deploy script, first deploy | ~1 day | Admin email |
-| **2. Users + Terminal** | Root helper, Linux user provisioning, agent unit, terminal tabs, mobile keys, admin shell | ~1 day | — |
+| **1. Foundation** ✅ | Repo hygiene + CI + gitleaks, monorepo, server/web skeleton, design system from mockup, auth (invite, TOTP, remember me), `/.well-known/devdash.json`, deploy script, first deploy | ~1 day | Admin email |
+| **2. Users + Terminal** ✅ | Root helper, Linux user provisioning, agent unit, terminal tabs, mobile keys, admin shell | ~1 day | — |
 | **3. Claude sessions** | Spikes S1–S6, profiles + login, CLI mode, Chat mode, mode switching, sharing, status, palette, model/effort/mode sheet, images, caps | ~2–3 days | Each dev logs into Claude once |
 | **4. Projects, tasks, notes** | GitHub App, projects + fetch, kanban, auto-close, notes, search, DevDash plugin (MCP + skill + hooks), "Give to Claude", activity feed | ~2 days | Click "Connect GitHub" |
 | **5. Files + builds** | File browser, chunked upload, share links, build targets, dispatch, live progress, log-stream action, artifacts → share links | ~2 days | A project with a build workflow |
