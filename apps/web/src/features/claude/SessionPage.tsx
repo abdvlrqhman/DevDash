@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { Archive, Check, ChevronDown, Circle, Ellipsis, FileCode, LoaderCircle, MessageSquare, Pencil, Share2, SquareTerminal } from 'lucide-react'
+import { Archive, Check, ChevronDown, Circle, Ellipsis, FileCode, Gauge, LoaderCircle, MessageSquare, Pencil, Share2, SquareTerminal } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
 import { PageHeader } from '@/components/app/page'
@@ -29,6 +29,7 @@ import {
 } from './data'
 import { createLiveText, type LiveTextStore } from './live-text'
 import { Requests } from './Requests'
+import { PlanUsage } from './Usage'
 import { servicesQuery, stateOf } from '../services/data'
 import { buildTranscript, mergeRaw, sessionFacts, type Raw } from './transcript'
 import { useTopic } from '@/lib/live'
@@ -53,6 +54,7 @@ export function SessionPage() {
   const [liveText] = useState(createLiveText)
   const [pending, setPending] = useState<PendingRequest[]>([])
   const [settings, setSettings] = useState(false)
+  const [usage, setUsage] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
 
@@ -152,7 +154,7 @@ export function SessionPage() {
               <TabsTrigger value="cli" disabled={!canSend || switchMode.isPending}><SquareTerminal /><span className="hidden sm:inline">CLI</span></TabsTrigger>
             </TabsList>
           </Tabs>
-          <SessionMenu s={s} isOwner={isOwner} canSend={canSend} onUpdate={(v) => update.mutate(v)} onRename={() => setSettings(true)} />
+          <SessionMenu s={s} isOwner={isOwner} canSend={canSend} onUpdate={(v) => update.mutate(v)} onRename={() => setSettings(true)} onUsage={() => setUsage(true)} />
         </>} />
 
       <div className="flex items-center gap-1.5 overflow-x-auto border-b px-3 py-2 md:px-4">
@@ -185,10 +187,15 @@ export function SessionPage() {
             </div>
           </div>
         </div>
-        <SessionAside s={s} blocks={blocks} />
+        <SessionAside s={s} blocks={blocks} isOwner={isOwner} />
         </div>
       )}
       {isOwner && <RenameDialog open={settings} onOpenChange={setSettings} s={s} onSave={(title) => update.mutate({ title })} />}
+      {isOwner && (
+        <ResponsiveDialog open={usage} onOpenChange={setUsage} title="Plan usage" description="Your Claude plan's limits, the same as /usage in Claude Code.">
+          <PlanUsage profile={s.profile} className="pb-2 text-sm" />
+        </ResponsiveDialog>
+      )}
     </div>
   )
 }
@@ -204,7 +211,7 @@ const LiveText = memo(function LiveText({ store, working, onGrow }: { store: Liv
 })
 
 /** Wide screens: what Claude is doing at a glance, beside the conversation. */
-function SessionAside({ s, blocks }: { s: Session; blocks: ReturnType<typeof buildTranscript> }) {
+function SessionAside({ s, blocks, isOwner }: { s: Session; blocks: ReturnType<typeof buildTranscript>; isOwner: boolean }) {
   const { todos, files } = useMemo(() => sessionFacts(blocks), [blocks])
   const services = useQuery(servicesQuery).data?.services.filter((x) => x.session?.id === s.id) ?? []
   const done = todos.filter((t) => t.status === 'completed').length
@@ -253,6 +260,12 @@ function SessionAside({ s, blocks }: { s: Session; blocks: ReturnType<typeof bui
           </ul>
         ) : <p className="text-muted-foreground">Nothing yet.</p>}
       </section>
+      {isOwner && (
+        <section className="flex flex-col gap-2">
+          <h2 className="font-medium">Plan usage</h2>
+          <PlanUsage profile={s.profile} />
+        </section>
+      )}
       <section className="flex flex-col gap-2">
         <h2 className="font-medium">Details</h2>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
@@ -338,7 +351,7 @@ function ModelMenu({ s, disabled, onUpdate }: { s: Session; disabled: boolean; o
   )
 }
 
-function SessionMenu({ s, isOwner, canSend, onUpdate, onRename }: { s: Session; isOwner: boolean; canSend: boolean; onUpdate: Updater; onRename: () => void }) {
+function SessionMenu({ s, isOwner, canSend, onUpdate, onRename, onUsage }: { s: Session; isOwner: boolean; canSend: boolean; onUpdate: Updater; onRename: () => void; onUsage: () => void }) {
   const navigate = useNavigate()
   return (
     <DropdownMenu>
@@ -349,6 +362,7 @@ function SessionMenu({ s, isOwner, canSend, onUpdate, onRename }: { s: Session; 
         {isOwner ? (
           <>
             <DropdownMenuItem onSelect={onRename}><Pencil />Rename</DropdownMenuItem>
+            <DropdownMenuItem onSelect={onUsage}><Gauge />Plan usage</DropdownMenuItem>
             <DropdownMenuSeparator />
             <div className="flex items-center justify-between gap-3 px-2 py-1.5 text-sm">
               <span>Share with the team</span>
