@@ -74,6 +74,12 @@ pub fn run() {
             };
 
             let window = builder.build()?;
+            // Match the page background to light/dark mode, so loading never flashes white in dark mode.
+            let bg = match window.theme().unwrap_or(tauri::Theme::Light) {
+                tauri::Theme::Dark => tauri::webview::Color(10, 10, 10, 255),
+                _ => tauri::webview::Color(250, 250, 250, 255),
+            };
+            let _ = window.set_background_color(Some(bg));
             app.manage(Home(window.url()?));
             Ok(())
         })

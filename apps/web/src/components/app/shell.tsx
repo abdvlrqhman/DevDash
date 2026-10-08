@@ -29,15 +29,28 @@ const NAV = [
   { to: '/members', label: 'Members', icon: Users },
 ] as const
 
-/** Tracks the visible height, so the on-screen keyboard (iOS especially) never covers the terminal or composer. */
-function useVisualViewportHeight() {
+/**
+ * Pins the app to the visible area. When the on-screen keyboard opens, iOS shrinks the visual viewport and scrolls the
+ * page to keep the input in view, which slides everything off screen. Following the visual viewport (height and offset)
+ * keeps the header, conversation and composer still, like a native chat. While typing, the tab bar steps aside.
+ */
+function usePinToVisualViewport() {
   useEffect(() => {
     const vv = window.visualViewport
     if (!vv) return
-    const set = () => document.documentElement.style.setProperty('--app-h', `${vv.height}px`)
+    const root = document.documentElement
+    const set = () => {
+      root.style.setProperty('--app-h', `${vv.height}px`)
+      root.style.setProperty('--app-top', `${vv.offsetTop}px`)
+      root.classList.toggle('keyboard-open', vv.height < window.innerHeight * 0.8)
+    }
     set()
     vv.addEventListener('resize', set)
-    return () => vv.removeEventListener('resize', set)
+    vv.addEventListener('scroll', set)
+    return () => {
+      vv.removeEventListener('resize', set)
+      vv.removeEventListener('scroll', set)
+    }
   }, [])
 }
 
@@ -53,11 +66,11 @@ function useWaitingCount() {
 }
 
 export function AppShell() {
-  useVisualViewportHeight()
+  usePinToVisualViewport()
   const waiting = useWaitingCount()
   return (
     <TooltipProvider>
-      <SidebarProvider className="h-[var(--app-h,100dvh)] min-h-0 overflow-hidden">
+      <SidebarProvider className="fixed inset-x-0 top-0 h-[var(--app-h,100dvh)] min-h-0 translate-y-[var(--app-top,0px)] overflow-hidden">
         <AppSidebar waiting={waiting} />
         <SidebarInset className="min-h-0 min-w-0">
           <div className="min-h-0 flex-1 overflow-y-auto"><Outlet /></div>
@@ -189,7 +202,7 @@ function MobileTabs({ waiting }: { waiting: number }) {
   const active = useActive()
   const moreActive = ['/more', '/members', '/account'].some((p) => active(p)) || active('/claude/setup')
   return (
-    <nav aria-label="Sections" className="grid shrink-0 grid-cols-4 border-t bg-background pb-[env(safe-area-inset-bottom)] md:hidden">
+    <nav aria-label="Sections" className="grid shrink-0 grid-cols-4 border-t bg-background pb-[env(safe-area-inset-bottom)] md:hidden [.keyboard-open_&]:hidden">
       {TABS.map((t) => {
         const on = t.to === '/more' ? moreActive : t.to === '/claude' ? active(t.to) && !active('/claude/setup') : active(t.to, 'exact' in t)
         return (

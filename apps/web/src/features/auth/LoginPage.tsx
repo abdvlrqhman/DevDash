@@ -15,8 +15,10 @@ import { api, meQuery, spaceQuery, unwrap } from '@/lib/api'
 
 export function AuthLayout({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-full flex-col items-center justify-center bg-muted/40 px-4 py-10 pt-[max(2.5rem,env(safe-area-inset-top))]">
-      <div className="w-full max-w-sm">{children}</div>
+    <div className="h-full overflow-y-auto bg-muted/40">
+      <div className="flex min-h-full flex-col items-center justify-center px-4 py-10 pt-[max(2.5rem,env(safe-area-inset-top))] pb-[max(2.5rem,env(safe-area-inset-bottom))]">
+        <div className="w-full max-w-sm">{children}</div>
+      </div>
     </div>
   )
 }
