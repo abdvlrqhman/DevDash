@@ -94,7 +94,10 @@ async function run() {
   adb('install', '-r', apk)
   adb('shell', 'pm', 'grant', PKG, 'android.permission.POST_NOTIFICATIONS')
   adb('shell', 'cmd', 'uimode', 'night', 'yes')
-  adb('shell', 'am', 'start', '-n', `${PKG}/.MainActivity`)
+  adb('logcat', '-c')
+  adb('shell', 'am', 'start', '-W', '-n', `${PKG}/.MainActivity`)
+  await sleep(8000)
+  screenshot('0-launch.png')
 
   // Sign-in: the connect screen takes the space; the session cookie is the test member's.
   let w = await app()
@@ -204,6 +207,10 @@ try {
 } catch (err) {
   check(false, `stopped: ${err.message}`)
   try { screenshot('error.png') } catch { /* no device */ }
+  try {
+    writeFileSync(join(out, 'logcat.txt'), adb('logcat', '-d', '-v', 'time', '-t', '4000'))
+    writeFileSync(join(out, 'devtools.txt'), adb('shell', 'cat', '/proc/net/unix').split(String.fromCharCode(10)).filter((l) => l.includes('devtools')).join(String.fromCharCode(10)))
+  } catch { /* no device */ }
 }
 writeFileSync(join(out, 'results.json'), JSON.stringify(results, null, 2))
 const failed = results.filter((r) => !r.ok).length
