@@ -171,7 +171,7 @@ export function SessionPage() {
         <div className="flex min-w-0 flex-1 flex-col">
           <div ref={scroller} onScroll={(e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80 }}
             className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6">
-            <div className="mx-auto flex max-w-3xl flex-col gap-4">
+            <div className="mx-auto flex max-w-4xl flex-col gap-4">
               {history.isPending && s.started && [0, 1].map((i) => <Skeleton key={i} className="h-20" />)}
               <ErrorAlert error={history.error} />
               {!s.started && !raw.length && <p className="py-10 text-center text-muted-foreground">Tell Claude what to work on.</p>}
@@ -182,7 +182,7 @@ export function SessionPage() {
             </div>
           </div>
           <div className="border-t bg-background px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-6 md:pt-3 md:pb-3">
-            <div className="mx-auto max-w-3xl">
+            <div className="mx-auto max-w-4xl">
               <Composer profile={s.profile} working={working || s.status === 'waiting'} onSend={send} onStop={() => interrupt.mutate()}
                 disabledReason={canSend ? undefined : `${s.owner.name} shared this session to watch. Only they can send messages.`} />
             </div>

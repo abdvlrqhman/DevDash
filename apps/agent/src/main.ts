@@ -10,6 +10,7 @@ import { createInterface } from 'node:readline'
 import * as claude from './claude.ts'
 import * as services from './services.ts'
 import { ops as git } from './git.ts'
+import * as files from './files.ts'
 import { attachPty, hasSession, listSessions, send, tmux, TMUX_CONF } from './tmux.ts'
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}$/
@@ -77,6 +78,12 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
   'claude.usage': async (r) => ({ usage: await claude.usage(str(r.profile, 'profile')) }),
   'claude.profile.create': (r) => (claude.createProfile(str(r.name, 'name')), { ok: true }),
   'fs.dir': async (r) => ({ path: await services.dir(r.path) }),
+  'fs.roots': () => files.ops.roots(),
+  'fs.list': (r) => files.ops.list(r),
+  'fs.mkdir': (r) => files.ops.mkdir(r),
+  'fs.rename': (r) => files.ops.rename(r),
+  'fs.remove': (r) => files.ops.remove(r),
+  'fs.write': (r) => files.ops.write(r),
   'gh.status': async () => {
     try {
       const { stdout, stderr } = await run('gh', ['auth', 'status', '--hostname', 'github.com'], { timeout: 15_000 })
@@ -162,6 +169,7 @@ async function handle(conn: Socket) {
       conn.on('close', () => clearInterval(idle))
       return await attachPty(conn, lines, term(name), { cols: Number(req.cols), rows: Number(req.rows), onInput: () => (lastInput = Date.now()) })
     }
+    if (req.op === 'fs.read') return await files.read(conn, req.path)
     if (req.op === 'service.attach') {
       const name = services.sessionName(req.name)
       if (!(await services.status())[str(req.name, 'name')]) throw new Error('This service is not running.')

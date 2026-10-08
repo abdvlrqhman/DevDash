@@ -10,6 +10,8 @@ import { claudeRoutes } from './modules/claude/routes.ts'
 import { claudeService } from './modules/claude/service.ts'
 import { activityService } from './modules/activity/service.ts'
 import { registerMcp } from './modules/mcp/rpc.ts'
+import { filesRoutes, publicShareRoutes } from './modules/files/routes.ts'
+import { sharesService } from './modules/files/shares.ts'
 import { notesRoutes } from './modules/notes/routes.ts'
 import { notesService } from './modules/notes/service.ts'
 import { projectsRoutes } from './modules/projects/routes.ts'
@@ -35,6 +37,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   const terms = terminalsService({ agents })
   const notifications = notificationsService({ db, hub, dataDir: config.dataDir, origin: config.origin })
   hub.authorize('notifications', () => true)
+  const shares = sharesService({ db, dataDir: config.dataDir, masterKey: config.masterKey, origin: config.origin })
   const activity = activityService({ db, hub })
   const search = searchService({ db })
   const tasks = tasksService({ db, hub, activity, search })
@@ -73,6 +76,8 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
       c.header('cache-control', 'no-store')
       return c.json({ app: 'devdash', name: config.spaceName, version: config.version, api: 1 })
     })
+    // Public share links (the only public pages): a small download page, no app, no listing.
+    .route('/s', publicShareRoutes(shares, ip))
     .use('/api/*', sameOrigin(config.origin))
     .route('/api/auth', authRoutes(auth, mw, ip, (u) => void provisioning.ensure(u)))
     .route('/api/members', membersRoutes(auth, mw, ip, config.origin))
@@ -83,6 +88,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     .route('/api/projects', projectsRoutes(projects, activity, mw))
     .route('/api/tasks', tasksRoutes(tasks, giveToClaude, mw))
     .route('/api/notes', notesRoutes(notes, mw))
+    .route('/api/files', filesRoutes(agents, shares, mw))
     .route('/api', searchRoutes({ db, search, notes, projects, claude, services, activity }, mw))
 
   app.notFound((c) => c.json({ error: { code: 'not_found', message: 'Not found' } }, 404))

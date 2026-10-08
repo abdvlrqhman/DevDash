@@ -22,6 +22,10 @@
 	handle /.well-known/devdash.json {
 		reverse_proxy 127.0.0.1:8787
 	}
+	# Public share links: a download page and the file, nothing else.
+	handle /s/* {
+		reverse_proxy 127.0.0.1:8787
+	}
 	handle {
 		root * /opt/devdash/current/apps/web/dist
 		templates /index.html # fills in {{.Host}} for link-preview tags
