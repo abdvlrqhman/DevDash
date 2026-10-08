@@ -84,7 +84,7 @@ export function Board({ tasks, project, showProject }: { tasks: Task[]; project?
             onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setOver(s.value) }}
             onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setOver(null) }}
             onDrop={(e) => drop(s.value, e)}
-            className={cn('flex w-72 shrink-0 flex-col gap-2 rounded-xl bg-muted/40 p-2 transition-colors', over === s.value && 'bg-muted ring-2 ring-ring/40')}>
+            className={cn('flex w-72 shrink-0 flex-col gap-2 rounded-xl bg-muted/40 p-2 transition-colors xl:w-auto xl:min-w-52 xl:flex-1 xl:basis-0', over === s.value && 'bg-muted ring-2 ring-ring/40')}>
             <h3 className="flex items-center gap-2 px-1.5 pt-1 text-sm font-medium">
               <StatusIcon status={s.value} />{s.label}<span className="tabular-nums text-muted-foreground">{cols[s.value].length}</span>
               <Button size="icon-xs" variant="ghost" className="ml-auto" aria-label={`Add a task to ${s.label}`} onClick={() => setAdding(s.value)}><Plus /></Button>

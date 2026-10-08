@@ -60,7 +60,7 @@ export function TerminalPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <PageHeader title="Terminal" description={<span className="font-mono">{me.username}@server</span>}
+      <PageHeader title="Terminal" width="full" description={<span className="font-mono">{me.username}@server</span>}
         actions={active &&
           <span role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <StatusLight state={status === 'live' ? 'live' : status === 'ended' ? 'idle' : 'waiting'} />

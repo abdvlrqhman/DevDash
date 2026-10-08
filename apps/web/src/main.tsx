@@ -3,14 +3,8 @@ import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createRootRouteWithContext, createRoute, createRouter, lazyRouteComponent, Outlet, redirect, RouterProvider } from '@tanstack/react-router'
 import { AppShell } from './components/app/shell'
-import { InvitePage } from './features/auth/InvitePage'
-import { LoginPage } from './features/auth/LoginPage'
 import { HomePage } from './features/home/HomePage'
-import { MembersPage } from './features/members/MembersPage'
-import { MorePage } from './features/more/MorePage'
-import { AccountPage } from './features/account/AccountPage'
 import { ClaudeIndex, ClaudeLayout } from './features/claude/ClaudeLayout'
-import { SetupPage } from './features/claude/SetupPage'
 
 import { ApiError, meQuery } from './lib/api'
 import { inShell } from './lib/shell'
@@ -33,17 +27,19 @@ const queryClient = new QueryClient({
 })
 
 const root = createRootRouteWithContext<{ queryClient: QueryClient }>()({ component: Outlet })
+// Every page but Home and Claude loads on first visit (or when a link to it is hovered), keeping the first load small.
+const lazy = (load: () => Promise<Record<string, unknown>>, name: string) => lazyRouteComponent(load as never, name as never)
 
 const login = createRoute({
   getParentRoute: () => root,
   path: '/login',
-  component: LoginPage,
+  component: lazy(() => import('./features/auth/LoginPage'), 'LoginPage'),
   beforeLoad: async ({ context }) => {
     if (await context.queryClient.ensureQueryData(meQuery)) throw redirect({ to: '/' })
   },
 })
 
-const invite = createRoute({ getParentRoute: () => root, path: '/invite/$token', component: InvitePage })
+const invite = createRoute({ getParentRoute: () => root, path: '/invite/$token', component: lazy(() => import('./features/auth/InvitePage'), 'InvitePage') })
 
 const app = createRoute({
   getParentRoute: () => root,
@@ -55,16 +51,15 @@ const app = createRoute({
 })
 
 const home = createRoute({ getParentRoute: () => app, path: '/', component: HomePage })
-const members = createRoute({ getParentRoute: () => app, path: '/members', component: MembersPage })
+const members = createRoute({ getParentRoute: () => app, path: '/members', component: lazy(() => import('./features/members/MembersPage'), 'MembersPage') })
 const terminal = createRoute({
   getParentRoute: () => app,
   path: '/terminal',
   component: lazyRouteComponent(() => import('./features/terminal/TerminalPage'), 'TerminalPage'), // xterm only loads here
   validateSearch: (s: Record<string, unknown>): { open?: string } => (typeof s.open === 'string' ? { open: s.open } : {}),
 })
-const account = createRoute({ getParentRoute: () => app, path: '/account', component: AccountPage })
-const more = createRoute({ getParentRoute: () => app, path: '/more', component: MorePage })
-const lazy = (load: () => Promise<Record<string, unknown>>, name: string) => lazyRouteComponent(load as never, name as never)
+const account = createRoute({ getParentRoute: () => app, path: '/account', component: lazy(() => import('./features/account/AccountPage'), 'AccountPage') })
+const more = createRoute({ getParentRoute: () => app, path: '/more', component: lazy(() => import('./features/more/MorePage'), 'MorePage') })
 const projects = createRoute({ getParentRoute: () => app, path: '/projects', component: lazy(() => import('./features/projects/ProjectsPage'), 'ProjectsPage') })
 const project = createRoute({ getParentRoute: () => app, path: '/projects/$slug', component: lazy(() => import('./features/projects/ProjectPage'), 'ProjectPage') })
 const buildRun = createRoute({ getParentRoute: () => app, path: '/projects/$slug/builds/$run', component: lazy(() => import('./features/builds/RunPage'), 'RunPage') })
@@ -93,7 +88,7 @@ const service = createRoute({ getParentRoute: () => app, path: '/services/$name'
 // Claude is master-detail on wide screens: ClaudeLayout keeps the session list beside whatever is open.
 const claude = createRoute({ getParentRoute: () => app, path: '/claude', component: ClaudeLayout })
 const claudeIndex = createRoute({ getParentRoute: () => claude, path: '/', component: ClaudeIndex })
-const claudeSetup = createRoute({ getParentRoute: () => claude, path: '/setup', component: SetupPage })
+const claudeSetup = createRoute({ getParentRoute: () => claude, path: '/setup', component: lazy(() => import('./features/claude/SetupPage'), 'SetupPage') })
 const claudeSession = createRoute({
   getParentRoute: () => claude,
   path: '/$id',

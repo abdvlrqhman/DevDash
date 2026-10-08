@@ -45,7 +45,7 @@ export function BrowserPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <PageHeader title="Browser" description="One shared browser on the server, signed in to your team's tools"
+      <PageHeader title="Browser" width="full" description="One shared browser on the server, signed in to your team's tools"
         actions={<>
           <Button size="sm" variant="outline" onClick={() => setInviting(true)}><UserPlus /><span className="hidden sm:inline">Invite to watch</span></Button>
           {url && !inShell() && <Button size="sm" variant="outline" onClick={() => document.getElementById('dd-browser')?.requestFullscreen?.()}><Maximize /><span className="hidden sm:inline">Full screen</span></Button>}

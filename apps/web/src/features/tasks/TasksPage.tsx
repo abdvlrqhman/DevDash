@@ -31,8 +31,8 @@ export function TasksPage() {
 
   return (
     <>
-      <PageHeader title="Tasks" actions={<Button size="sm" onClick={() => setAdding(true)}><Plus />New</Button>} />
-      <PageBody className="max-w-none">
+      <PageHeader title="Tasks" width="full" actions={<Button size="sm" onClick={() => setAdding(true)}><Plus />New</Button>} />
+      <PageBody width="full">
         <div className="flex flex-wrap items-center gap-2">
           <ToggleGroup type="single" variant="outline" size="sm" value={view} onValueChange={(v) => { if (v) { setView(v); store('tasks-view', v) } }} aria-label="View">
             <ToggleGroupItem value="board" aria-label="Board"><Columns3 /><span className="hidden sm:inline">Board</span></ToggleGroupItem>

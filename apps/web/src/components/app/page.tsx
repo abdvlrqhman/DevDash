@@ -1,45 +1,49 @@
-import type { ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
-import { SidebarTrigger } from '@/components/ui/sidebar'
 import { cn } from '@/lib/utils'
 
-/** Top bar of every app page: sidebar toggle on desktop, optional back link, title, actions. */
-export function PageHeader({ title, description, back, backOnSmall, actions, className }: {
+/** Content widths. A page passes the same one to its header and body so both share one column (see .page-col). */
+const WIDTHS = { narrow: '42rem', default: '56rem', wide: '72rem', full: '100%' } as const
+export type PageWidth = keyof typeof WIDTHS
+/** Style for a custom body that sits in the page column (with className="page-col"). */
+export const pageCol = (width: PageWidth) => ({ '--page-max': WIDTHS[width] }) as CSSProperties
+const col = pageCol
+
+/** Top bar of every app page: optional back link, title, actions; aligned with the page's content column. */
+export function PageHeader({ title, description, back, backOnSmall, actions, width = 'default', className }: {
   title: ReactNode
   description?: ReactNode
   back?: string
   /** Hide the back link on wide screens, where a list beside the page already shows where you are. */
   backOnSmall?: boolean
   actions?: ReactNode
+  width?: PageWidth
   className?: string
 }) {
   return (
-    <header className={cn(
-      'sticky top-0 z-20 flex min-h-14 shrink-0 items-center gap-2 border-b bg-background/85 px-3 pt-[env(safe-area-inset-top)] backdrop-blur-md md:px-4',
+    <header style={col(width)} className={cn(
+      'page-col sticky top-0 z-20 flex min-h-14 shrink-0 items-center gap-2 border-b bg-background/85 pt-[env(safe-area-inset-top)] backdrop-blur-md',
       className,
     )}>
-      <SidebarTrigger className="-ml-1 hidden md:inline-flex" />
-      <Separator orientation="vertical" className="mr-1 hidden data-[orientation=vertical]:h-4 md:block" />
       {back && (
-        <Button variant="ghost" size="icon-lg" asChild className={cn('-ml-1', backOnSmall && 'lg:hidden')}>
+        <Button variant="ghost" size="icon-lg" asChild className={cn('-ml-2', backOnSmall && 'lg:hidden')}>
           <Link to={back} aria-label="Back"><ArrowLeft /></Link>
         </Button>
       )}
       <div className="min-w-0 flex-1 py-2">
-        <h1 className="truncate text-[15px] font-semibold leading-tight">{title}</h1>
+        <h1 className="truncate text-[15px] leading-tight font-semibold">{title}</h1>
         {description && <div className="truncate text-xs text-muted-foreground">{description}</div>}
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-1.5">{actions}</div>}
+      {actions && <div className="flex shrink-0 items-center gap-1.5 pointer-coarse:[&_[data-slot=button]]:h-9">{actions}</div>}
     </header>
   )
 }
 
 /** Standard content column under a PageHeader. */
-export function PageBody({ children, className }: { children: ReactNode; className?: string }) {
-  return <div className={cn('mx-auto flex w-full max-w-4xl flex-col gap-6 px-4 py-5 md:px-6 md:py-6', className)}>{children}</div>
+export function PageBody({ children, width = 'default', className }: { children: ReactNode; width?: PageWidth; className?: string }) {
+  return <div style={col(width)} className={cn('page-col flex w-full flex-col gap-6 py-6', className)}>{children}</div>
 }
 
 /** A titled group of content inside a page. */
@@ -49,10 +53,10 @@ export function Section({ title, description, action, children, className }: {
   return (
     <section className={cn('flex flex-col gap-3', className)}>
       {(title || action) && (
-        <div className="flex items-end justify-between gap-3">
-          <div>
-            {title && <h2 className="text-sm font-medium">{title}</h2>}
-            {description && <p className="text-sm text-muted-foreground">{description}</p>}
+        <div className="flex min-h-7 items-end justify-between gap-3">
+          <div className="min-w-0">
+            {title && <h2 className="text-[13px] font-semibold">{title}</h2>}
+            {description && <p className="mt-0.5 text-sm text-pretty text-muted-foreground">{description}</p>}
           </div>
           {action}
         </div>

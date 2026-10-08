@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuBadge,
-  SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarRail, useSidebar,
+  SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarRail, SidebarTrigger, useSidebar,
 } from '@/components/ui/sidebar'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -130,8 +130,8 @@ function AppSidebar({ waiting, pane }: { waiting: number; pane: ReturnType<typeo
   const active = useActive()
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader>
-        <SidebarMenu>
+      <SidebarHeader className="flex-row items-center gap-1">
+        <SidebarMenu className="min-w-0 flex-1">
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild>
               <Link to="/">
@@ -144,6 +144,7 @@ function AppSidebar({ waiting, pane }: { waiting: number; pane: ReturnType<typeo
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
+        <SidebarTrigger title="Collapse the sidebar (Ctrl+B)" className="text-muted-foreground group-data-[collapsible=icon]:hidden" />
       </SidebarHeader>
       <SidebarContent>
         {NAV.map((g, gi) => (
@@ -172,6 +173,7 @@ function AppSidebar({ waiting, pane }: { waiting: number; pane: ReturnType<typeo
         ))}
       </SidebarContent>
       <SidebarFooter>
+        <SidebarTrigger title="Expand the sidebar (Ctrl+B)" className="mx-auto hidden text-muted-foreground group-data-[collapsible=icon]:inline-flex" />
         <UserMenu />
       </SidebarFooter>
       <AppRail pane={pane} />

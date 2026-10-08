@@ -5,7 +5,7 @@ import { GitCommitHorizontal, Pencil, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 import { initials } from '@/components/app/brand'
 import { NativeSelect } from '@/components/app/native-select'
-import { PageHeader } from '@/components/app/page'
+import { PageHeader, pageCol } from '@/components/app/page'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -50,10 +50,10 @@ function TaskPageView() {
 
   return (
     <>
-      <PageHeader back="/tasks" title={<span className="font-mono">{t.key}</span>}
+      <PageHeader back="/tasks" width="wide" title={<span className="font-mono">{t.key}</span>}
         description={<Link to="/projects/$slug" params={{ slug: t.project.slug }} className="hover:underline">{t.project.name}</Link>}
         actions={<Button size="sm" onClick={() => setGiving(true)}><Sparkles />Give to Claude</Button>} />
-      <div className="mx-auto grid w-full max-w-5xl gap-6 px-4 py-5 md:px-6 lg:grid-cols-[minmax(0,1fr)_16rem]">
+      <div style={pageCol('wide')} className="page-col grid w-full gap-6 py-6 lg:grid-cols-[minmax(0,1fr)_16rem]">
         <div className="flex min-w-0 flex-col gap-6">
           <Title t={t} onSave={(title) => update.mutate({ title })} />
           <Body t={t} onSave={(body) => update.mutate({ body })} />

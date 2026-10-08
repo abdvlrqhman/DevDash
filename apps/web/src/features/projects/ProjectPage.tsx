@@ -45,13 +45,13 @@ function ProjectPageView() {
 
   return (
     <>
-      <PageHeader back="/projects" title={p.name}
+      <PageHeader back="/projects" width="full" title={p.name}
         description={<span className="flex items-center gap-1.5"><span className="truncate font-mono">{repoLabel(p.repoUrl)}</span><GitBranch className="size-3.5 shrink-0" />{p.defaultBranch}</span>}
         actions={<>
           {p.repoUrl && <Button size="icon-sm" variant="ghost" aria-label="Fetch now" disabled={fetchNow.isPending} onClick={() => fetchNow.mutate()}><RefreshCw className={fetchNow.isPending ? 'animate-spin' : ''} /></Button>}
           <Button size="sm" variant="outline" onClick={() => setSession(true)}><Sparkles /><span className="hidden sm:inline">Claude</span></Button>
         </>} />
-      <PageBody className="max-w-none">
+      <PageBody width="full">
         {p.fetchError && (
           <Alert variant="destructive"><AlertDescription>Couldn't fetch: {p.fetchError}</AlertDescription></Alert>
         )}

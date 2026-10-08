@@ -37,8 +37,8 @@ export function SetupPage() {
 
   return (
     <>
-      <PageHeader title="Claude setup" back="/claude" />
-      <PageBody className="max-w-2xl">
+      <PageHeader title="Claude setup" back="/claude" width="narrow" />
+      <PageBody width="narrow">
         <Card>
           <CardHeader>
             <CardTitle>Profiles</CardTitle>

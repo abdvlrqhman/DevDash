@@ -57,7 +57,7 @@ function ServicePageView() {
   const hasOutput = s.state !== 'stopped' && s.state !== 'unknown'
   return (
     <div className="flex h-full flex-col">
-      <PageHeader back="/services" title={<span className="font-mono">{s.name}</span>}
+      <PageHeader back="/services" width="full" title={<span className="font-mono">{s.name}</span>}
         description={<span className="flex items-center gap-1.5"><StatusLight state={st.light} />{st.label}</span>}
         actions={<>
           {s.previewUrl && <Button size="sm" variant="outline" onClick={() => openExternal(s.previewUrl!)}><ExternalLink /><span className="hidden sm:inline">Open</span></Button>}

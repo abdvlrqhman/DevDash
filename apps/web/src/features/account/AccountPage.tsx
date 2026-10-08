@@ -36,8 +36,8 @@ export function AccountPage() {
 
   return (
     <>
-      <PageHeader title="Account" />
-      <PageBody className="max-w-2xl">
+      <PageHeader title="Account" width="narrow" />
+      <PageBody width="narrow">
         <Panel title="Profile" description="You can sign in with your email or your username.">
           <dl className="grid grid-cols-[auto_1fr] gap-x-8 gap-y-2 text-sm">
             <dt className="text-muted-foreground">Name</dt><dd>{me.name}</dd>
