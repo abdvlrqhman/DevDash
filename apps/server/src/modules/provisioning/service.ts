@@ -45,6 +45,12 @@ export function provisioningService({ db, runDir, onReady }: { db: Db; runDir: s
       const r = await requestLine<{ ok: boolean; error?: string }>(join(runDir, 'helper.sock'), { cmd: 'set-password', args: { username, password } }, 30_000)
       if (!r.ok) throw new Error(r.error?.replace(/^refused: /, '') ?? 'Could not set the password.')
     },
+    /** Lets every member run git in a shared checkout (see the helper's git-safe-dir). */
+    async gitSafeDir(path: string) {
+      if (!runDir) return
+      const r = await requestLine<{ ok: boolean; error?: string }>(join(runDir, 'helper.sock'), { cmd: 'git-safe-dir', args: { path } }, 30_000)
+      if (!r.ok) throw new Error(r.error ?? 'Could not register the project folder.')
+    },
     usernames: () => (s.pending.all() as User[]).map((u) => u.username),
     /** Idempotent: re-applies every active member (role changes, missed sign-ups, a fresh host). */
     async reconcileAll() {

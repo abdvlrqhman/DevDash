@@ -4,6 +4,7 @@ import type { Hub } from '../../core/hub.ts'
 import { AppError } from '../../core/http.ts'
 import type { AgentsService } from '../agents/service.ts'
 import type { NotificationKind } from '../notifications/service.ts'
+import type { ProjectsService } from '../projects/service.ts'
 import type { User } from '../auth/repo.ts'
 import { claudeRepo, type Defaults, type Patch, type SessionRow, type SessionStatus } from './repo.ts'
 
@@ -28,6 +29,7 @@ export function toDto(s: SessionRow) {
     shared: !!s.shared, sharedCanSend: !!s.shared_can_send, archived: !!s.archived,
     owner: { id: s.owner_id, username: s.owner_username, name: s.owner_name },
     createdAt: s.created_at, lastActivityAt: s.last_activity_at,
+    project: s.project_slug ? { slug: s.project_slug, name: s.project_name! } : null, worktree: s.worktree,
   }
 }
 export type SessionDto = ReturnType<typeof toDto>
@@ -56,7 +58,7 @@ function describeRequest(toolName: string, input: Record<string, unknown>) {
   return `Wants to use ${toolName}${what ? `: ${what}` : ''}`
 }
 
-export function claudeService({ db, agents, hub, notify }: { db: Db; agents: AgentsService; hub: Hub; notify: Notify }) {
+export function claudeService({ db, agents, hub, notify, projects }: { db: Db; agents: AgentsService; hub: Hub; notify: Notify; projects: ProjectsService }) {
   const repo = claudeRepo(db)
   // A failing turn can report twice (its result, then the process exiting): one error alert per session per minute.
   const lastError = new Map<string, number>()
@@ -106,6 +108,8 @@ export function claudeService({ db, agents, hub, notify }: { db: Db; agents: Age
         // CLI exited: back to Chat mode, ready to resume.
         const mode = st === 'stopped' ? 'chat' : ev.mode === 'cli' || ev.mode === 'chat' ? ev.mode : s.mode
         repo.setStatus(s.id, st === 'stopped' ? 'idle' : st, typeof ev.detail === 'string' ? ev.detail : null, mode)
+        // Claude may have committed: look for "fixes #N" now rather than at the next fetch.
+        if (s.project_id && s.status === 'working' && st !== 'working') projects.rescan(s.project_id)
         // Chat mode notifies from the richer permission/result events below; the CLI only reports status.
         if (st === 'error') alert(s, 'errors', `Claude stopped with an error: ${s.title}`, typeof ev.detail === 'string' ? clip(ev.detail) : undefined)
         else if (s.mode === 'cli' && st === 'waiting' && s.status !== 'waiting') alert(s, 'needs_you', `Claude needs you: ${s.title}`, 'Waiting for you in the CLI')
@@ -193,18 +197,23 @@ export function claudeService({ db, agents, hub, notify }: { db: Db; agents: Age
 
     async create(user: User, input: {
       prompt: string; images: Image[]; cwd: string; profile: string; model: string | null; effort: string | null
-      permissionMode: string; mode: 'chat' | 'cli'; cols?: number; rows?: number
+      permissionMode: string; mode: 'chat' | 'cli'; cols?: number; rows?: number; project?: string; worktree?: boolean
     }) {
       if (!PROFILE_RE.test(input.profile)) throw new AppError(400, 'bad_profile', 'Unknown profile.')
       const home = `/home/${user.username}`
-      const cwd = input.cwd.trim() === '' || input.cwd.trim() === '~' ? home : input.cwd.trim().replace(/^~(?=\/)/, home)
+      // In a project: its shared checkout, or a fresh worktree on its own branch so parallel sessions don't collide.
+      const wt = input.project && input.worktree ? await projects.worktree(user, input.project) : null
+      const cwd = wt?.path ?? (input.project ? projects.path(projects.bySlug(input.project).slug)
+        : input.cwd.trim() === '' || input.cwd.trim() === '~' ? home : input.cwd.trim().replace(/^~(?=\/)/, home))
       if (!cwd.startsWith('/')) throw new AppError(400, 'bad_cwd', 'Use a full folder path, like ~/projects/app.')
+      const project = input.project ? projects.bySlug(input.project) : projects.forPath(cwd)
       const firstLine = input.prompt.trim().split('\n')[0]!.slice(0, 80)
       const id = randomUUID()
       repo.insert({
         id, owner_id: user.id, profile: input.profile, title: firstLine || 'New session', cwd, mode: input.mode,
         model: input.model, effort: input.effort, permission_mode: input.permissionMode,
       })
+      if (project) repo.setProject(id, project.id, wt?.path ?? null)
       const s = repo.byId(id)!
       try {
         if (input.mode === 'cli') {
@@ -259,7 +268,11 @@ export function claudeService({ db, agents, hub, notify }: { db: Db; agents: Age
       for (const [key, value] of [['model', p.model], ['effort', p.effort], ['permissionMode', p.permissionMode]] as const) {
         if (value !== undefined && s.mode === 'chat') await agents.request(s.owner_username, { op: 'claude.set', id, key, value })
       }
-      if (p.archived) await agents.request(s.owner_username, { op: 'claude.stop', id }).catch(() => {})
+      if (p.archived) {
+        await agents.request(s.owner_username, { op: 'claude.stop', id }).catch(() => {})
+        // Its worktree goes too, unless it holds uncommitted work.
+        if (s.worktree && s.project_slug) void projects.removeWorktree(s.owner_username, s.project_slug, s.worktree).catch(() => {})
+      }
       if (p.shared && !s.shared) {
         for (const { id: uid } of db.prepare('select id from users where disabled_at is null and id != ?').all(s.owner_id) as { id: number }[]) {
           void notify(uid, 'shared', { title: `${user.name} shared a Claude session`, body: s.title, url: `/claude/${id}` }).catch(() => {})

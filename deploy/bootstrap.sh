@@ -18,7 +18,7 @@ step "packages"
 apt-get update -q
 apt-get upgrade -yq
 apt-get install -yq ca-certificates curl gnupg git tmux ufw unattended-upgrades \
-  bubblewrap socat sqlite3 jq build-essential python3 debian-keyring debian-archive-keyring apt-transport-https
+  bubblewrap socat sqlite3 jq build-essential python3 gh debian-keyring debian-archive-keyring apt-transport-https
 install -d -m 755 /etc/apt/keyrings
 
 step "node 24"

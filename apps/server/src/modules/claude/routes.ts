@@ -24,6 +24,8 @@ const CreateInput = z.object({
   effort: Effort.default(null),
   permissionMode: Mode.default('bypassPermissions'),
   mode: z.enum(['chat', 'cli']).default('chat'),
+  project: z.string().max(40).optional(),
+  worktree: z.boolean().optional(),
   cols: Size.optional(),
   rows: z.number().int().min(4).max(200).optional(),
 })

@@ -27,3 +27,16 @@ export function openDb(file: string): Db {
 }
 
 export const now = () => Math.floor(Date.now() / 1000)
+
+/** Runs fn in one transaction (node:sqlite has no helper). */
+export function transaction<T>(db: Db, fn: () => T): T {
+  db.exec('begin')
+  try {
+    const r = fn()
+    db.exec('commit')
+    return r
+  } catch (err) {
+    db.exec('rollback')
+    throw err
+  }
+}

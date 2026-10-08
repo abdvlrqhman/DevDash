@@ -23,6 +23,10 @@ install -d -m 700 -o devdash -g devdash /var/lib/devdash
 install -d -m 750 -o root -g devdash /etc/devdash
 install -d -m 755 /opt/devdash/releases
 getent group devdash-users >/dev/null || groupadd devdash-users
+# Shared git checkouts: every member can work in every project (setgid keeps the group, members' umask is 0002).
+install -d -m 755 /srv/devdash
+install -d -m 2775 -o root -g devdash-users /srv/devdash/projects /srv/devdash/worktrees
+command -v gh >/dev/null || apt-get install -yq gh >/dev/null
 
 if [[ ! -f $ENV_FILE ]]; then
   [[ -n $DOMAIN ]] || { echo "first install: pass --domain <domain>" >&2; exit 2; }

@@ -21,11 +21,15 @@ export type SessionRow = {
   archived: number
   created_at: number
   last_activity_at: number
+  project_id: number | null
+  worktree: string | null
+  project_slug: string | null
+  project_name: string | null
 }
 export type Defaults = { profile: string; model: string | null; effort: string | null; permission_mode: string; open_in: 'chat' | 'cli' }
 
-const SELECT = `select s.*, u.username as owner_username, u.name as owner_name
-  from claude_sessions s join users u on u.id = s.owner_id`
+const SELECT = `select s.*, u.username as owner_username, u.name as owner_name, p.slug as project_slug, p.name as project_name
+  from claude_sessions s join users u on u.id = s.owner_id left join projects p on p.id = s.project_id`
 
 // Columns a PATCH may touch; anything else is ignored.
 const PATCHABLE = ['title', 'shared', 'shared_can_send', 'archived', 'model', 'effort', 'permission_mode', 'mode', 'started'] as const
@@ -40,6 +44,7 @@ export function claudeRepo(db: Db) {
       values (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
     status: db.prepare(`update claude_sessions set status = ?, status_detail = ?, mode = ?, last_activity_at = unixepoch() where id = ?`),
     touch: db.prepare(`update claude_sessions set last_activity_at = unixepoch() where id = ?`),
+    setProject: db.prepare(`update claude_sessions set project_id = ?, worktree = ? where id = ?`),
     addSender: db.prepare(`insert or ignore into claude_message_senders (session_id, message_uuid, user_id) values (?, ?, ?)`),
     senders: db.prepare(`select m.message_uuid, u.id, u.name from claude_message_senders m join users u on u.id = m.user_id where m.session_id = ?`),
     defaults: db.prepare(`select profile, model, effort, permission_mode, open_in from claude_defaults where user_id = ?`),
@@ -54,6 +59,7 @@ export function claudeRepo(db: Db) {
       void s.insert.run(r.id, r.owner_id, r.profile, r.title, r.cwd, r.mode, r.model, r.effort, r.permission_mode),
     setStatus: (id: string, status: SessionStatus, detail: string | null, mode: 'chat' | 'cli') => void s.status.run(status, detail, mode, id),
     touch: (id: string) => void s.touch.run(id),
+    setProject: (id: string, projectId: number | null, worktree: string | null) => void s.setProject.run(projectId, worktree, id),
     patch(id: string, p: Patch) {
       const keys = PATCHABLE.filter((k) => p[k] !== undefined)
       if (!keys.length) return

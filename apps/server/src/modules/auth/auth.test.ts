@@ -12,7 +12,7 @@ const ORIGIN = 'https://space.test'
 
 function setup() {
   const db = openDb(':memory:')
-  const config = { origin: ORIGIN, spaceName: 'Test', dataDir: mkdtempSync(join(tmpdir(), 'dd-')), port: 0, masterKey: randomBytes(32), trustCfIp: false, runDir: '', version: '0.0.0' }
+  const config = { origin: ORIGIN, spaceName: 'Test', dataDir: mkdtempSync(join(tmpdir(), 'dd-')), port: 0, masterKey: randomBytes(32), trustCfIp: false, runDir: '', projectsRoot: '/tmp/devdash-test', version: '0.0.0' }
   const { app, auth } = createApp({ db, config })
   let cookie = ''
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {

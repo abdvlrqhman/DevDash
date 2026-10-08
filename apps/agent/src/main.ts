@@ -7,6 +7,7 @@ import { createServer, type Socket } from 'node:net'
 import { createInterface } from 'node:readline'
 import * as claude from './claude.ts'
 import * as services from './services.ts'
+import { ops as git } from './git.ts'
 import { attachPty, hasSession, listSessions, send, tmux, TMUX_CONF } from './tmux.ts'
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}$/
@@ -65,6 +66,13 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
   'claude.usage': async (r) => ({ usage: await claude.usage(str(r.profile, 'profile')) }),
   'claude.profile.create': (r) => (claude.createProfile(str(r.name, 'name')), { ok: true }),
   'fs.dir': async (r) => ({ path: await services.dir(r.path) }),
+  'git.clone': (r) => git.clone(r),
+  'git.init': (r) => git.init(r),
+  'git.fetch': (r) => git.fetch(r),
+  'git.refs': (r) => git.refs(r),
+  'git.log': (r) => git.log(r),
+  'git.worktree.add': (r) => git.worktreeAdd(r),
+  'git.worktree.remove': (r) => git.worktreeRemove(r),
   'service.start': async (r) => (await services.start(r), { ok: true }),
   'service.stop': async (r) => (await services.stop(r), { ok: true }),
   'service.status': async () => ({ services: await services.status() }),

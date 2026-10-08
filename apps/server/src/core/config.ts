@@ -10,6 +10,8 @@ export type Config = {
   trustCfIp: boolean
   /** Where systemd puts the root helper and agent sockets. Empty on a dev machine (no host integration). */
   runDir: string
+  /** Shared git checkouts and worktrees live under <projectsRoot>/projects and <projectsRoot>/worktrees. */
+  projectsRoot: string
   version: string
 }
 
@@ -35,6 +37,7 @@ export function loadConfig(): Config {
     masterKey,
     trustCfIp: process.env.DEVDASH_TRUST_CF_IP === '1',
     runDir: process.env.DEVDASH_RUN_DIR ?? (existsSync('/run/devdash') ? '/run/devdash' : ''),
+    projectsRoot: process.env.DEVDASH_PROJECTS_ROOT || '/srv/devdash',
     version: pkg.version,
   }
 }
