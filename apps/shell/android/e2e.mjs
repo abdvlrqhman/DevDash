@@ -162,18 +162,25 @@ async function run() {
 
   // The shared browser inside the app.
   await w.go('/browser')
-  await w.click('Start the browser').catch(() => w.click('Join'))
+  await sleep(2000)
+  // Start it, or join it if it's already running (or already showing).
+  if (!(await w.evaluate(`!!document.querySelector('#dd-browser')`))) await w.click('Start the browser').catch(() => w.click('Join')).catch(() => {})
   const playing = await until(() => w.evaluate(`(() => { const v = document.querySelector('#dd-browser')?.contentDocument?.querySelector('video'); return !!v && !v.paused && v.readyState >= 2 })()`), 120000, 'browser stream').catch(() => false)
   screenshot('3-browser.png')
   check(!!playing, 'the shared browser streams inside the app')
 
   // Vault: the phone creates it, a computer opens it with the password.
   await w.go('/vault')
-  await w.waitFor('Set up your vault')
-  await w.type('#vp', VAULT_PW)
-  await w.type('#vp2', VAULT_PW)
-  await w.click('I understand')
-  await w.click('Create my vault')
+  await until(async () => /Set up your vault|Unlock your vault|Personal/.test(await w.text()), 30000, 'vault page')
+  if ((await w.text()).includes('Set up your vault')) {
+    await w.type('#vp', VAULT_PW)
+    await w.type('#vp2', VAULT_PW)
+    await w.click('I understand')
+    await w.click('Create my vault')
+  } else if ((await w.text()).includes('Unlock your vault')) {
+    await w.type('input[aria-label="Vault password"]', VAULT_PW)
+    await w.click('Unlock')
+  }
   await w.waitFor('Personal', 60000)
   await w.press('New')
   await w.click('Login')
