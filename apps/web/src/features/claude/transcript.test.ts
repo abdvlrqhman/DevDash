@@ -37,3 +37,19 @@ test('images in user messages become data URLs', () => {
   const b = buildTranscript([{ type: 'user', uuid: 'x', message: { content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAA' } }, { type: 'text', text: 'this' }] } }])
   assert.ok(b[0]!.kind === 'user' && b[0]!.images[0] === 'data:image/png;base64,AAA')
 })
+
+test('side panel facts: latest to-dos and changed files with line counts, including subagent edits', async () => {
+  const { sessionFacts } = await import('./transcript.ts')
+  const b = buildTranscript([
+    { type: 'assistant', uuid: 'a', message: { content: [
+      { type: 'tool_use', id: 't1', name: 'TodoWrite', input: { todos: [{ content: 'old', status: 'pending' }] } },
+      { type: 'tool_use', id: 't2', name: 'Edit', input: { file_path: '/p/a.ts', old_string: 'x', new_string: 'y\nz' } },
+      { type: 'tool_use', id: 't3', name: 'Task', input: {} },
+    ] } },
+    { type: 'assistant', uuid: 'b', parent_tool_use_id: 't3', message: { content: [{ type: 'tool_use', id: 't4', name: 'Write', input: { file_path: '/p/b.ts', content: '1\n2\n3' } }] } },
+    { type: 'assistant', uuid: 'c', message: { content: [{ type: 'tool_use', id: 't5', name: 'TodoWrite', input: { todos: [{ content: 'new', status: 'completed' }] } }] } },
+  ])
+  const f = sessionFacts(b)
+  assert.equal(f.todos[0]!.content, 'new')
+  assert.deepEqual(f.files.map((x) => [x.path, x.added, x.removed]), [['/p/a.ts', 2, 1], ['/p/b.ts', 3, 0]])
+})

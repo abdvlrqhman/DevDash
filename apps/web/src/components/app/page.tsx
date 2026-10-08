@@ -7,10 +7,12 @@ import { SidebarTrigger } from '@/components/ui/sidebar'
 import { cn } from '@/lib/utils'
 
 /** Top bar of every app page: sidebar toggle on desktop, optional back link, title, actions. */
-export function PageHeader({ title, description, back, actions, className }: {
+export function PageHeader({ title, description, back, backOnSmall, actions, className }: {
   title: ReactNode
   description?: ReactNode
   back?: string
+  /** Hide the back link on wide screens, where a list beside the page already shows where you are. */
+  backOnSmall?: boolean
   actions?: ReactNode
   className?: string
 }) {
@@ -22,7 +24,7 @@ export function PageHeader({ title, description, back, actions, className }: {
       <SidebarTrigger className="-ml-1 hidden md:inline-flex" />
       <Separator orientation="vertical" className="mr-1 hidden data-[orientation=vertical]:h-4 md:block" />
       {back && (
-        <Button variant="ghost" size="icon-lg" asChild className="-ml-1">
+        <Button variant="ghost" size="icon-lg" asChild className={cn('-ml-1', backOnSmall && 'lg:hidden')}>
           <Link to={back} aria-label="Back"><ArrowLeft /></Link>
         </Button>
       )}

@@ -9,7 +9,7 @@ import { HomePage } from './features/home/HomePage'
 import { MembersPage } from './features/members/MembersPage'
 import { MorePage } from './features/more/MorePage'
 import { AccountPage } from './features/account/AccountPage'
-import { SessionsPage } from './features/claude/SessionsPage'
+import { ClaudeIndex, ClaudeLayout } from './features/claude/ClaudeLayout'
 import { SetupPage } from './features/claude/SetupPage'
 
 import { ApiError, meQuery } from './lib/api'
@@ -64,16 +64,18 @@ const terminal = createRoute({
 })
 const account = createRoute({ getParentRoute: () => app, path: '/account', component: AccountPage })
 const more = createRoute({ getParentRoute: () => app, path: '/more', component: MorePage })
-const claudeList = createRoute({ getParentRoute: () => app, path: '/claude', component: SessionsPage })
-const claudeSetup = createRoute({ getParentRoute: () => app, path: '/claude/setup', component: SetupPage })
+// Claude is master-detail on wide screens: ClaudeLayout keeps the session list beside whatever is open.
+const claude = createRoute({ getParentRoute: () => app, path: '/claude', component: ClaudeLayout })
+const claudeIndex = createRoute({ getParentRoute: () => claude, path: '/', component: ClaudeIndex })
+const claudeSetup = createRoute({ getParentRoute: () => claude, path: '/setup', component: SetupPage })
 const claudeSession = createRoute({
-  getParentRoute: () => app,
-  path: '/claude/$id',
+  getParentRoute: () => claude,
+  path: '/$id',
   component: lazyRouteComponent(() => import('./features/claude/SessionPage'), 'SessionPage'), // markdown + xterm load here
 })
 
 const router = createRouter({
-  routeTree: root.addChildren([login, invite, app.addChildren([home, claudeList, claudeSetup, claudeSession, terminal, members, account, more])]),
+  routeTree: root.addChildren([login, invite, app.addChildren([home, claude.addChildren([claudeIndex, claudeSetup, claudeSession]), terminal, members, account, more])]),
   context: { queryClient },
   defaultPreload: 'intent',
 })

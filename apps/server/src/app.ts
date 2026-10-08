@@ -33,7 +33,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     .use('/api/*', sameOrigin(config.origin))
     .route('/api/auth', authRoutes(auth, mw, ip, (u) => void provisioning.ensure(u)))
     .route('/api/members', membersRoutes(auth, mw, ip, config.origin))
-    .route('/api/terminals', terminalsRoutes(terms, auth, mw))
+    .route('/api/terminals', terminalsRoutes(terms, auth, mw, provisioning, ip))
     .route('/api/claude', claudeRoutes(claude, mw))
 
   app.notFound((c) => c.json({ error: { code: 'not_found', message: 'Not found' } }, 404))

@@ -110,3 +110,33 @@ export function mergeRaw(existing: Raw[], incoming: Raw[]): Raw[] {
   const seen = new Set(existing.map((r) => r.uuid).filter(Boolean))
   return [...existing, ...incoming.filter((r) => !r.uuid || !seen.has(r.uuid))]
 }
+
+export type Todo = { content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }
+export type FileChange = { path: string; added: number; removed: number; writes: number }
+
+/** For the session side panel: the latest to-do list and every file Claude changed (subagents included). */
+export function sessionFacts(blocks: Block[]) {
+  let todos: Todo[] = []
+  const files = new Map<string, FileChange>()
+  const lines = (s: unknown) => (typeof s === 'string' && s ? s.split('\n').length : 0)
+  const walk = (list: Block[]) => {
+    for (const b of list) {
+      if (b.kind !== 'tool') continue
+      const i = b.input
+      if (b.name === 'TodoWrite' && Array.isArray(i.todos)) todos = i.todos as Todo[]
+      if ((b.name === 'Edit' || b.name === 'MultiEdit' || b.name === 'Write') && typeof i.file_path === 'string' && !b.result?.isError) {
+        const f = files.get(i.file_path) ?? { path: i.file_path, added: 0, removed: 0, writes: 0 }
+        const edits = b.name === 'MultiEdit' && Array.isArray(i.edits) ? (i.edits as Record<string, unknown>[]) : [i]
+        for (const e of edits) {
+          f.added += lines(b.name === 'Write' ? e.content : e.new_string)
+          f.removed += lines(e.old_string)
+        }
+        f.writes++
+        files.set(f.path, f)
+      }
+      walk(b.children)
+    }
+  }
+  walk(blocks)
+  return { todos, files: [...files.values()] }
+}

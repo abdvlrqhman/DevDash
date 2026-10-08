@@ -39,6 +39,12 @@ export function provisioningService({ db, runDir, onReady }: { db: Db; runDir: s
 
   return {
     ensure,
+    /** Linux password for an admin (sudo in the admin shell). The password only passes through to chpasswd. */
+    async setServerPassword(username: string, password: string) {
+      if (!runDir) throw new Error('This needs DevDash running on its Linux server.')
+      const r = await requestLine<{ ok: boolean; error?: string }>(join(runDir, 'helper.sock'), { cmd: 'set-password', args: { username, password } }, 30_000)
+      if (!r.ok) throw new Error(r.error?.replace(/^refused: /, '') ?? 'Could not set the password.')
+    },
     usernames: () => (s.pending.all() as User[]).map((u) => u.username),
     /** Idempotent: re-applies every active member (role changes, missed sign-ups, a fresh host). */
     async reconcileAll() {

@@ -49,3 +49,14 @@ test('rejects bad input and unknown commands', () => {
   assert.equal(noEmail.ok, true, 'email is optional')
   assert.ok(!noEmail.planned.some((c) => c.includes('git config')), 'no git identity without an email')
 })
+
+test('set-password: validated, sent to chpasswd on stdin (never on the command line)', () => {
+  const r = call({ cmd: 'set-password', args: { username: 'alice', password: 'correct horse' } }, { DEVDASH_HELPER_FAKE_UID: '1000' })
+  assert.equal(r.ok, true)
+  assert.deepEqual(r.planned, ['chpasswd <stdin>'])
+  assert.ok(!JSON.stringify(r.planned).includes('correct horse'))
+  assert.match(call({ cmd: 'set-password', args: { username: 'alice', password: 'short' } }, { DEVDASH_HELPER_FAKE_UID: '1000' }).error!, /refused/)
+  assert.match(call({ cmd: 'set-password', args: { username: 'alice', password: 'a:b long enough' } }, { DEVDASH_HELPER_FAKE_UID: '1000' }).error!, /refused/)
+  assert.match(call({ cmd: 'set-password', args: { username: 'root', password: 'long enough pw' } }).error!, /refused: invalid username/)
+  assert.match(call({ cmd: 'set-password', args: { username: 'alice', password: 'long enough pw' } }, { DEVDASH_HELPER_FAKE_UID: '33' }).error!, /refused: not a member/)
+})

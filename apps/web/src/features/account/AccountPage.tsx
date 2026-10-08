@@ -13,7 +13,7 @@ import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { api, meQuery, unwrap } from '@/lib/api'
 import { APP_DOWNLOADS, inShell, openExternal } from '@/lib/shell'
 import { setTheme, useTheme, type ThemePref } from '@/lib/theme'
-import { ErrorAlert } from '../auth/LoginPage'
+import { CodeInput, ErrorAlert } from '../auth/LoginPage'
 
 function Panel({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
@@ -46,6 +46,11 @@ export function AccountPage() {
         </Panel>
         <Panel title="Password" description="Changing it signs you out on your other devices."><PasswordForm /></Panel>
         <Panel title="Email"><EmailForm /></Panel>
+        {me.role === 'admin' && (
+          <Panel title="Server password" description={`The Linux password for ${me.username} on the server. sudo asks for it, for example in the admin shell.`}>
+            <ServerPasswordForm />
+          </Panel>
+        )}
         <Panel title="Appearance">
           <ToggleGroup type="single" variant="outline" value={theme} onValueChange={(v) => v && setTheme(v as ThemePref)}>
             <ToggleGroupItem value="system">Match device</ToggleGroupItem>
@@ -93,6 +98,47 @@ function PasswordForm() {
         </Field>
         <ErrorAlert error={change.error} />
         <div><Button type="submit" disabled={!current || !next || change.isPending}>Change password</Button></div>
+      </FieldGroup>
+    </form>
+  )
+}
+
+function ServerPasswordForm() {
+  const [password, setPassword] = useState('')
+  const [current, setCurrent] = useState('')
+  const [code, setCode] = useState('')
+  const set = useMutation({
+    mutationFn: () => unwrap(api.api.terminals.admin.password.$post({ json: { password, currentPassword: current, code } })),
+    onSuccess: () => {
+      setPassword('')
+      setCurrent('')
+      setCode('')
+      toast.success('Server password set. Use it when sudo asks.')
+    },
+    onError: () => setCode(''),
+  })
+  const ready = password.length >= 8 && current && code.length === 6
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    if (ready) set.mutate()
+  }
+  return (
+    <form onSubmit={submit}>
+      <FieldGroup>
+        <Field>
+          <FieldLabel htmlFor="sp-new">New server password</FieldLabel>
+          <Input id="sp-new" type="password" autoComplete="new-password" minLength={8} required className="h-10" value={password} onChange={(e) => setPassword(e.target.value)} />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="sp-current">Your DevDash password</FieldLabel>
+          <Input id="sp-current" type="password" autoComplete="current-password" required className="h-10" value={current} onChange={(e) => setCurrent(e.target.value)} />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="sp-code">Code from your authenticator</FieldLabel>
+          <CodeInput id="sp-code" value={code} onChange={setCode} />
+        </Field>
+        <ErrorAlert error={set.error} />
+        <div><Button type="submit" disabled={!ready || set.isPending}>Set server password</Button></div>
       </FieldGroup>
     </form>
   )

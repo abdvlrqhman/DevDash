@@ -162,6 +162,23 @@ export function authService(deps: { db: Db; masterKey: Buffer; spaceName: string
       return toUser(repo.userById(userId)!)
     },
 
+    /** Re-confirms identity for sensitive changes: current password plus a fresh 2FA code. */
+    async confirm(userId: number, password: string, code: string, ip: string) {
+      rateLimit(`password:${userId}`, 8, FIFTEEN_MIN)
+      const u = repo.userById(userId)
+      if (!u || !(await verifyPassword(password, u.password_hash))) {
+        repo.audit(userId, 'confirm.fail', null, ip, { reason: 'password' })
+        throw new AppError(400, 'wrong_password', 'Your DevDash password is not correct.')
+      }
+      const step = /^\d{6}$/.test(code) ? verifyTotp(unseal(key, u.totp_secret, `totp:user:${u.id}`), code, u.totp_last_step) : null
+      if (step === null || !repo.advanceTotpStep(u.id, step)) {
+        repo.audit(userId, 'confirm.fail', null, ip, { reason: 'totp' })
+        throw new AppError(400, 'bad_code', 'That code is not valid. Wait for the next one and try again.')
+      }
+    },
+
+    audit: (userId: number, action: string, ip: string) => repo.audit(userId, action, null, ip),
+
     /** Fresh 2FA check for sensitive actions (admin shell). Shares the replay guard with sign-in. */
     verifyFreshTotp(userId: number, code: string): boolean {
       rateLimit(`totp:${userId}`, 10, FIFTEEN_MIN)

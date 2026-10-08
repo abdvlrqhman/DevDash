@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { Archive, ChevronDown, Ellipsis, MessageSquare, Pencil, Share2, SquareTerminal } from 'lucide-react'
+import { Archive, Check, ChevronDown, Circle, Ellipsis, FileCode, LoaderCircle, MessageSquare, Pencil, Share2, SquareTerminal } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
 import { PageHeader } from '@/components/app/page'
@@ -27,7 +27,7 @@ import {
   type Effort, type PendingRequest, type PermissionMode, type Session,
 } from './data'
 import { Requests } from './Requests'
-import { buildTranscript, mergeRaw, type Raw } from './transcript'
+import { buildTranscript, mergeRaw, sessionFacts, type Raw } from './transcript'
 import { useTopic } from '@/lib/live'
 
 const light = (s: Session['status']) => (s === 'working' ? 'live' : s === 'waiting' ? 'waiting' : s === 'error' ? 'error' : 'idle')
@@ -124,7 +124,7 @@ export function SessionPage() {
 
   return (
     <div className="flex h-full flex-col">
-      <PageHeader back="/claude"
+      <PageHeader back="/claude" backOnSmall
         title={s.title}
         description={
           <span className="flex items-center gap-1.5">
@@ -153,7 +153,8 @@ export function SessionPage() {
           <CliView id={id} onEnded={() => void info.refetch()} />
         </div>
       ) : (
-        <>
+        <div className="flex min-h-0 flex-1">
+        <div className="flex min-w-0 flex-1 flex-col">
           <div ref={scroller} onScroll={(e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80 }}
             className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6">
             <div className="mx-auto flex max-w-3xl flex-col gap-4">
@@ -173,10 +174,62 @@ export function SessionPage() {
                 disabledReason={canSend ? undefined : `${s.owner.name} shared this session to watch. Only they can send messages.`} />
             </div>
           </div>
-        </>
+        </div>
+        <SessionAside s={s} blocks={blocks} />
+        </div>
       )}
       {isOwner && <RenameDialog open={settings} onOpenChange={setSettings} s={s} onSave={(title) => update.mutate({ title })} />}
     </div>
+  )
+}
+
+/** Wide screens: what Claude is doing at a glance, beside the conversation. */
+function SessionAside({ s, blocks }: { s: Session; blocks: ReturnType<typeof buildTranscript> }) {
+  const { todos, files } = useMemo(() => sessionFacts(blocks), [blocks])
+  const done = todos.filter((t) => t.status === 'completed').length
+  return (
+    <aside aria-label="Session details" className="hidden w-72 shrink-0 flex-col gap-6 overflow-y-auto border-l p-4 text-sm xl:flex">
+      {todos.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h2 className="flex items-baseline justify-between font-medium">To-dos <span className="text-xs font-normal text-muted-foreground">{done} of {todos.length}</span></h2>
+          <ul className="flex flex-col gap-1.5">
+            {todos.map((t, i) => (
+              <li key={i} className={t.status === 'completed' ? 'flex gap-2 text-muted-foreground line-through' : 'flex gap-2'}>
+                {t.status === 'completed' ? <Check className="mt-0.5 size-3.5 shrink-0 text-live" />
+                  : t.status === 'in_progress' ? <LoaderCircle className="mt-0.5 size-3.5 shrink-0 animate-spin" />
+                  : <Circle className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />}
+                <span>{t.content}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      <section className="flex flex-col gap-2">
+        <h2 className="font-medium">Changed files</h2>
+        {files.length ? (
+          <ul className="flex flex-col gap-1">
+            {files.map((f) => (
+              <li key={f.path} className="flex items-center gap-2" title={f.path}>
+                <FileCode className="size-3.5 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate font-mono text-xs">{f.path.split('/').pop()}</span>
+                <span className="shrink-0 font-mono text-xs"><span className="text-live">+{f.added}</span> <span className="text-destructive">-{f.removed}</span></span>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="text-muted-foreground">Nothing yet.</p>}
+      </section>
+      <section className="flex flex-col gap-2">
+        <h2 className="font-medium">Details</h2>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-xs">
+          <dt className="text-muted-foreground">Folder</dt><dd className="truncate font-mono" title={s.cwd}>{shortPath(s.cwd, s.owner.username)}</dd>
+          <dt className="text-muted-foreground">Profile</dt><dd>{s.profile}</dd>
+          <dt className="text-muted-foreground">Model</dt><dd>{s.model ?? 'Default'}</dd>
+          <dt className="text-muted-foreground">Permissions</dt><dd>{modeLabel(s.permissionMode)}</dd>
+          <dt className="text-muted-foreground">Owner</dt><dd>{s.owner.name}</dd>
+          <dt className="text-muted-foreground">Started</dt><dd>{new Date(s.createdAt * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</dd>
+        </dl>
+      </section>
+    </aside>
   )
 }
 

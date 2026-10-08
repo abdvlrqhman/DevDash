@@ -152,7 +152,7 @@ function AdminUnlock({ open, onOpenChange, onUnlocked }: { open: boolean; onOpen
   })
   return (
     <ResponsiveDialog open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) { setCode(''); unlock.reset() } }}
-      title="Confirm it's you" description="The admin shell has root on the whole server. Enter a fresh code from your authenticator. sudo then asks for your Linux password.">
+      title="Confirm it's you" description="The admin shell has root on the whole server. Enter a fresh code from your authenticator. sudo then asks for your server password (set it under Account).">
       <form onSubmit={(e) => { e.preventDefault(); if (code.length === 6) unlock.mutate() }}>
         <FieldGroup>
           <Field>
