@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { Archive, ChevronRight, Plus, Settings2, Sparkles } from 'lucide-react'
+import { Archive, ChevronRight, Plus, Settings2, Sparkles, ChevronDown } from 'lucide-react'
 import { initials, StatusLight } from '@/components/app/brand'
 import { PageBody, PageHeader, Section } from '@/components/app/page'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
@@ -9,6 +9,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -24,6 +25,8 @@ import { NativeSelect } from '@/components/app/native-select'
 import { Switch } from '@/components/ui/switch'
 import { projectsQuery } from '../work/data'
 import { useArchiveSession } from './ArchiveSession'
+import { ModelChoices } from './ModelChoices'
+import { groupModels, isDefaultModel, modelLabel, type ModelInfo } from './models'
 import { byFolder, commandsQuery, FALLBACK_MODELS, PERMISSION_MODES, profilesQuery, relativeTime, sessionsQuery, shortPath, type PermissionMode, type Session } from './data'
 
 export function SessionsPage() {
@@ -136,7 +139,6 @@ const WORDS = [['quiet', 'amber', 'swift', 'bright', 'calm', 'bold', 'lucky', 'm
   ['river', 'falcon', 'maple', 'harbor', 'comet', 'meadow', 'otter', 'canyon', 'cedar', 'lantern', 'summit', 'willow']]
 const pick = (a: string[]) => a[Math.floor(Math.random() * a.length)]!
 export const sessionFolder = () => `~/projects/${pick(WORDS[0]!)}-${pick(WORDS[1]!)}`
-const OTHER_MODEL = '__other'
 
 export function NewSession({ open, onClose, initialPrompt = '', initialCwd, initialProject }: {
   open: boolean; onClose: () => void; initialPrompt?: string; initialCwd?: string; initialProject?: string
@@ -167,9 +169,9 @@ export function NewSession({ open, onClose, initialPrompt = '', initialCwd, init
   const profiles = (setup.data?.profiles as { name: string; loggedIn: boolean }[] | undefined) ?? []
   const chosen = profiles.find((p) => p.name === profile)
   // The models this Claude Code offers (with their versions in the description); a fixed list until it answers.
-  const offered = useQuery({ ...commandsQuery(profile), enabled: open }).data?.models as { value: string; displayName: string; description?: string }[] | undefined
-  const models = offered?.length ? offered : FALLBACK_MODELS
-  const modelValue = customModel ? OTHER_MODEL : models.some((m) => m.value === model) ? model : model === '' && models.some((m) => m.value === 'default') ? 'default' : model
+  const offered = useQuery({ ...commandsQuery(profile), enabled: open }).data?.models as ModelInfo[] | undefined
+  const models: ModelInfo[] = offered?.length ? offered : FALLBACK_MODELS
+  const pickedModel = customModel ? undefined : isDefaultModel(model) ? groupModels(models).def : models.find((m) => m.value === model)
   const create = useMutation({
     mutationFn: () => unwrap(api.api.claude.sessions.$post({
       json: {
@@ -234,18 +236,26 @@ export function NewSession({ open, onClose, initialPrompt = '', initialCwd, init
           )}
           <Field>
             <FieldLabel htmlFor="ns-model">Model</FieldLabel>
-            <NativeSelect id="ns-model" value={modelValue}
-              onChange={(e) => { const v = e.target.value; setCustomModel(v === OTHER_MODEL); setModel(v === OTHER_MODEL ? '' : v) }}>
-              {models.map((m) => <option key={m.value || 'default'} value={m.value}>{m.displayName}</option>)}
-              {!customModel && model && !models.some((m) => m.value === model) && <option value={model}>{model}</option>}
-              <option value={OTHER_MODEL}>Another model (enter its ID)</option>
-            </NativeSelect>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button id="ns-model" type="button" variant="outline" className="h-10 w-full justify-between font-normal">
+                  <span className="truncate">{customModel ? 'Another model' : modelLabel(models, model)}</span><ChevronDown className="text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="max-h-[min(24rem,var(--radix-dropdown-menu-content-available-height))] w-(--radix-dropdown-menu-trigger-width) max-w-none overflow-y-auto">
+                <ModelChoices models={models} value={customModel ? null : model || null} onChange={(v) => { setCustomModel(false); setModel(v ?? '') }} />
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onSelect={() => { setCustomModel(true); setModel('') }}>Another model (enter its ID)</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             {customModel && (
               <Input aria-label="Model ID" className="h-10 font-mono" placeholder="claude-opus-4-1" value={model} onChange={(e) => setModel(e.target.value)}
                 spellCheck={false} autoCapitalize="none" autoFocus />
             )}
             <FieldDescription>
-              {customModel ? 'Any model ID Claude Code accepts, for a specific version.' : models.find((m) => m.value === modelValue)?.description ?? 'Change it any time in the session.'}
+              {customModel ? 'Any model ID Claude Code accepts, for a specific version.'
+                : pickedModel?.description ? `${pickedModel.description}${pickedModel.value && !pickedModel.value.startsWith('claude-') && !isDefaultModel(pickedModel.value) ? '. Always its newest version.' : ''}`
+                : 'Change it any time in the session.'}
             </FieldDescription>
           </Field>
           <Choice id="ns-perm" label="Permissions" value={perm} onChange={(v) => setPerm(v as PermissionMode)}

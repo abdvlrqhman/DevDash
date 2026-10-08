@@ -20,6 +20,8 @@ import { api, meQuery, unwrap } from '@/lib/api'
 import { ErrorAlert } from '../auth/LoginPage'
 import { KeyBar } from '../terminal/KeyBar'
 import { TerminalView, type Mods, type Status as TermStatus, type TerminalHandle } from '../terminal/TerminalView'
+import { ModelChoices } from './ModelChoices'
+import { effortLevels, modelLabel, type ModelInfo } from './models'
 import { Blocks, Prose } from './Blocks'
 import { Composer, type Img } from './Composer'
 import {
@@ -311,25 +313,23 @@ type Updater = (v: { model?: string | null; effort?: Effort | null; permissionMo
 
 /** Model, effort and permissions, changed in place from the chip row. */
 function ModelMenu({ s, disabled, onUpdate }: { s: Session; disabled: boolean; onUpdate: Updater }) {
-  const models = useQuery({ ...commandsQuery(s.profile), enabled: !disabled }).data?.models as { value: string; displayName: string }[] | undefined
-  const list = models?.length ? models : FALLBACK_MODELS
+  const models = useQuery({ ...commandsQuery(s.profile), enabled: !disabled }).data?.models as ModelInfo[] | undefined
+  const list: ModelInfo[] = models?.length ? models : FALLBACK_MODELS
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild disabled={disabled}>
         <Button variant="outline" size="sm" className="shrink-0 max-sm:size-9 max-sm:px-0" aria-label="Model, effort and permissions">
           <SlidersHorizontal className="sm:hidden" />
-          <span className="hidden sm:inline">{list.find((m) => m.value === (s.model ?? ''))?.displayName ?? s.model ?? 'Default model'}</span>
+          <span className="hidden sm:inline">{modelLabel(list, s.model)}</span>
           <span className="hidden items-center gap-1 border-l pl-2 text-foreground/80 sm:flex">
             {s.permissionMode === 'bypassPermissions' ? <ShieldOff /> : <Shield />}{modeLabel(s.permissionMode)}{s.effort ? `, ${s.effort}` : ''}
           </span>
           <ChevronDown className="hidden sm:block" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-64">
+      <DropdownMenuContent align="start" className="max-h-[min(32rem,var(--radix-dropdown-menu-content-available-height))] w-72 overflow-y-auto">
         <DropdownMenuLabel>Model</DropdownMenuLabel>
-        <DropdownMenuRadioGroup value={s.model ?? ''} onValueChange={(v) => onUpdate({ model: v || null })}>
-          {list.map((m) => <DropdownMenuRadioItem key={m.value || 'default'} value={m.value}>{m.displayName}</DropdownMenuRadioItem>)}
-        </DropdownMenuRadioGroup>
+        <ModelChoices models={list} value={s.model} onChange={(v) => onUpdate({ model: v })} />
         <DropdownMenuSeparator />
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>Permissions: {modeLabel(s.permissionMode)}</DropdownMenuSubTrigger>
@@ -348,7 +348,7 @@ function ModelMenu({ s, disabled, onUpdate }: { s: Session; disabled: boolean; o
           <DropdownMenuSubContent>
             <DropdownMenuRadioGroup value={s.effort ?? ''} onValueChange={(v) => onUpdate({ effort: (v || null) as Effort | null })}>
               <DropdownMenuRadioItem value="">Auto</DropdownMenuRadioItem>
-              {EFFORTS.map((e) => <DropdownMenuRadioItem key={e} value={e} className="capitalize">{e}</DropdownMenuRadioItem>)}
+              {effortLevels(list, s.model, EFFORTS).map((e) => <DropdownMenuRadioItem key={e} value={e} className="capitalize">{e}</DropdownMenuRadioItem>)}
             </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
             <p className="px-2 py-1.5 text-xs text-muted-foreground">{s.mode === 'cli' ? 'In the CLI it applies when the CLI next opens; use /effort to change it right away.' : 'Applies right away, even mid-answer.'}</p>
