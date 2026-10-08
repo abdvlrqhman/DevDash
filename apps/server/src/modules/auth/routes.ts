@@ -32,7 +32,9 @@ export function authMiddleware(auth: AuthService) {
     if (c.get('user').role !== 'admin') throw new AppError(403, 'forbidden', 'Admins only.')
     await next()
   }
-  return { requireUser, requireAdmin }
+  /** The signed-in member, or null (for endpoints that also accept other credentials). */
+  const signedIn = (c: Context) => auth.sessionUser(getCookie(c, COOKIE, 'host'))?.user ?? null
+  return { requireUser, requireAdmin, signedIn }
 }
 
 const LoginInput = z.object({

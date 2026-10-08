@@ -37,7 +37,10 @@
 		}
 		reverse_proxy 127.0.0.1:8090
 	}
-	# Public share links: a download page and the file, nothing else.
+	# Public share links and browser invites: nothing else is public.
+	handle /watch/* {
+		reverse_proxy 127.0.0.1:8787
+	}
 	handle /s/* {
 		reverse_proxy 127.0.0.1:8787
 	}

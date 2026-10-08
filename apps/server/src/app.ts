@@ -14,7 +14,7 @@ import { filesRoutes, publicShareRoutes } from './modules/files/routes.ts'
 import { sharesService } from './modules/files/shares.ts'
 import { buildsRoutes } from './modules/builds/routes.ts'
 import { vaultRoutes } from './modules/vault/routes.ts'
-import { browserRoutes } from './modules/browser/routes.ts'
+import { browserRoutes, watchRoutes } from './modules/browser/routes.ts'
 import { browserService } from './modules/browser/service.ts'
 import { vaultService } from './modules/vault/service.ts'
 import { buildsService } from './modules/builds/service.ts'
@@ -77,7 +77,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
 
   const builds = buildsService({ db, agents, projects, shares })
   const vault = vaultService({ db })
-  const browser = browserService({ runDir: config.runDir })
+  const browser = browserService({ db, runDir: config.runDir, dataDir: config.dataDir, masterKey: config.masterKey, origin: config.origin })
   const app = new Hono()
     // Public: lets the native shell check that a domain is a DevDash space before loading it.
     .get('/.well-known/devdash.json', (c) => {
@@ -87,6 +87,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     })
     // Public share links (the only public pages): a small download page, no app, no listing.
     .route('/s', publicShareRoutes(shares, ip))
+    .route('/watch', watchRoutes(browser, ip))
     .use('/api/*', sameOrigin(config.origin))
     .route('/api/auth', authRoutes(auth, mw, ip, (u) => void provisioning.ensure(u)))
     .route('/api/members', membersRoutes(auth, mw, ip, config.origin, (id) => vault.memberRemoved(id)))
