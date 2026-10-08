@@ -197,7 +197,7 @@ export function claudeService({ db, agents, hub }: { db: Db; agents: AgentsServi
       }
       repo.patch(id, patch)
       for (const [key, value] of [['model', p.model], ['effort', p.effort], ['permissionMode', p.permissionMode]] as const) {
-        if (value !== undefined) await agents.request(s.owner_username, { op: 'claude.set', id, key, value }).catch(() => {})
+        if (value !== undefined && s.mode === 'chat') await agents.request(s.owner_username, { op: 'claude.set', id, key, value })
       }
       if (p.archived) await agents.request(s.owner_username, { op: 'claude.stop', id }).catch(() => {})
       publish(id)

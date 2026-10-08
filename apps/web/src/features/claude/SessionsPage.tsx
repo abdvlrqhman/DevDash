@@ -19,7 +19,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { api, meQuery, unwrap } from '@/lib/api'
 import { ErrorAlert } from '../auth/LoginPage'
-import { FALLBACK_MODELS, PERMISSION_MODES, profilesQuery, relativeTime, sessionsQuery, shortPath, type PermissionMode, type Session } from './data'
+import { byFolder, FALLBACK_MODELS, PERMISSION_MODES, profilesQuery, relativeTime, sessionsQuery, shortPath, type PermissionMode, type Session } from './data'
 
 export function SessionsPage() {
   const me = useQuery(meQuery).data!
@@ -29,8 +29,7 @@ export function SessionsPage() {
 
   const sessions = list.data?.sessions ?? []
   const waiting = sessions.filter((s) => s.status === 'waiting')
-  const running = sessions.filter((s) => s.status === 'working')
-  const rest = sessions.filter((s) => s.status !== 'waiting' && s.status !== 'working')
+  const groups = byFolder(archived ? sessions : sessions.filter((s) => s.status !== 'waiting'))
 
   return (
     <>
@@ -49,8 +48,9 @@ export function SessionsPage() {
             </ItemGroup>
           </Section>
         )}
-        {!archived && running.length > 0 && <SessionList title="Running" sessions={running} me={me.id} />}
-        {rest.length > 0 && <SessionList title={archived ? undefined : 'Idle'} sessions={rest} me={me.id} />}
+        {groups.map((g) => (
+          <SessionList key={g.cwd} title={<span className="font-mono">{shortPath(g.cwd, me.username)}</span>} sessions={g.sessions} me={me.id} />
+        ))}
         {list.isSuccess && !sessions.length && (
           <Empty className="border">
             <EmptyHeader>
@@ -83,7 +83,7 @@ function SessionRow({ s, me, highlight }: { s: Session; me: number; highlight?: 
           <ItemTitle className="line-clamp-1">{s.title}</ItemTitle>
           <ItemDescription className="line-clamp-1">
             {s.owner.id !== me && <span className="text-foreground">{s.owner.name.split(' ')[0]}, </span>}
-            <span className="font-mono">{shortPath(s.cwd, s.owner.username)}</span>, {relativeTime(s.lastActivityAt)}
+            {s.status === 'working' ? 'Working' : s.status === 'waiting' ? 'Needs you' : relativeTime(s.lastActivityAt)}{highlight ? <>, <span className="font-mono">{shortPath(s.cwd, s.owner.username)}</span></> : null}
           </ItemDescription>
         </ItemContent>
         <ItemActions>
@@ -97,7 +97,7 @@ function SessionRow({ s, me, highlight }: { s: Session; me: number; highlight?: 
   )
 }
 
-function SessionList({ title, sessions, me }: { title?: string; sessions: Session[]; me: number }) {
+function SessionList({ title, sessions, me }: { title?: React.ReactNode; sessions: Session[]; me: number }) {
   return (
     <Section title={title}>
       <ItemGroup className="rounded-xl border">{sessions.map((s) => <SessionRow key={s.id} s={s} me={me} />)}</ItemGroup>

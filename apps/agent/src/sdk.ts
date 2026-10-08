@@ -23,6 +23,8 @@ export type Query = AsyncGenerator<SDKMessage, void> & {
   interrupt(): Promise<unknown>
   setPermissionMode(mode: PermissionMode): Promise<void>
   setModel(model?: string): Promise<void>
+  /** Session-scoped settings, applied live (e.g. { effortLevel: 'xhigh' }; null resets to the model default). */
+  applyFlagSettings(settings: Record<string, unknown>): Promise<void>
   supportedCommands(): Promise<{ name: string; description: string; argumentHint?: string }[]>
   supportedModels(): Promise<{ value: string; displayName: string; description?: string }[]>
   close(): void

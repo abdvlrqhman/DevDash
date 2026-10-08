@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { Archive, Check, ChevronDown, Circle, Ellipsis, FileCode, LoaderCircle, MessageSquare, Pencil, Share2, SquareTerminal } from 'lucide-react'
@@ -26,6 +26,7 @@ import {
   EFFORTS, FALLBACK_MODELS, PERMISSION_MODES, commandsQuery, modeLabel, profilesQuery, sessionQuery, shortPath, STATUS_LABEL,
   type Effort, type PendingRequest, type PermissionMode, type Session,
 } from './data'
+import { createLiveText, type LiveTextStore } from './live-text'
 import { Requests } from './Requests'
 import { buildTranscript, mergeRaw, sessionFacts, type Raw } from './transcript'
 import { useTopic } from '@/lib/live'
@@ -44,7 +45,7 @@ export function SessionPage() {
     staleTime: Infinity,
   })
   const [raw, setRaw] = useState<Raw[]>([])
-  const [liveText, setLiveText] = useState('')
+  const [liveText] = useState(createLiveText)
   const [pending, setPending] = useState<PendingRequest[]>([])
   const [settings, setSettings] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
@@ -63,11 +64,11 @@ export function SessionPage() {
       const m = e.msg as Raw & { event?: { type?: string; delta?: { type?: string; text?: string } } }
       if (m.type === 'stream_event') {
         if (m.parent_tool_use_id) return
-        if (m.event?.type === 'message_start') setLiveText('')
-        else if (m.event?.delta?.type === 'text_delta') setLiveText((t) => t + (m.event!.delta!.text ?? ''))
+        if (m.event?.type === 'message_start') liveText.reset()
+        else if (m.event?.delta?.type === 'text_delta') liveText.append(m.event!.delta!.text ?? '')
         return
       }
-      if (m.type === 'assistant' && !m.parent_tool_use_id) setLiveText('')
+      if (m.type === 'assistant' && !m.parent_tool_use_id) liveText.reset()
       setRaw((r) => mergeRaw(r, [m]))
     }
   }, () => {
@@ -78,10 +79,11 @@ export function SessionPage() {
   useEffect(() => { if (history.data) setRaw((live) => mergeRaw(history.data.messages as Raw[], live)) }, [history.data])
   useEffect(() => { if (info.data) setPending(info.data.pending as PendingRequest[]) }, [info.data])
   const blocks = useMemo(() => buildTranscript(raw), [raw])
-  useEffect(() => {
+  const toBottom = () => {
     const el = scroller.current
     if (el && stick.current) el.scrollTop = el.scrollHeight
-  }, [blocks, liveText, pending])
+  }
+  useEffect(toBottom, [blocks, pending])
 
   const send = async (text: string, images: Img[]) => {
     const { uuid } = await unwrap(api.api.claude.sessions[':id'].messages.$post({ param: { id }, json: { text, images } }))
@@ -162,8 +164,7 @@ export function SessionPage() {
               <ErrorAlert error={history.error} />
               {!s.started && !raw.length && <p className="py-10 text-center text-muted-foreground">Tell Claude what to work on.</p>}
               <Blocks blocks={blocks} senders={history.data?.senders} />
-              {liveText && <Prose text={liveText} />}
-              {working && !liveText && <p className="flex items-center gap-2 text-sm text-muted-foreground"><StatusLight state="live" />Claude is working…</p>}
+              <LiveText store={liveText} working={working} onGrow={toBottom} />
               {s.status === 'error' && s.statusDetail && <ErrorAlert error={s.statusDetail} />}
               <Requests sessionId={id} requests={pending} canAnswer={canSend} afterPlanApproved={afterPlanApproved} />
             </div>
@@ -182,6 +183,16 @@ export function SessionPage() {
     </div>
   )
 }
+
+/** Only this re-renders while Claude types, at most once per frame (see live-text.ts). */
+const LiveText = memo(function LiveText({ store, working, onGrow }: { store: LiveTextStore; working: boolean; onGrow: () => void }) {
+  const text = useSyncExternalStore(store.subscribe, store.get)
+  const grow = useRef(onGrow)
+  grow.current = onGrow
+  useLayoutEffect(() => grow.current(), [text])
+  if (text) return <Prose text={text} />
+  return working ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><StatusLight state="live" />Claude is working…</p> : null
+})
 
 /** Wide screens: what Claude is doing at a glance, beside the conversation. */
 function SessionAside({ s, blocks }: { s: Session; blocks: ReturnType<typeof buildTranscript> }) {
@@ -290,7 +301,7 @@ function ModelMenu({ s, disabled, onUpdate }: { s: Session; disabled: boolean; o
               {EFFORTS.map((e) => <DropdownMenuRadioItem key={e} value={e} className="capitalize">{e}</DropdownMenuRadioItem>)}
             </DropdownMenuRadioGroup>
             <DropdownMenuSeparator />
-            <p className="px-2 py-1.5 text-xs text-muted-foreground">Applies from the next message.</p>
+            <p className="px-2 py-1.5 text-xs text-muted-foreground">{s.mode === 'cli' ? 'In the CLI it applies when the CLI next opens; use /effort to change it right away.' : 'Applies right away, even mid-answer.'}</p>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
       </DropdownMenuContent>

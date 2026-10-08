@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { memo, useState, type ReactNode } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -9,7 +9,7 @@ import { openExternal } from '@/lib/shell'
 import { cn } from '@/lib/utils'
 import type { Block, ToolBlock } from './transcript'
 
-export function Prose({ text }: { text: string }) {
+export const Prose = memo(function Prose({ text }: { text: string }) {
   return (
     <div className="prose-dd text-[15px] md:text-sm">
       <Markdown remarkPlugins={[remarkGfm]} components={{
@@ -17,9 +17,9 @@ export function Prose({ text }: { text: string }) {
       }}>{text}</Markdown>
     </div>
   )
-}
+})
 
-export function Blocks({ blocks, senders, nested }: { blocks: Block[]; senders?: Record<string, { name: string }>; nested?: boolean }) {
+export const Blocks = memo(function Blocks({ blocks, senders, nested }: { blocks: Block[]; senders?: Record<string, { name: string }>; nested?: boolean }) {
   return (
     <div className={cn('flex flex-col', nested ? 'gap-2' : 'gap-4')}>
       {blocks.map((b) => {
@@ -62,7 +62,7 @@ export function Blocks({ blocks, senders, nested }: { blocks: Block[]; senders?:
       })}
     </div>
   )
-}
+})
 
 function Thinking({ text }: { text: string }) {
   return (

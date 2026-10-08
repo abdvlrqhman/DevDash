@@ -213,13 +213,14 @@ export async function interrupt(id: string) {
   else if (await hasSession(cliName(id))) await tmux('send-keys', '-t', `=${cliName(id)}`, 'Escape')
 }
 
-/** Model and permission mode change live; effort applies when the process next starts. */
+/** Model, permission mode and effort all apply live to a running Chat session (and to the next start otherwise). */
 export async function setOption(id: string, key: 'model' | 'permissionMode' | 'effort', value: string | null) {
   const c = chats.get(id)
   if (!c) return
   if (key === 'model') await c.q.setModel(value ?? undefined)
   else if (key === 'permissionMode') await c.q.setPermissionMode(value as PermissionMode)
-  else if (c.status === 'idle' && !c.pending.size) await stopChat(c) // resumes with the new effort on the next message
+  else await c.q.applyFlagSettings({ effortLevel: value })
+  c.launch = { ...c.launch, [key]: value }
 }
 
 export async function stop(id: string) {
