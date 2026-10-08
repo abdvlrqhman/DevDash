@@ -1,5 +1,4 @@
-import { createHash, createHmac } from 'node:crypto'
-import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Db } from '../../core/db.ts'
 import { newToken, seal, sha256, unseal } from '../../core/crypto.ts'
@@ -17,18 +16,11 @@ type Invite = { id: number; token_hash: string; token_sealed: string; label: str
  * The team's shared remote browser: one Chromium (neko) in Docker, started by the root helper when someone opens it
  * and stopped after 30 minutes with nobody watching. Logins and cookies persist in a volume between runs.
  *
- * Who may use it is DevDash's call: it writes neko's member file (hashed passwords, derived from the master key, so
- * nothing extra is stored): every member under their own name, and a watch-only account per invite link.
- * Caddy lets a request reach /browser/ only with a DevDash session or a live invite cookie.
+ * Members join under their own name with full control; invite links let guests watch only. Caddy lets a request reach
+ * /browser/ only with a DevDash session or a live invite cookie, so a revoked or expired invite stops working at once.
  */
 export function browserService({ db, runDir, dataDir, masterKey, origin }: { db: Db; runDir: string; dataDir: string; masterKey: Buffer; origin: string }) {
-  const dir = join(dataDir, 'browser')
-  // neko runs as another user inside its container: the folder and file must be world-readable (the service's
-  // umask would otherwise strip that). Passwords in it are hashes of keys derived from the master key.
-  mkdirSync(dir, { recursive: true })
-  chmodSync(dir, 0o755)
   const q = {
-    members: db.prepare('select username, name, role from users where disabled_at is null'),
     invites: db.prepare('select i.*, u.name as creator_name from browser_invites i join users u on u.id = i.created_by where i.revoked_at is null and i.expires_at > unixepoch() order by i.id desc'),
     byHash: db.prepare('select i.*, u.name as creator_name from browser_invites i join users u on u.id = i.created_by where i.token_hash = ?'),
     insert: db.prepare("insert into browser_invites (token_hash, token_sealed, label, can_control, expires_at, created_by) values (?, '', ?, ?, ?, ?) returning id"),
@@ -37,26 +29,11 @@ export function browserService({ db, runDir, dataDir, masterKey, origin }: { db:
   }
   let lastSeen = 0
 
-  const passwordFor = (login: string) => createHmac('sha256', masterKey).update(`neko-login:${login}`).digest('base64url')
-  const hashed = (password: string) => createHash('sha256').update(password).digest('base64')
-  const profile = (name: string, o: { admin?: boolean; control: boolean }) => ({
-    name, avatar: '', is_admin: !!o.admin, can_login: true, can_connect: true, can_watch: true, can_host: o.control,
-    can_share_media: o.control, can_access_clipboard: o.control, sends_inactive_cursor: true, can_see_inactive_cursors: true, plugins: {},
-  })
-
-  /** Rewrites neko's member list: members, plus guests of invites that are still valid. */
-  function writeMembers() {
-    const entries: Record<string, unknown> = {}
-    for (const m of q.members.all() as { username: string; name: string; role: string }[]) {
-      entries[m.username] = { password: hashed(passwordFor(m.username)), profile: profile(m.name, { admin: m.role === 'admin', control: true }) }
-    }
-    for (const i of q.invites.all() as Invite[]) {
-      entries[`guest-${i.id}`] = { password: hashed(passwordFor(`guest-${i.id}`)), profile: profile(`${i.label} (guest)`, { control: i.can_control === 1 }) }
-    }
-    const file = join(dir, 'members.json')
-    writeFileSync(`${file}.tmp`, JSON.stringify(entries))
-    chmodSync(`${file}.tmp`, 0o644)
-    renameSync(`${file}.tmp`, file)
+  /** The bundled neko client only signs in with neko's multiuser mode: members get the admin profile, guests the watch-only one. */
+  const secret = (key: 'NEKO_MEMBER_MULTIUSER_ADMIN_PASSWORD' | 'NEKO_MEMBER_MULTIUSER_USER_PASSWORD') => {
+    const v = readFileSync(ENV_FILE, 'utf8').match(new RegExp(`^${key}=(.+)$`, 'm'))?.[1]
+    if (!v) throw new AppError(409, 'browser', 'The browser is not set up yet. Try again in a moment.')
+    return v
   }
 
   async function helper<T = Record<string, unknown>>(cmd: string): Promise<T> {
@@ -70,7 +47,6 @@ export function browserService({ db, runDir, dataDir, masterKey, origin }: { db:
   }
 
   async function start() {
-    writeMembers()
     await helper('browser-start')
     lastSeen = Date.now()
     for (let i = 0; i < 90; i++) {
@@ -95,10 +71,9 @@ export function browserService({ db, runDir, dataDir, masterKey, origin }: { db:
     }
   }
 
-  // Every minute: expired invites leave the member list; an unwatched browser stops after 30 minutes.
+  // Every minute: an unwatched browser stops after 30 minutes.
   setInterval(() => {
     void (async () => {
-      try { writeMembers() } catch { /* not on the server */ }
       if (!runDir) return
       if (!lastSeen) {
         const r = await helper<{ running: boolean }>('browser-status').catch(() => ({ running: false }))
@@ -121,9 +96,9 @@ export function browserService({ db, runDir, dataDir, masterKey, origin }: { db:
     status: async () => ({ running: (await helper<{ running: boolean }>('browser-status')).running }),
 
     /** Starts it if needed and returns the address that signs this member in (neko reads usr/pwd from the URL, then drops them). */
-    async open(user: Pick<User, 'username'>) {
+    async open(user: Pick<User, 'name'>) {
       await start()
-      return `/browser/?${new URLSearchParams({ usr: user.username, pwd: passwordFor(user.username) })}`
+      return `/browser/?${new URLSearchParams({ usr: user.name, pwd: secret('NEKO_MEMBER_MULTIUSER_ADMIN_PASSWORD') })}`
     },
     heartbeat: () => void (lastSeen = Date.now()),
     async stop() {
@@ -136,12 +111,11 @@ export function browserService({ db, runDir, dataDir, masterKey, origin }: { db:
       const token = newToken()
       const { id } = q.insert.get(sha256(token), o.label.trim(), o.canControl ? 1 : 0, Math.floor(Date.now() / 1000) + o.hours * 3600, user.id) as { id: number }
       q.sealToken.run(seal(masterKey, Buffer.from(token), `browser-invite:${id}`), id)
-      writeMembers()
       return dto((q.invites.all() as Invite[]).find((i) => i.id === id)!)
     },
+    /** Revoked guests can't reach /browser/ any more: Caddy checks the invite on every request. */
     revokeInvite(id: number) {
       q.revoke.run(id)
-      writeMembers()
     },
 
     /** A live invite behind a token, if any. */
@@ -153,7 +127,7 @@ export function browserService({ db, runDir, dataDir, masterKey, origin }: { db:
     /** For an invite's guest: starts the browser if needed and returns their sign-in address. */
     async guestUrl(i: Invite) {
       await start()
-      return `/browser/?${new URLSearchParams({ usr: `guest-${i.id}`, pwd: passwordFor(`guest-${i.id}`) })}`
+      return `/browser/?${new URLSearchParams({ usr: `${i.label} (guest)`, pwd: secret('NEKO_MEMBER_MULTIUSER_USER_PASSWORD') })}`
     },
   }
 }

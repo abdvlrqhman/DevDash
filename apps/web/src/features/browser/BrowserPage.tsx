@@ -6,9 +6,8 @@ import { PageHeader } from '@/components/app/page'
 import { NativeSelect } from '@/components/app/native-select'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
 import { Button } from '@/components/ui/button'
-import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
-import { Switch } from '@/components/ui/switch'
 import { Spinner } from '@/components/ui/spinner'
 import { api, meQuery, unwrap } from '@/lib/api'
 import { inShell } from '@/lib/shell'
@@ -84,9 +83,8 @@ function Invites({ onClose }: { onClose: () => void }) {
   const list = useQuery({ queryKey: ['browser', 'invites'], queryFn: () => unwrap(api.api.browser.invites.$get()) })
   const [label, setLabel] = useState('')
   const [hours, setHours] = useState(24)
-  const [control, setControl] = useState(false)
   const create = useMutation({
-    mutationFn: () => unwrap(api.api.browser.invites.$post({ json: { label, hours, canControl: control } })),
+    mutationFn: () => unwrap(api.api.browser.invites.$post({ json: { label, hours, canControl: false } })),
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ['browser', 'invites'] })
       setLabel('')
@@ -100,7 +98,7 @@ function Invites({ onClose }: { onClose: () => void }) {
   const copy = (u: string) => void navigator.clipboard.writeText(u).then(() => toast.success('Invite link copied'))
   return (
     <ResponsiveDialog open onOpenChange={(v) => !v && onClose()} title="Invite people to watch"
-      description="Anyone with the link sees the shared browser live, without a DevDash account. They can't reach anything else in DevDash.">
+      description="Anyone with the link sees the shared browser live, without a DevDash account. They can't control it or reach anything else in DevDash.">
       <div className="flex flex-col gap-5 pb-2">
         <form onSubmit={(e) => { e.preventDefault(); if (label.trim()) create.mutate() }}>
           <FieldGroup>
@@ -115,13 +113,6 @@ function Invites({ onClose }: { onClose: () => void }) {
                 {DURATIONS.map(([h, l]) => <option key={h} value={h}>{l}</option>)}
               </NativeSelect>
             </Field>
-            <Field orientation="horizontal">
-              <FieldContent>
-                <FieldLabel htmlFor="bi-control">Can take control</FieldLabel>
-                <FieldDescription>Off: they only watch. On: they can use the mouse and keyboard when nobody else is.</FieldDescription>
-              </FieldContent>
-              <Switch id="bi-control" checked={control} onCheckedChange={setControl} />
-            </Field>
             <ErrorAlert error={create.error} />
             <Button type="submit" className="h-10" disabled={!label.trim() || create.isPending}><UserPlus />Create and copy link</Button>
           </FieldGroup>
@@ -134,7 +125,7 @@ function Invites({ onClose }: { onClose: () => void }) {
                 <li key={i.id} className="flex items-center gap-2 border-b px-3 py-2 text-sm last:border-b-0">
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">{i.label}</span>
-                    <span className="block truncate text-xs text-muted-foreground">{i.canControl ? 'Can take control' : 'Watch only'}, until {new Date(i.expiresAt * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</span>
+                    <span className="block truncate text-xs text-muted-foreground">Watch only, until {new Date(i.expiresAt * 1000).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</span>
                   </span>
                   <Button size="icon-sm" variant="ghost" aria-label="Copy link" onClick={() => copy(i.url)}><Copy /></Button>
                   <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" disabled={revoke.isPending} onClick={() => revoke.mutate(i.id)}>Turn off</Button>

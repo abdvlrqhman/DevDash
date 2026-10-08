@@ -1,12 +1,15 @@
+import { execFile } from 'node:child_process'
 import { readFileSync, readlinkSync, statfsSync, statSync } from 'node:fs'
 import { cpus, loadavg, uptime } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import type { Db } from '../../core/db.ts'
 import { requestLine } from '../../core/unix.ts'
 import type { AgentsService } from '../agents/service.ts'
 import type { ServicesService } from '../services/service.ts'
 import type { BrowserService } from '../browser/service.ts'
 
+const run = promisify(execFile)
 const read = (path: string) => { try { return readFileSync(path, 'utf8') } catch { return null } }
 
 /** One look at the server's health: resources, versions, backups and the parts of DevDash that run on it. */
@@ -32,9 +35,13 @@ export function statusService({ db, agents, services, browser, runDir, dataDir, 
       return { id: target.split('/').pop() ?? target, since: Math.floor(statSync(target).mtimeMs / 1000) }
     } catch { return null }
   }
-  const claudeVersion = () => {
-    const pkg = read('/opt/devdash/claude/current/node_modules/@anthropic-ai/claude-code/package.json') ?? read('/opt/devdash/claude/current/package.json')
-    try { return pkg ? (JSON.parse(pkg) as { version?: string }).version ?? null : null } catch { return null }
+  // The version of the Claude Code binary DevDash runs (asked once per update, not on every page load).
+  let claude: { at: number; version: string | null } = { at: 0, version: null }
+  async function claudeVersion() {
+    if (Date.now() - claude.at < 10 * 60_000) return claude.version
+    const out = await run('/opt/devdash/claude/current/bin/claude', ['--version'], { timeout: 10_000 }).then((r) => r.stdout, () => '')
+    claude = { at: Date.now(), version: out.match(/\d+\.\d+\.\d+/)?.[0] ?? null }
+    return claude.version
   }
 
   return {
@@ -50,7 +57,7 @@ export function statusService({ db, agents, services, browser, runDir, dataDir, 
       const backup = read(join(dataDir, 'backup-status.json'))
       return {
         host: { uptime: Math.floor(uptime()), load: loadavg(), cpus: cpus().length, memory: memory(), disk: disk() },
-        software: { devdash: version, release: release(), claude: claudeVersion(), node: process.versions.node },
+        software: { devdash: version, release: release(), claude: await claudeVersion(), node: process.versions.node },
         backup: backup ? JSON.parse(backup) as { at: number; ok: boolean; snapshot: string; bytes: number; offsite: boolean; note: string } : null,
         agents: agentStates,
         services: { total: svc.length, running: svc.filter((s) => s.state === 'running').length, crashed: svc.filter((s) => s.state === 'crashed').map((s) => s.name) },
