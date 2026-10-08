@@ -1,5 +1,5 @@
 import { createHash, createHmac } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Db } from '../../core/db.ts'
 import { newToken, seal, sha256, unseal } from '../../core/crypto.ts'
@@ -23,7 +23,10 @@ type Invite = { id: number; token_hash: string; token_sealed: string; label: str
  */
 export function browserService({ db, runDir, dataDir, masterKey, origin }: { db: Db; runDir: string; dataDir: string; masterKey: Buffer; origin: string }) {
   const dir = join(dataDir, 'browser')
-  mkdirSync(dir, { recursive: true, mode: 0o755 })
+  // neko runs as another user inside its container: the folder and file must be world-readable (the service's
+  // umask would otherwise strip that). Passwords in it are hashes of keys derived from the master key.
+  mkdirSync(dir, { recursive: true })
+  chmodSync(dir, 0o755)
   const q = {
     members: db.prepare('select username, name, role from users where disabled_at is null'),
     invites: db.prepare('select i.*, u.name as creator_name from browser_invites i join users u on u.id = i.created_by where i.revoked_at is null and i.expires_at > unixepoch() order by i.id desc'),
@@ -51,7 +54,8 @@ export function browserService({ db, runDir, dataDir, masterKey, origin }: { db:
       entries[`guest-${i.id}`] = { password: hashed(passwordFor(`guest-${i.id}`)), profile: profile(`${i.label} (guest)`, { control: i.can_control === 1 }) }
     }
     const file = join(dir, 'members.json')
-    writeFileSync(`${file}.tmp`, JSON.stringify(entries), { mode: 0o644 })
+    writeFileSync(`${file}.tmp`, JSON.stringify(entries))
+    chmodSync(`${file}.tmp`, 0o644)
     renameSync(`${file}.tmp`, file)
   }
 
