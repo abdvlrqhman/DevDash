@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { ArrowLeftRight, ChevronRight, Download, Globe, HardDrive, KeyRound, LogOut, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Users } from 'lucide-react'
+import { Activity, ArrowLeftRight, ChevronRight, Download, Globe, HardDrive, KeyRound, LogOut, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Users } from 'lucide-react'
 import { initials } from '@/components/app/brand'
 import { PageBody, PageHeader, Section } from '@/components/app/page'
 import { useSignOut } from '@/components/app/shell'
@@ -19,6 +19,7 @@ const LINKS = [
   { to: '/browser', label: 'Browser', description: 'A shared browser on the server that stays signed in', icon: Globe },
   { to: '/files', label: 'Files', description: 'Browse, upload and share files on the server', icon: HardDrive },
   { to: '/services', label: 'Services', description: 'Websites, APIs and containers that stay up', icon: Server },
+  { to: '/server', label: 'Server', description: 'Health, versions and backups', icon: Activity },
   { to: '/members', label: 'Members', description: 'Invite people and see who has access', icon: Users },
   { to: '/claude/setup', label: 'Claude setup', description: 'Profiles, sign-in and defaults', icon: Sparkles },
   { to: '/account', label: 'Account', description: 'Password, email and appearance', icon: Settings },

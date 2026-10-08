@@ -47,7 +47,8 @@ DOMAIN=$(sed -n 's|^DEVDASH_ORIGIN=https://||p' "$ENV_FILE")
 # The root helper runs from a root-owned copy, installed before any npm build step can touch the release dir.
 install -d -m 755 /usr/local/libexec
 install -m 755 -o root -g root "$REL/deploy/helper/devdash-helper.mjs" /usr/local/libexec/devdash-helper.mjs
-for unit in devdash-server.service devdash-helper.socket devdash-helper@.service devdash-agent@.socket devdash-agent@.service; do
+install -m 755 -o root -g root "$REL/deploy/backup.sh" /usr/local/libexec/devdash-backup.sh
+for unit in devdash-server.service devdash-helper.socket devdash-helper@.service devdash-agent@.socket devdash-agent@.service devdash-backup.service devdash-backup.timer; do
   install -m 644 "$REL/deploy/systemd/$unit" "/etc/systemd/system/$unit"
 done
 install -m 755 "$REL/deploy/devdash-cli" /usr/local/bin/devdash
@@ -73,3 +74,4 @@ out=$(DEVDASH_DOMAIN=$DOMAIN caddy validate --config /etc/caddy/Caddyfile --adap
 systemctl daemon-reload
 systemctl enable -q --now devdash-helper.socket
 systemctl enable -q devdash-server caddy
+systemctl enable -q --now devdash-backup.timer

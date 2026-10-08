@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import {
-  ArrowLeftRight, ChevronsUpDown, Download, Ellipsis, FolderGit2, Globe, HardDrive, House, KeyRound, ListTodo, LogOut, Monitor, Moon, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Sun, Users,
+  Activity, ArrowLeftRight, ChevronsUpDown, Download, Ellipsis, FolderGit2, Globe, HardDrive, House, KeyRound, ListTodo, LogOut, Monitor, Moon, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Sun, Users,
 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -10,7 +10,7 @@ import {
   DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
-  Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuBadge,
+  Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuBadge,
   SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarRail, useSidebar,
 } from '@/components/ui/sidebar'
 import { Toaster } from '@/components/ui/sonner'
@@ -25,19 +25,27 @@ import { initials, Logo } from './brand'
 import { useDragWidth, useStoredWidth } from './resize-handle'
 import { SearchDialog, showSearch } from './search'
 
-const NAV = [
-  { to: '/', label: 'Home', icon: House, exact: true },
-  { to: '/projects', label: 'Projects', icon: FolderGit2 },
-  { to: '/tasks', label: 'Tasks', icon: ListTodo },
-  { to: '/claude', label: 'Claude', icon: Sparkles },
-  { to: '/notes', label: 'Notes', icon: StickyNote },
-  { to: '/vault', label: 'Vault', icon: KeyRound },
-  { to: '/terminal', label: 'Terminal', icon: SquareTerminal },
-  { to: '/files', label: 'Files', icon: HardDrive },
-  { to: '/browser', label: 'Browser', icon: Globe },
-  { to: '/services', label: 'Services', icon: Server },
-  { to: '/members', label: 'Members', icon: Users },
-] as const
+type NavItem = { to: string; label: string; icon: typeof House; exact?: true }
+const NAV: { label?: string; items: NavItem[] }[] = [
+  { items: [{ to: '/', label: 'Home', icon: House, exact: true }] },
+  { label: 'Work', items: [
+    { to: '/projects', label: 'Projects', icon: FolderGit2 },
+    { to: '/tasks', label: 'Tasks', icon: ListTodo },
+    { to: '/claude', label: 'Claude', icon: Sparkles },
+    { to: '/notes', label: 'Notes', icon: StickyNote },
+  ] },
+  { label: 'Tools', items: [
+    { to: '/terminal', label: 'Terminal', icon: SquareTerminal },
+    { to: '/services', label: 'Services', icon: Server },
+    { to: '/files', label: 'Files', icon: HardDrive },
+    { to: '/browser', label: 'Browser', icon: Globe },
+    { to: '/vault', label: 'Vault', icon: KeyRound },
+  ] },
+  { label: 'Team', items: [
+    { to: '/members', label: 'Members', icon: Users },
+    { to: '/server', label: 'Server', icon: Activity },
+  ] },
+]
 
 /**
  * Pins the app to the visible area. When the on-screen keyboard opens, iOS shrinks the visual viewport and scrolls the
@@ -138,25 +146,30 @@ function AppSidebar({ waiting, pane }: { waiting: number; pane: ReturnType<typeo
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        <SidebarGroup>
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton tooltip="Search" onClick={showSearch} className="text-muted-foreground">
-                <Search /><span>Search</span><kbd className="ml-auto rounded border px-1 font-mono text-[10px]">⌘K</kbd>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-            {NAV.map((n) => (
-              <SidebarMenuItem key={n.to}>
-                <SidebarMenuButton asChild isActive={active(n.to, 'exact' in n)} tooltip={n.label}>
-                  <Link to={n.to}><n.icon /><span>{n.label}</span></Link>
-                </SidebarMenuButton>
-                {n.to === '/claude' && waiting > 0 && (
-                  <SidebarMenuBadge className="bg-attention-soft text-attention-foreground">{waiting}</SidebarMenuBadge>
-                )}
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        </SidebarGroup>
+        {NAV.map((g, gi) => (
+          <SidebarGroup key={g.label ?? 'top'} className={gi > 0 ? 'pt-0' : undefined}>
+            {g.label && <SidebarGroupLabel>{g.label}</SidebarGroupLabel>}
+            <SidebarMenu>
+              {gi === 0 && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton tooltip="Search" onClick={showSearch} className="text-muted-foreground">
+                    <Search /><span>Search</span><kbd className="ml-auto rounded border px-1 font-mono text-[10px]">⌘K</kbd>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
+              {g.items.map((n) => (
+                <SidebarMenuItem key={n.to}>
+                  <SidebarMenuButton asChild isActive={active(n.to, !!n.exact)} tooltip={n.label}>
+                    <Link to={n.to}><n.icon /><span>{n.label}</span></Link>
+                  </SidebarMenuButton>
+                  {n.to === '/claude' && waiting > 0 && (
+                    <SidebarMenuBadge className="bg-attention-soft text-attention-foreground">{waiting}</SidebarMenuBadge>
+                  )}
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroup>
+        ))}
       </SidebarContent>
       <SidebarFooter>
         <UserMenu />
@@ -244,7 +257,7 @@ function MobileTabs({ waiting }: { waiting: number }) {
   // Inside a Claude chat the tabs step aside, as in messaging apps: the back arrow leads out.
   const inChat = useRouterState({ select: (s) => /^\/claude\/[0-9a-f-]{36}$/.test(s.location.pathname) })
   if (inChat) return null
-  const moreActive = ['/more', '/members', '/account', '/notes', '/terminal', '/services', '/files', '/vault', '/browser'].some((p) => active(p)) || active('/claude/setup')
+  const moreActive = ['/more', '/members', '/account', '/notes', '/terminal', '/services', '/files', '/vault', '/browser', '/server'].some((p) => active(p)) || active('/claude/setup')
   return (
     <nav aria-label="Sections" className="grid shrink-0 grid-cols-5 border-t bg-background pb-[env(safe-area-inset-bottom)] md:hidden [.keyboard-open_&]:hidden">
       {TABS.map((t) => {

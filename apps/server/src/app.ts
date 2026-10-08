@@ -16,6 +16,8 @@ import { buildsRoutes } from './modules/builds/routes.ts'
 import { vaultRoutes } from './modules/vault/routes.ts'
 import { browserRoutes, watchRoutes } from './modules/browser/routes.ts'
 import { browserService } from './modules/browser/service.ts'
+import { statusRoutes } from './modules/status/routes.ts'
+import { statusService } from './modules/status/service.ts'
 import { vaultService } from './modules/vault/service.ts'
 import { buildsService } from './modules/builds/service.ts'
 import { notesRoutes } from './modules/notes/routes.ts'
@@ -78,6 +80,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   const builds = buildsService({ db, agents, projects, shares })
   const vault = vaultService({ db })
   const browser = browserService({ db, runDir: config.runDir, dataDir: config.dataDir, masterKey: config.masterKey, origin: config.origin })
+  const status = statusService({ db, agents, services, browser, runDir: config.runDir, dataDir: config.dataDir, version: config.version })
   const app = new Hono()
     // Public: lets the native shell check that a domain is a DevDash space before loading it.
     .get('/.well-known/devdash.json', (c) => {
@@ -102,6 +105,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     .route('/api/builds', buildsRoutes(builds, mw))
     .route('/api/vault', vaultRoutes(vault, mw))
     .route('/api/browser', browserRoutes(browser, mw))
+    .route('/api/status', statusRoutes(status, mw))
     .route('/api', searchRoutes({ db, search, notes, projects, claude, services, activity }, mw))
 
   app.notFound((c) => c.json({ error: { code: 'not_found', message: 'Not found' } }, 404))
