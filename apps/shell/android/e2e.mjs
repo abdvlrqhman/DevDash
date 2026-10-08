@@ -46,7 +46,9 @@ async function session(wsUrl, touch = false) {
       await send('Input.insertText', { text: value })
     },
     click: async (label) => {
-      const ok = await evaluate(`(() => { const el = [...document.querySelectorAll('button, [role=menuitem], label, a')].find(e => e.textContent.trim().startsWith(${JSON.stringify(label)}) && !e.disabled); if (!el) return false; el.click(); return true })()`)
+      const ok = await evaluate(`(() => { const all = [...document.querySelectorAll('button, [role=menuitem], [role=button], [role=option], label, a, li')].filter(e => !e.disabled)
+        const el = all.find(e => e.textContent.trim().startsWith(${JSON.stringify(label)})) ?? all.find(e => e.textContent.includes(${JSON.stringify(label)}))
+        if (!el) return false; el.click(); return true })()`)
       if (!ok) throw new Error(`no "${label}"`)
       await sleep(500)
     },
