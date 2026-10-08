@@ -108,6 +108,7 @@ class NotifyService : Service() {
         c.readTimeout = 90_000 // the server writes at least every 25 s
         c.setRequestProperty("Cookie", cookie)
         c.setRequestProperty("Accept", "text/event-stream")
+        c.setRequestProperty("Accept-Encoding", "identity") // uncompressed, so each event arrives as it's sent
         when (c.responseCode) {
           200 -> {
             backoff = 1_000L
