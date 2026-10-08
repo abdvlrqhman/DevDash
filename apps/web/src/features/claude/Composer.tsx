@@ -1,8 +1,8 @@
 import { useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { ArrowUp, Paperclip, Slash, Square, X } from 'lucide-react'
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from '@/components/ui/input-group'
-import { Kbd } from '@/components/ui/kbd'
+import { ArrowUp, Paperclip, Square, X } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import { ErrorAlert } from '../auth/LoginPage'
 import { commandsQuery } from './data'
@@ -123,32 +123,28 @@ export function Composer({ profile, working, disabledReason, onSend, onStop }: {
         </div>
       )}
       <ErrorAlert error={error} />
-      <InputGroup className="rounded-xl bg-background">
-        {images.length > 0 && (
-          <InputGroupAddon align="block-start" className="flex flex-wrap gap-2">
-            {images.map((img, i) => (
-              <div key={i} className="relative">
-                <img src={`data:${img.mediaType};base64,${img.data}`} alt="" className="size-14 rounded-md border object-cover" />
-                <button aria-label="Remove image" onClick={() => setImages((x) => x.filter((_, j) => j !== i))}
-                  className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-foreground text-background"><X className="size-3" /></button>
-              </div>
-            ))}
-          </InputGroupAddon>
-        )}
-        <InputGroupTextarea ref={area} value={text} rows={1} onKeyDown={onKey} onPaste={onPaste} aria-label="Message Claude"
+      {images.length > 0 && (
+        <div className="flex flex-wrap gap-2 pl-12">
+          {images.map((img, i) => (
+            <div key={i} className="relative">
+              <img src={`data:${img.mediaType};base64,${img.data}`} alt="" className="size-14 rounded-md border object-cover" />
+              <button aria-label="Remove image" onClick={() => setImages((x) => x.filter((_, j) => j !== i))}
+                className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-foreground text-background"><X className="size-3" /></button>
+            </div>
+          ))}
+        </div>
+      )}
+      {/* Attach on the left, the message in the middle, send (and stop) on the right: one compact row. */}
+      <div className="flex items-end gap-2">
+        <Button size="icon" variant="ghost" className="size-10 shrink-0 rounded-full text-muted-foreground" aria-label="Attach images" onClick={() => file.current?.click()}><Paperclip /></Button>
+        <input ref={file} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden onChange={(e) => { if (e.target.files) void add(e.target.files); e.target.value = '' }} />
+        <Textarea ref={area} value={text} rows={1} onKeyDown={onKey} onPaste={onPaste} aria-label="Message Claude"
           onChange={(e) => { setText(e.target.value); setSel(0) }}
-          placeholder={working ? 'Queue a message for when Claude is ready…' : 'Message Claude…'}
-          className="max-h-[40vh] min-h-11 text-base [field-sizing:content] md:text-sm" />
-        <InputGroupAddon align="block-end" className="gap-1">
-          <InputGroupButton size="icon-sm" variant="ghost" aria-label="Commands" onClick={() => { setText('/'); area.current?.focus() }}><Slash /></InputGroupButton>
-          <InputGroupButton size="icon-sm" variant="ghost" aria-label="Attach images" onClick={() => file.current?.click()}><Paperclip /></InputGroupButton>
-          <input ref={file} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden onChange={(e) => { if (e.target.files) void add(e.target.files); e.target.value = '' }} />
-          <span className="ml-1 hidden text-xs text-muted-foreground md:inline"><Kbd>Enter</Kbd> to send, <Kbd>Shift</Kbd>+<Kbd>Enter</Kbd> for a new line</span>
-          <span className="flex-1" />
-          {working && <InputGroupButton size="icon-sm" variant="secondary" aria-label="Stop Claude" onClick={onStop}><Square className="fill-current" /></InputGroupButton>}
-          <InputGroupButton size="icon-sm" variant="default" aria-label="Send" disabled={sending || (!text.trim() && !images.length)} onClick={() => void submit()}><ArrowUp /></InputGroupButton>
-        </InputGroupAddon>
-      </InputGroup>
+          placeholder={working ? 'Queue a message for when Claude is ready…' : 'Message Claude, or type / for commands'}
+          className="max-h-[40vh] min-h-10 flex-1 resize-none rounded-[20px] px-4 py-2 text-base leading-6 [field-sizing:content] md:text-sm md:leading-6" />
+        {working && <Button size="icon" variant="secondary" className="size-10 shrink-0 rounded-full" aria-label="Stop Claude" onClick={onStop}><Square className="fill-current" /></Button>}
+        <Button size="icon" className="size-10 shrink-0 rounded-full" aria-label="Send" disabled={sending || (!text.trim() && !images.length)} onClick={() => void submit()}><ArrowUp /></Button>
+      </div>
     </div>
   )
 }

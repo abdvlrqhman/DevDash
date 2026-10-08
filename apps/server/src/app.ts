@@ -9,6 +9,7 @@ import { authService } from './modules/auth/service.ts'
 import { claudeRoutes } from './modules/claude/routes.ts'
 import { claudeService } from './modules/claude/service.ts'
 import { activityService } from './modules/activity/service.ts'
+import { registerMcp } from './modules/mcp/rpc.ts'
 import { notesRoutes } from './modules/notes/routes.ts'
 import { notesService } from './modules/notes/service.ts'
 import { projectsRoutes } from './modules/projects/routes.ts'
@@ -91,6 +92,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     return c.json({ error: { code: 'internal', message: 'Something went wrong.' } }, 500)
   })
 
+  registerMcp({ db, agents, projects, tasks, notes, services })
   projects.start()
   return { app, auth, provisioning, terms, agents, claude, services, projects, tasks, notes, hub }
 }
