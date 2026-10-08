@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DevDash design direction: Kufic grid</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Readex+Pro:wght@300..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Direction: Kufic grid. Verdigris + brass on green-black ink; Readex Pro (Latin + Arabic) + JetBrains Mono for code only. */
+:root {
+  --bg: #EDF0EC; --surface: #F8FAF7; --sunk: #E2E7E2; --line: #CFD7D1;
+  --ink: #13201B; --muted: #56655E; --accent: #1E6B57; --on-accent: #F3FBF7; --accent-soft: #D6E8E0;
+  --brass: #9A6A12; --brass-soft: #F2E5C8; --brick: #B03E2C;
+  --term: #08110E; --term-fg: #D3E2DA; --term-dim: #6F857B;
+  --f: "Readex Pro", system-ui, sans-serif; --m: "JetBrains Mono", ui-monospace, monospace;
+}
+.dark {
+  --bg: #0C1613; --surface: #13201C; --sunk: #0A120F; --line: #22342D;
+  --ink: #E2EAE5; --muted: #8DA197; --accent: #4CBC9B; --on-accent: #06120E; --accent-soft: #173A30;
+  --brass: #E3B45A; --brass-soft: #3A2D12; --brick: #EB7A64;
+  --term: #060D0B; --term-fg: #D3E2DA; --term-dim: #6F857B;
+}
+* { box-sizing: border-box }
+body { margin: 0; background: #DADFDB; color: #13201B; font: 16px/1.5 var(--f); }
+main { max-width: 1240px; margin: 0 auto; padding: 48px 24px 80px; }
+h1 { font-weight: 600; font-size: 40px; letter-spacing: -0.02em; line-height: 1.1; margin: 0 0 12px; }
+.lede { max-width: 62ch; color: #3F4D47; margin: 0 0 40px; }
+h2 { font-weight: 600; font-size: 22px; letter-spacing: -0.01em; margin: 56px 0 16px; }
+.row { display: flex; flex-wrap: wrap; gap: 32px; align-items: flex-start; }
+.note { font-size: 14px; color: #4A5852; max-width: 46ch; }
+.swatches { display: flex; flex-wrap: wrap; gap: 12px; }
+.sw { width: 148px; border-radius: 14px; overflow: hidden; background: #fff; font-size: 13px; }
+.sw div:first-child { height: 64px; }
+.sw div:last-child { padding: 8px 10px; line-height: 1.3; }
+.sw b { font-weight: 600; display: block; }
+
+/* logo */
+.logo { display: block; }
+.logos { display: flex; gap: 28px; align-items: center; padding: 28px; border-radius: 20px; }
+.wordmark { display: flex; align-items: center; gap: 14px; font-weight: 600; font-size: 34px; letter-spacing: -0.025em; }
+
+/* phones */
+.phone { width: 360px; height: 760px; border-radius: 46px; background: #050807; padding: 10px; flex: none; }
+.scr { position: relative; height: 100%; border-radius: 37px; overflow: hidden; background: var(--bg); color: var(--ink); display: flex; flex-direction: column; font-size: 15px; }
+.sb { height: 36px; flex: none; display: flex; justify-content: space-between; align-items: center; padding: 4px 26px 0; font: 600 13px var(--f); }
+.pad { padding: 0 22px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field label { font-size: 13px; color: var(--muted); }
+.input { height: 48px; border-radius: 12px; background: var(--sunk); display: flex; align-items: center; padding: 0 14px; font-size: 15px; }
+.codes { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+.codes span { aspect-ratio: 1; border-radius: 6px; background: var(--sunk); display: flex; align-items: center; justify-content: center; font: 500 20px var(--m); }
+.codes span.on { box-shadow: inset 0 0 0 2px var(--accent); }
+.btn { height: 50px; border-radius: 12px; background: var(--accent); color: var(--on-accent); display: flex; align-items: center; justify-content: center; font-weight: 500; font-size: 15px; }
+.switch { width: 44px; height: 26px; border-radius: 99px; background: var(--accent); position: relative; flex: none; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 21px; width: 20px; height: 20px; border-radius: 50%; background: var(--on-accent); }
+.tabs { display: flex; gap: 18px; font: 500 13px var(--m); border-bottom: 1px solid var(--line); padding: 0 22px; }
+.tabs span { padding: 10px 0; color: var(--muted); }
+.tabs span.on { color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); }
+.term { flex: 1; margin: 12px; border-radius: 14px; background: var(--term); color: var(--term-fg); font: 12.5px/1.6 var(--m); padding: 14px; white-space: pre-wrap; overflow: hidden; }
+.term .p { color: #4CBC9B } .term .d { color: var(--term-dim) } .term .b { color: #E3B45A }
+.cursor { display: inline-block; width: .6em; height: 1.15em; background: #E3B45A; vertical-align: text-bottom; }
+.keys { display: flex; gap: 6px; padding: 8px 12px 10px; overflow: hidden; }
+.keys span { font: 500 12.5px var(--m); padding: 9px 10px; border-radius: 9px; background: var(--surface); border: 1px solid var(--line); }
+.keys span.on { background: var(--brass); color: #120D03; border-color: var(--brass); }
+.nav { display: flex; justify-content: space-around; padding: 10px 6px 22px; border-top: 1px solid var(--line); background: var(--surface); font-size: 11px; color: var(--muted); }
+.nav span { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.nav span.on { color: var(--accent); }
+.nav i { width: 20px; height: 20px; border-radius: 5px; border: 2px solid currentColor; display: block; }
+.nav span.on i { background: currentColor; }
+.waiting { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 14px; background: var(--brass-soft); }
+.light { width: 12px; height: 12px; border-radius: 3px; background: var(--brass); margin-top: 5px; flex: none; animation: blink 1.1s steps(1) 3; }
+@keyframes blink { 50% { opacity: .15 } }
+@media (prefers-reduced-motion: reduce) { .light { animation: none } }
+
+/* og */
+.og-frame { width: 600px; height: 315px; border-radius: 14px; overflow: hidden; flex: none; }
+.og-frame iframe { width: 1200px; height: 630px; border: 0; transform: scale(.5); transform-origin: 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Direction: Kufic grid</h1>
+  <p class="lede">Square Kufic draws Arabic letters on a grid of squares. A terminal draws text on a grid of cells. The mark is the letter د (dal) built from grid squares, with a brass cursor block inside it: it reads as د and as a prompt. Verdigris and brass come from copper lamps that have aged; they sit on a green-black ink instead of plain black. Readex Pro covers Latin and Arabic in one family, so Arabic names and notes look native. Monospace appears only where there is code.</p>
+
+  <div class="swatches">
+    <div class="sw"><div style="background:#13201B"></div><div><b>Ink</b>#13201B</div></div>
+    <div class="sw"><div style="background:#1E6B57"></div><div><b>Verdigris</b>#1E6B57 actions, live</div></div>
+    <div class="sw"><div style="background:#9A6A12"></div><div><b>Brass</b>#9A6A12 needs you</div></div>
+    <div class="sw"><div style="background:#EDF0EC"></div><div><b>Limewash</b>#EDF0EC page</div></div>
+    <div class="sw"><div style="background:#B03E2C"></div><div><b>Brick</b>#B03E2C danger, admin</div></div>
+    <div class="sw"><div style="background:#08110E"></div><div><b>Terminal</b>#08110E</div></div>
+  </div>
+
+  <h2>Logo</h2>
+  <div class="row">
+    <div class="logos" style="background:#F8FAF7">
+      <svg class="logo" width="128" height="128" viewBox="0 0 64 64" role="img" aria-label="DevDash"><use href="#mark"/></svg>
+      <svg class="logo" width="48" height="48" viewBox="0 0 64 64"><use href="#mark"/></svg>
+      <svg class="logo" width="20" height="20" viewBox="0 0 64 64"><use href="#mark"/></svg>
+      <div class="wordmark"><svg width="44" height="44" viewBox="0 0 64 64"><use href="#mark"/></svg>DevDash</div>
+    </div>
+    <div class="logos" style="background:#0C1613;color:#E2EAE5">
+      <svg class="logo" width="128" height="128" viewBox="0 0 64 64"><use href="#mark-dark"/></svg>
+      <div class="wordmark"><svg width="44" height="44" viewBox="0 0 64 64"><use href="#mark-dark"/></svg>DevDash</div>
+    </div>
+  </div>
+  <p class="note">Square Kufic د: a short top stroke, the stem, and the long base, each a row of grid squares. The brass block inside is the cursor. It stays legible at 16 px because it is made of squares.</p>
+
+  <h2>Screens</h2>
+  <div class="row">
+    <div class="phone"><div class="scr">
+      <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+      <div class="pad" style="padding-top:44px;display:flex;flex-direction:column;gap:18px;flex:1">
+        <svg width="52" height="52" viewBox="0 0 64 64"><use href="#mark"/></svg>
+        <div>
+          <div style="font-weight:600;font-size:28px;letter-spacing:-.02em;line-height:1.15">Sign in to DevDash</div>
+          <div style="color:var(--muted);margin-top:4px">dev.spacie.net</div>
+        </div>
+        <div class="field"><label>Email or username</label><div class="input">abdulrahman</div></div>
+        <div class="field"><label>Password</label><div class="input">••••••••••</div></div>
+        <div class="field"><label>Code from your authenticator</label>
+          <div class="codes"><span>4</span><span>8</span><span>1</span><span class="on"></span><span></span><span></span></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center"><span>Remember this phone for 30 days</span><span class="switch"></span></div>
+        <div class="btn">Sign in</div>
+        <div style="text-align:center;color:var(--muted);font-size:14px">Use a backup code</div>
+      </div>
+    </div></div>
+
+    <div class="phone dark"><div class="scr">
+      <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+      <div class="pad" style="display:flex;align-items:baseline;justify-content:space-between;padding-top:10px;padding-bottom:10px">
+        <div style="font-weight:600;font-size:24px;letter-spacing:-.02em">Terminal</div>
+        <div style="font-size:13px;color:var(--muted)"><span style="display:inline-block;width:8px;height:8px;border-radius:2px;background:var(--accent);margin-right:6px"></span>Live</div>
+      </div>
+      <div class="tabs"><span class="on">main</span><span>logs</span><span>build</span><span>+</span><span style="margin-left:auto;color:var(--brick)">Admin</span></div>
+      <div class="term"><span class="p">abdulrahman@dev</span>:<span class="d">~/projects/app-mobile</span>$ git status -s
+<span class="d"> M lib/auth/auth_service.dart
+ M test/auth_test.dart</span>
+<span class="p">abdulrahman@dev</span>:<span class="d">~/projects/app-mobile</span>$ flutter test test/auth
+<span class="d">00:06 +12: All tests passed!</span>
+<span class="p">abdulrahman@dev</span>:<span class="d">~/projects/app-mobile</span>$ <span class="cursor"></span></div>
+      <div class="keys"><span>Esc</span><span>Tab</span><span class="on">Ctrl</span><span>Alt</span><span>↑</span><span>↓</span><span>←</span><span>→</span><span>|</span></div>
+      <div class="nav"><span><i></i>Home</span><span><i></i>Claude</span><span class="on"><i></i>Terminal</span><span><i></i>Tasks</span><span><i></i>More</span></div>
+    </div></div>
+
+    <div class="phone"><div class="scr">
+      <div class="sb"><span>9:41</span><span>●●● ▮</span></div>
+      <div class="pad" style="padding-top:10px;display:flex;flex-direction:column;gap:14px;flex:1">
+        <div style="font-weight:600;font-size:26px;letter-spacing:-.02em;line-height:1.15">Good evening, Youssef</div>
+        <div class="waiting">
+          <span class="light"></span>
+          <div><div style="font-weight:500">Claude needs you</div>
+          <div style="font-size:14px;color:var(--muted)">Fix login crash, in app-mobile, asked: “Keep the old refresh flow as a fallback?”</div></div>
+        </div>
+        <div style="display:flex;flex-direction:column">
+          <div style="font-size:13px;color:var(--muted);padding:6px 0">Running</div>
+          <div style="display:flex;gap:12px;padding:12px 0;border-top:1px solid var(--line)"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent);margin-top:6px"></span><div><div>Release notes generator</div><div style="font-size:13px;color:var(--muted)">api-server, editing changelog.ts</div></div></div>
+          <div style="display:flex;gap:12px;padding:12px 0;border-top:1px solid var(--line)"><span style="width:10px;height:10px;border-radius:2px;background:var(--accent);margin-top:6px"></span><div><div>Payment SDK options</div><div style="font-size:13px;color:var(--muted)">No project, searching the web</div></div></div>
+          <div style="display:flex;gap:12px;padding:12px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)"><span style="width:10px;height:10px;border-radius:2px;border:2px solid var(--muted);margin-top:6px"></span><div><div>Orders screen redesign</div><div style="font-size:13px;color:var(--muted)">app-mobile, idle since yesterday</div></div></div>
+        </div>
+      </div>
+      <div class="nav"><span class="on"><i></i>Home</span><span><i></i>Claude</span><span><i></i>Terminal</span><span><i></i>Tasks</span><span><i></i>More</span></div>
+    </div></div>
+  </div>
+  <p class="note">Status uses squares from the grid: verdigris is running, brass is waiting for you (it blinks three times when it appears, then stays), an outline is idle.</p>
+
+  <h2>Link preview (1200 × 630)</h2>
+  <div class="og-frame"><iframe src="og.html" title="Link preview image"></iframe></div>
+</main>
+
+<svg width="0" height="0" style="position:absolute">
+  <defs>
+    <!-- 4×4 grid, 11-unit squares, 2-unit gaps, centered in 64 -->
+    <g id="glyph">
+      <rect x="31" y="7.5" width="11" height="11" rx="1.6"/><rect x="44" y="7.5" width="11" height="11" rx="1.6"/>
+      <rect x="44" y="20.5" width="11" height="11" rx="1.6"/><rect x="44" y="33.5" width="11" height="11" rx="1.6"/>
+      <rect x="5" y="46.5" width="11" height="11" rx="1.6"/><rect x="18" y="46.5" width="11" height="11" rx="1.6"/>
+      <rect x="31" y="46.5" width="11" height="11" rx="1.6"/><rect x="44" y="46.5" width="11" height="11" rx="1.6"/>
+    </g>
+    <symbol id="mark" viewBox="0 0 64 64">
+      <rect width="64" height="64" rx="16" fill="#13201B"/>
+      <use href="#glyph" fill="#E2EAE5"/>
+      <rect x="18" y="20.5" width="11" height="24" rx="1.6" fill="#E3B45A"/>
+    </symbol>
+    <symbol id="mark-dark" viewBox="0 0 64 64">
+      <rect width="64" height="64" rx="16" fill="#1E6B57"/>
+      <use href="#glyph" fill="#F3FBF7"/>
+      <rect x="18" y="20.5" width="11" height="24" rx="1.6" fill="#E3B45A"/>
+    </symbol>
+  </defs>
+</svg>
+</body>
+</html>
