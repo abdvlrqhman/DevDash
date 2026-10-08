@@ -24,7 +24,8 @@ export function notificationsService({ db, hub, dataDir, origin }: { db: Db; hub
     keys = webpush.generateVAPIDKeys()
     writeFileSync(keyFile, JSON.stringify(keys), { mode: 0o600 })
   }
-  webpush.setVapidDetails(origin, keys.publicKey, keys.privateKey)
+  // Push services want an https: or mailto: contact; local development runs on http://localhost.
+  webpush.setVapidDetails(origin.startsWith('https:') ? origin : 'mailto:devdash@localhost', keys.publicKey, keys.privateKey)
 
   const s = {
     prefs: db.prepare('select needs_you, finished, errors, shared from notification_prefs where user_id = ?'),

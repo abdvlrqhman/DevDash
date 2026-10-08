@@ -45,6 +45,9 @@ export function AccountPage() {
             <dt className="text-muted-foreground">Role</dt><dd>{me.role === 'admin' ? <Badge variant="outline">Admin</Badge> : 'Member'}</dd>
           </dl>
         </Panel>
+        <Panel title="Notifications" description="Choose what DevDash tells you about. These apply to all your devices.">
+          <NotificationsPanel />
+        </Panel>
         <Panel title="Password" description="Changing it signs you out on your other devices."><PasswordForm /></Panel>
         <Panel title="Email"><EmailForm /></Panel>
         {me.role === 'admin' && (
@@ -52,9 +55,6 @@ export function AccountPage() {
             <ServerPasswordForm />
           </Panel>
         )}
-        <Panel title="Notifications" description="Choose what DevDash tells you about. These apply to all your devices.">
-          <NotificationsPanel />
-        </Panel>
         <Panel title="Appearance">
           <ToggleGroup type="single" variant="outline" value={theme} onValueChange={(v) => v && setTheme(v as ThemePref)}>
             <ToggleGroupItem value="system">Match device</ToggleGroupItem>
