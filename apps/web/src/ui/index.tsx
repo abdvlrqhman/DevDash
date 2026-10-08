@@ -1,4 +1,4 @@
-import { useId, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react'
 
 const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(' ')
 
@@ -108,3 +108,20 @@ export function ErrorText({ error }: { error: unknown }) {
 }
 
 export { cx }
+
+/** Native modal <dialog>: focus trap, Esc to close and the backdrop come from the browser. */
+export function Dialog({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
+  const ref = useRef<HTMLDialogElement>(null)
+  useEffect(() => {
+    const d = ref.current!
+    if (open && !d.open) d.showModal()
+    if (!open && d.open) d.close()
+  }, [open])
+  return (
+    <dialog ref={ref} onClose={onClose} aria-labelledby={`${title}-h`}
+      className="m-auto w-[min(92vw,400px)] rounded-3xl border border-line bg-surface text-text p-5 backdrop:bg-black/45">
+      <h2 id={`${title}-h`} className="font-head font-medium text-[22px] mt-0 mb-2">{title}</h2>
+      {open && children}
+    </dialog>
+  )
+}

@@ -26,6 +26,9 @@ export function MembersPage() {
                 <div className="truncate">{u.name}{u.id === me.id && <span className="text-muted"> (you)</span>}</div>
                 <div className="text-muted text-[12px] truncate"><span className="font-mono">@{u.username}</span> · {u.email}</div>
               </div>
+              {me.role === 'admin' && !u.provisioned_at && (
+                <span title={u.provision_error ?? undefined}><Chip tone={u.provision_error ? 'bad' : 'warn'}>{u.provision_error ? 'Server account failed' : 'Setting up'}</Chip></span>
+              )}
               {u.role === 'admin' && <Chip tone="accent">admin</Chip>}
             </li>
           ))}

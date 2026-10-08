@@ -1,20 +1,34 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, Outlet, useNavigate } from '@tanstack/react-router'
-import { IconDeviceDesktop, IconHome, IconLogout, IconMoon, IconSun, IconUsers } from '@tabler/icons-react'
+import { IconDeviceDesktop, IconHome, IconLogout, IconMoon, IconSettings, IconSun, IconTerminal2, IconUsers } from '@tabler/icons-react'
 import { api, meQuery, spaceQuery } from '../lib/api'
 import { getTheme, setTheme, type ThemePref } from '../lib/theme'
 import { Avatar, Logo, cx } from '../ui'
 
 const NAV = [
   { to: '/', label: 'Home', icon: IconHome },
+  { to: '/terminal', label: 'Terminal', icon: IconTerminal2 },
   { to: '/members', label: 'Members', icon: IconUsers },
 ] as const
 
+/** Tracks the visible height, so the on-screen keyboard (iOS especially) never covers the terminal or composer. */
+function useVisualViewportHeight() {
+  useEffect(() => {
+    const vv = window.visualViewport
+    if (!vv) return
+    const set = () => document.documentElement.style.setProperty('--app-h', `${vv.height}px`)
+    set()
+    vv.addEventListener('resize', set)
+    return () => vv.removeEventListener('resize', set)
+  }, [])
+}
+
 export function AppShell() {
   const space = useQuery(spaceQuery)
+  useVisualViewportHeight()
   return (
-    <div className="h-full flex bg-bg">
+    <div className="flex bg-bg h-[var(--app-h,100dvh)]">
       <aside className="hidden lg:flex w-[230px] shrink-0 flex-col gap-0.5 bg-surface border-r border-line px-3 py-4">
         <div className="flex items-center gap-2.5 px-2 pb-3.5">
           <Logo size={34} />
@@ -32,7 +46,7 @@ export function AppShell() {
         <AccountMenu up />
       </aside>
       <div className="flex-1 min-w-0 flex flex-col">
-        <div className="flex-1 overflow-y-auto"><Outlet /></div>
+        <div className="flex-1 min-h-0 overflow-y-auto"><Outlet /></div>
         <nav className="lg:hidden flex justify-around items-center bg-surface border-t border-line pt-2 pb-[max(14px,env(safe-area-inset-bottom))]">
           {NAV.map((n) => (
             <Link key={n.to} to={n.to} activeOptions={{ exact: n.to === '/' }}
@@ -97,6 +111,9 @@ function AccountMenu({ up }: { up?: boolean }) {
             </button>
           ))}
         </div>
+        <Link to="/account" className="flex items-center gap-2 px-2 h-10 rounded-[10px] text-[14px] hover:bg-surface-2">
+          <IconSettings size={18} />Account settings
+        </Link>
         <button onClick={signOut} className="flex items-center gap-2 px-2 h-10 rounded-[10px] text-[14px] text-danger hover:bg-danger-soft">
           <IconLogout size={18} />Sign out
         </button>

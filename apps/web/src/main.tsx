@@ -1,12 +1,14 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { createRootRouteWithContext, createRoute, createRouter, Outlet, redirect, RouterProvider } from '@tanstack/react-router'
+import { createRootRouteWithContext, createRoute, createRouter, lazyRouteComponent, Outlet, redirect, RouterProvider } from '@tanstack/react-router'
 import { AppShell } from './app/AppShell'
 import { InvitePage } from './features/auth/InvitePage'
 import { LoginPage } from './features/auth/LoginPage'
 import { HomePage } from './features/home/HomePage'
 import { MembersPage } from './features/members/MembersPage'
+import { AccountPage } from './features/account/AccountPage'
+
 import { ApiError, meQuery } from './lib/api'
 import { getTheme, setTheme } from './lib/theme'
 import './styles.css'
@@ -43,9 +45,15 @@ const app = createRoute({
 
 const home = createRoute({ getParentRoute: () => app, path: '/', component: HomePage })
 const members = createRoute({ getParentRoute: () => app, path: '/members', component: MembersPage })
+const terminal = createRoute({
+  getParentRoute: () => app,
+  path: '/terminal',
+  component: lazyRouteComponent(() => import('./features/terminal/TerminalPage'), 'TerminalPage'), // xterm only loads here
+})
+const account = createRoute({ getParentRoute: () => app, path: '/account', component: AccountPage })
 
 const router = createRouter({
-  routeTree: root.addChildren([login, invite, app.addChildren([home, members])]),
+  routeTree: root.addChildren([login, invite, app.addChildren([home, terminal, members, account])]),
   context: { queryClient },
   defaultPreload: 'intent',
 })
