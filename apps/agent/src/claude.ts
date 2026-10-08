@@ -343,6 +343,37 @@ async function requireLogin(profile: string) {
   loginChecked.set(profile, Date.now())
 }
 
+// Plan limits (5-hour, weekly, per model) for one profile, as /usage shows them. Asks a running Chat process of that
+// profile, or briefly starts one without a prompt (no conversation, nothing sent to the model). Cached for a minute.
+const usageCache = new Map<string, { at: number; data: unknown }>()
+export async function usage(profile: string) {
+  if (!PROFILE_RE.test(profile)) throw new Error('invalid profile')
+  const hit = usageCache.get(profile)
+  if (hit && Date.now() - hit.at < 60_000) return hit.data
+  await requireLogin(profile)
+  let q = [...chats.values()].find((c) => c.launch.profile === profile)?.q
+  let temp: Inbox | undefined
+  if (!q) {
+    temp = new Inbox()
+    q = (await loadSdk()).query({
+      prompt: temp,
+      options: { cwd: homedir(), env: { ...process.env, ...profileEnv(profile) }, pathToClaudeCodeExecutable: CLAUDE_BIN, persistSession: false },
+    })
+  }
+  try {
+    if (!q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET) throw new Error('This Claude Code version does not report usage.')
+    const r = await q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true })
+    const data = { plan: r.subscription_type, available: r.rate_limits_available, limits: r.rate_limits }
+    usageCache.set(profile, { at: Date.now(), data })
+    return data
+  } finally {
+    if (temp) {
+      temp.close()
+      q.close()
+    }
+  }
+}
+
 export function createProfile(name: string) {
   if (!PROFILE_RE.test(name) || name === 'default') throw new Error('Profile names use lowercase letters, digits and dashes.')
   mkdirSync(profileDir(name), { recursive: true, mode: 0o700 })

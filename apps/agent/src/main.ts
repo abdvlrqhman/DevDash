@@ -62,6 +62,7 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
   'claude.history': async (r) => ({ messages: await claude.history(r.launch as claude.Launch) }),
   'claude.commands': (r) => ({ commands: claude.commands(str(r.profile, 'profile')), models: claude.models(str(r.profile, 'profile')) }),
   'claude.profiles': async () => ({ profiles: await claude.profiles() }),
+  'claude.usage': async (r) => ({ usage: await claude.usage(str(r.profile, 'profile')) }),
   'claude.profile.create': (r) => (claude.createProfile(str(r.name, 'name')), { ok: true }),
   'fs.dir': async (r) => ({ path: await services.dir(r.path) }),
   'service.start': async (r) => (await services.start(r), { ok: true }),

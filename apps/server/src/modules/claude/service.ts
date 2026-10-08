@@ -300,6 +300,13 @@ export function claudeService({ db, agents, hub, notify }: { db: Db; agents: Age
 
     commands: (user: User, profile: string) =>
       agents.request<{ commands: unknown[]; models: unknown[] }>(user.username, { op: 'claude.commands', profile }),
+    /** Plan limits of one of the member's own Claude profiles. */
+    usage: async (user: User, profile: string) =>
+      (await agents.request<{ usage: unknown }>(user.username, { op: 'claude.usage', profile }, 45_000)).usage as {
+        plan: string | null
+        available: boolean
+        limits: Record<string, { utilization: number | null; resets_at: string | null } | { display_name: string; utilization: number | null; resets_at: string | null }[] | { is_enabled: boolean; monthly_limit: number | null; used_credits: number | null; utilization: number | null; currency?: string | null } | null> | null
+      },
     profiles: async (user: User) => ({
       ...(await agents.request<{ profiles: unknown[] }>(user.username, { op: 'claude.profiles' })),
       defaults: repo.defaults(user.id),

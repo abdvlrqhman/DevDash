@@ -26,6 +26,12 @@ export type Query = AsyncGenerator<SDKMessage, void> & {
   /** Session-scoped settings, applied live (e.g. { effortLevel: 'xhigh' }; null resets to the model default). */
   applyFlagSettings(settings: Record<string, unknown>): Promise<void>
   supportedCommands(): Promise<{ name: string; description: string; argumentHint?: string }[]>
+  /** The data behind /usage (experimental in the SDK, so optional here). */
+  usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?(o?: { skipBehaviors?: boolean }): Promise<{
+    subscription_type: string | null
+    rate_limits_available: boolean
+    rate_limits: Record<string, unknown> | null
+  }>
   supportedModels(): Promise<{ value: string; displayName: string; description?: string }[]>
   close(): void
 }

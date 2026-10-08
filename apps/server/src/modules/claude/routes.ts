@@ -78,6 +78,7 @@ export function claudeRoutes(claude: ClaudeService, mw: ReturnType<typeof authMi
     .get('/commands', query(z.object({ profile: z.string().max(21).default('default') })), async (c) =>
       c.json(await claude.commands(c.get('user'), c.req.valid('query').profile)))
     .get('/profiles', async (c) => c.json(await claude.profiles(c.get('user'))))
+    .get('/usage/:profile', async (c) => c.json({ usage: await claude.usage(c.get('user'), c.req.param('profile')) }))
     .post('/profiles', json(z.object({ name: z.string().max(21) })), async (c) => {
       await claude.createProfile(c.get('user'), c.req.valid('json').name)
       return c.json({ ok: true })
