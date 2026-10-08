@@ -1,0 +1,32 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+*.log
+
+# secrets and local config: never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.csr
+*.p12
+*.jks
+*.keystore
+*.mobileprovision
+
+# local data
+data/
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+
+# native shell build output
+apps/shell/src-tauri/target/
+apps/shell/src-tauri/gen/
+
+.DS_Store
+Thumbs.db

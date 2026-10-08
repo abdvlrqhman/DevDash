@@ -1,0 +1,71 @@
+@import "tailwindcss";
+@import "@fontsource-variable/fraunces";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource-variable/jetbrains-mono";
+@import "@fontsource/noto-naskh-arabic/arabic-700.css";
+
+/* Sandstone theme (docs/design/mockups.html). Light by default, dark follows the system unless overridden. */
+:root {
+  --page: #E8DFCF; --bg: #F4EEE3; --surface: #FBF8F2; --surface-2: #EDE5D6; --line: #E0D4C1;
+  --text: #231C15; --muted: #75674F; --accent: #B54B29; --on-accent: #FFF6EE; --accent-soft: #F3DCCF;
+  --success: #56692B; --success-soft: #E3E8D2; --warning: #94640E; --warning-soft: #F4E6C6; --danger: #B3311F; --danger-soft: #F5D9D3;
+  --term-bg: #231C15; --term-fg: #F1E7D6;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --page: #0B0907; --bg: #15110D; --surface: #1F1913; --surface-2: #2A221A; --line: #372D23;
+  --text: #EFE6D6; --muted: #A08F78; --accent: #E2774E; --on-accent: #1A0F08; --accent-soft: #3D2418;
+  --success: #A9BC6C; --success-soft: #262C17; --warning: #E0AE4A; --warning-soft: #33270F; --danger: #EC7A63; --danger-soft: #3A1A14;
+  --term-bg: #0D0A07; --term-fg: #EFE6D6;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #0B0907; --bg: #15110D; --surface: #1F1913; --surface-2: #2A221A; --line: #372D23;
+    --text: #EFE6D6; --muted: #A08F78; --accent: #E2774E; --on-accent: #1A0F08; --accent-soft: #3D2418;
+    --success: #A9BC6C; --success-soft: #262C17; --warning: #E0AE4A; --warning-soft: #33270F; --danger: #EC7A63; --danger-soft: #3A1A14;
+    --term-bg: #0D0A07; --term-fg: #EFE6D6;
+    color-scheme: dark;
+  }
+}
+
+@theme inline {
+  --color-page: var(--page);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-text: var(--text);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-on-accent: var(--on-accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-term-bg: var(--term-bg);
+  --color-term-fg: var(--term-fg);
+  --font-head: "Fraunces Variable", Georgia, serif;
+  --font-ui: "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+  --font-logo: "Noto Naskh Arabic", serif;
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+::selection { background: var(--accent-soft); }

@@ -1,0 +1,3 @@
+#!/bin/sh
+# Admin CLI on the server, e.g.: devdash invite --email you@example.com --username you --role admin
+cd / && exec sudo -u devdash node --env-file=/etc/devdash/devdash.env /opt/devdash/current/apps/server/src/cli.ts "$@"

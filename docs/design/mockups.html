@@ -1,0 +1,860 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DevDash mockups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Noto+Naskh+Arabic:wght@700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.19.0/dist/tabler-icons.min.css">
+<style>
+:root{
+  --page:#E8DFCF;--bg:#F4EEE3;--surface:#FBF8F2;--surface-2:#EDE5D6;--line:#E0D4C1;
+  --text:#231C15;--muted:#85765F;--accent:#C0522F;--on-accent:#FFF6EE;--accent-soft:#F3DCCF;
+  --success:#5E7330;--success-soft:#E3E8D2;--warning:#B47A12;--warning-soft:#F4E6C6;--danger:#B3311F;--danger-soft:#F5D9D3;
+  --term-bg:#231C15;--term-fg:#F1E7D6;--term-dim:#A8987F;--bezel:#1d1813;
+  --f-head:'Fraunces',Georgia,serif;--f-ui:'IBM Plex Sans',system-ui,sans-serif;--f-mono:'JetBrains Mono',ui-monospace,monospace;
+}
+[data-theme=dark]{
+  --page:#0B0907;--bg:#15110D;--surface:#1F1913;--surface-2:#2A221A;--line:#372D23;
+  --text:#EFE6D6;--muted:#A08F78;--accent:#E2774E;--on-accent:#1A0F08;--accent-soft:#3D2418;
+  --success:#A9BC6C;--success-soft:#262C17;--warning:#E0AE4A;--warning-soft:#33270F;--danger:#EC7A63;--danger-soft:#3A1A14;
+  --term-bg:#0D0A07;--term-fg:#EFE6D6;--term-dim:#8C7C66;--bezel:#000;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--text);font-family:var(--f-ui);transition:background .2s}
+.top{position:sticky;top:0;z-index:10;background:var(--page);padding:16px 24px;display:flex;gap:16px;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.top h1{font-family:var(--f-head);font-weight:500;font-size:26px;margin:0}
+.top p{margin:2px 0 0;color:var(--muted);font-size:14px}
+.seg{display:inline-flex;background:var(--surface-2);border-radius:999px;padding:3px}
+.seg button{border:0;background:transparent;color:var(--muted);font:500 13px var(--f-ui);padding:6px 14px;border-radius:999px;cursor:pointer}
+.seg button.on{background:var(--surface);color:var(--text);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+section{padding:28px 24px 8px}
+section>h2{font-family:var(--f-head);font-weight:500;font-size:22px;margin:0 0 4px}
+section>p{color:var(--muted);margin:0 0 18px;font-size:14px;max-width:760px}
+.grid{display:flex;flex-wrap:wrap;gap:28px}
+figure{margin:0}
+figcaption{font-size:13px;color:var(--muted);margin-top:10px;text-align:center;max-width:360px}
+
+/* phone */
+.phone{width:360px;height:760px;border-radius:44px;background:var(--bezel);padding:10px;flex:none}
+.scr{position:relative;width:100%;height:100%;border-radius:35px;overflow:hidden;background:var(--bg);display:flex;flex-direction:column;font-size:14px;line-height:1.45}
+.sb{height:34px;flex:none;display:flex;align-items:center;justify-content:space-between;padding:4px 24px 0;font:600 13px var(--f-ui)}
+.sb i{font-size:15px;margin-left:4px}
+.ab{flex:none;display:flex;align-items:center;gap:10px;padding:8px 16px 10px}
+.ab h3{font-family:var(--f-head);font-weight:500;font-size:22px;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ab .sub{font-size:12px;color:var(--muted)}
+.ib{width:36px;height:36px;border-radius:12px;display:flex;align-items:center;justify-content:center;background:var(--surface);border:1px solid var(--line);color:var(--text);font-size:19px;flex:none}
+.ib.ghost{background:transparent;border-color:transparent}
+.bd{flex:1;overflow:hidden;padding:2px 16px 12px;display:flex;flex-direction:column;gap:10px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:12px 14px}
+.row{display:flex;align-items:center;gap:8px}
+.sp{justify-content:space-between}
+.col{display:flex;flex-direction:column;gap:6px}
+.muted{color:var(--muted)}
+.sm{font-size:12px}
+.xs{font-size:11px}
+.b{font-weight:600}
+.mono{font-family:var(--f-mono);font-size:12px}
+.h{font-family:var(--f-head);font-weight:500}
+.lbl{font-size:12px;color:var(--muted);text-transform:none;margin:6px 2px 0;display:flex;justify-content:space-between}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:999px;background:var(--surface-2);color:var(--text);font-size:12px;font-weight:500;white-space:nowrap}
+.chip.acc{background:var(--accent-soft);color:var(--accent)}
+.chip.ok{background:var(--success-soft);color:var(--success)}
+.chip.warn{background:var(--warning-soft);color:var(--warning)}
+.chip.bad{background:var(--danger-soft);color:var(--danger)}
+.chip i{font-size:14px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:40px;padding:0 16px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--text);font:500 14px var(--f-ui)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.sm2{height:32px;padding:0 12px;font-size:13px;border-radius:10px}
+.btn.full{width:100%}
+.in{height:44px;border-radius:12px;border:1px solid var(--line);background:var(--surface);display:flex;align-items:center;gap:8px;padding:0 12px;color:var(--muted)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex:none}
+.dot.ok{background:var(--success)}.dot.warn{background:var(--warning)}.dot.off{background:var(--muted)}
+.av{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font:600 12px var(--f-ui);background:var(--accent-soft);color:var(--accent);flex:none}
+.av.s2{background:var(--success-soft);color:var(--success)}.av.s3{background:var(--warning-soft);color:var(--warning)}
+.ic{width:34px;height:34px;border-radius:11px;display:flex;align-items:center;justify-content:center;background:var(--surface-2);font-size:18px;flex:none}
+.ic.acc{background:var(--accent-soft);color:var(--accent)}
+.list{background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden}
+.li{display:flex;align-items:center;gap:10px;padding:11px 14px;border-top:1px solid var(--line)}
+.li:first-child{border-top:0}
+.grow{flex:1;min-width:0}
+.ell{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.nav{flex:none;display:flex;justify-content:space-around;align-items:center;padding:8px 6px 18px;border-top:1px solid var(--line);background:var(--surface)}
+.nav a{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;color:var(--muted);text-decoration:none;width:62px}
+.nav a i{font-size:22px}
+.nav a.on{color:var(--accent)}
+.nav a.mid i{width:46px;height:34px;border-radius:14px;background:var(--accent);color:var(--on-accent);display:flex;align-items:center;justify-content:center;margin-top:-2px}
+.dim{position:absolute;inset:0;background:rgba(20,14,8,.45);z-index:4}
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:5;background:var(--surface);border-radius:26px 26px 0 0;padding:10px 16px 22px;display:flex;flex-direction:column;gap:10px}
+.grab{width:40px;height:5px;border-radius:9px;background:var(--line);margin:0 auto 4px}
+.opt{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;border:1px solid var(--line)}
+.opt.on{border-color:var(--accent);background:var(--accent-soft)}
+.opt .grow .b{font-size:14px}
+.radio{width:18px;height:18px;border-radius:50%;border:2px solid var(--line);flex:none}
+.opt.on .radio{border:5px solid var(--accent)}
+.tg{width:38px;height:22px;border-radius:99px;background:var(--surface-2);position:relative;flex:none;border:1px solid var(--line)}
+.tg::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--muted)}
+.tg.on{background:var(--accent);border-color:var(--accent)}
+.tg.on::after{left:18px;background:var(--on-accent)}
+.term{background:var(--term-bg);color:var(--term-fg);font-family:var(--f-mono);font-size:12px;line-height:1.55;padding:12px;flex:1;overflow:hidden;white-space:pre-wrap;word-break:break-word}
+.term .d{color:var(--term-dim)}
+.term .a{color:#E2774E}
+.term .g{color:#A9BC6C}
+.term .y{color:#E0AE4A}
+.keys{flex:none;display:flex;gap:6px;padding:8px 10px 18px;background:var(--surface);border-top:1px solid var(--line);overflow:hidden}
+.keys span{font:500 12px var(--f-mono);padding:7px 9px;border-radius:9px;background:var(--surface-2);white-space:nowrap}
+.seg2{display:inline-flex;background:var(--surface-2);border-radius:10px;padding:2px}
+.seg2 span{font:500 12px var(--f-ui);padding:4px 10px;border-radius:8px;color:var(--muted)}
+.seg2 span.on{background:var(--surface);color:var(--text)}
+.bub{align-self:flex-end;max-width:82%;background:var(--accent);color:var(--on-accent);border-radius:18px 18px 4px 18px;padding:9px 13px}
+.say{max-width:100%}
+.tool{background:var(--surface);border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:13px}
+.tool .th{display:flex;align-items:center;gap:7px;padding:8px 10px}
+.tool .th i{color:var(--muted);font-size:16px}
+.tool .tb{border-top:1px solid var(--line);padding:8px 10px;font-family:var(--f-mono);font-size:11.5px;background:var(--surface-2)}
+.add{color:var(--success)}.del{color:var(--danger)}
+.comp{flex:none;padding:8px 12px 18px;border-top:1px solid var(--line);background:var(--surface);display:flex;flex-direction:column;gap:8px}
+.cbox{border:1px solid var(--line);border-radius:16px;padding:10px 12px;color:var(--muted);background:var(--bg)}
+.cbar{display:flex;align-items:center;gap:6px}
+.send{width:34px;height:34px;border-radius:11px;background:var(--accent);color:var(--on-accent);display:flex;align-items:center;justify-content:center;font-size:18px}
+.stop{width:34px;height:34px;border-radius:11px;background:var(--text);color:var(--bg);display:flex;align-items:center;justify-content:center;font-size:16px}
+.kcol{flex:none;width:250px;display:flex;flex-direction:column;gap:8px}
+.bar{height:6px;border-radius:9px;background:var(--surface-2);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:9px}
+.logo{width:56px;height:56px;border-radius:18px;background:var(--accent);color:var(--on-accent);display:flex;align-items:center;justify-content:center;font:700 34px 'Noto Naskh Arabic',serif;padding-bottom:6px}
+.otp{display:flex;gap:8px}
+.otp span{flex:1;height:50px;border-radius:12px;border:1px solid var(--line);background:var(--surface);display:flex;align-items:center;justify-content:center;font:500 20px var(--f-mono)}
+.otp span.f{border-color:var(--accent)}
+.desk{width:1180px;height:720px;border-radius:16px;overflow:hidden;border:10px solid var(--bezel);background:var(--bg);display:flex;font-size:14px;line-height:1.45}
+.side{width:230px;background:var(--surface);border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column;gap:2px}
+.side a{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;color:var(--text);text-decoration:none;font-size:14px}
+.side a i{font-size:18px;color:var(--muted)}
+.side a.on{background:var(--accent-soft);color:var(--accent)}
+.side a.on i{color:var(--accent)}
+.side .sh{font-size:11px;color:var(--muted);padding:12px 10px 4px}
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div>
+    <h1><span class="appname">DevDash</span> · mockups</h1>
+    <p>Sandstone theme. Every screen at phone size first; one desktop view at the end. Change the name in one place: <span class="mono">APP_NAME</span>.</p>
+  </div>
+  <div class="seg" id="theme">
+    <button data-t="light" class="on">Light</button>
+    <button data-t="dark">Dark</button>
+  </div>
+</div>
+
+<!-- ============ 1. ACCESS ============ -->
+<section>
+<h2>1 · Sign in and home</h2>
+<p>Invite-only login with 2FA, then your default workspace. Running Claude sessions are always the first thing you see.</p>
+<div class="grid">
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="bd" style="padding:40px 24px;gap:14px">
+    <div class="logo">د</div>
+    <div><div class="h" style="font-size:30px">Welcome back</div><div class="muted">Sign in to <span class="appname">DevDash</span></div></div>
+    <div class="col" style="gap:10px;margin-top:6px">
+      <div class="in"><i class="ti ti-user"></i><span style="color:var(--text)">youssef</span></div>
+      <div class="in"><i class="ti ti-lock"></i><span style="color:var(--text)">••••••••••••</span></div>
+    </div>
+    <div class="card" style="margin-top:6px">
+      <div class="b">Two-step check</div>
+      <div class="muted sm" style="margin-bottom:10px">Enter the 6-digit code from your authenticator</div>
+      <div class="otp"><span>4</span><span>8</span><span>1</span><span class="f">|</span><span></span><span></span></div>
+    </div>
+    <div class="btn pri full" style="height:48px">Sign in</div>
+    <div class="muted sm" style="text-align:center">Use a backup code instead</div>
+    <div style="flex:1"></div>
+    <div class="row muted xs" style="justify-content:center"><i class="ti ti-shield-lock"></i>Private · reachable over Tailscale only</div>
+  </div>
+</div></div><figcaption>Login + 2FA</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab">
+    <div class="grow"><div class="row sm muted">Shared workspace <i class="ti ti-chevron-down"></i></div><h3>Good morning, Youssef</h3></div>
+    <div class="ib"><i class="ti ti-bell"></i></div>
+  </div>
+  <div class="bd">
+    <div class="in"><i class="ti ti-search"></i>Search everything</div>
+    <div class="card" style="border-color:var(--accent)">
+      <div class="row sp"><div class="row b"><i class="ti ti-sparkles" style="color:var(--accent)"></i>Claude</div><span class="chip acc">1 waiting for you</span></div>
+      <div class="li" style="padding:10px 0 4px;border:0"><span class="dot warn"></span><div class="grow"><div class="ell">Fix login crash on token expiry</div><div class="xs muted">app-mobile · asked a question · 2m</div></div><i class="ti ti-chevron-right muted"></i></div>
+      <div class="li" style="padding:6px 0 0;border:0"><span class="dot ok"></span><div class="grow"><div class="ell">Add release notes generator</div><div class="xs muted">api-server · working · Edit changelog.ts</div></div><i class="ti ti-chevron-right muted"></i></div>
+    </div>
+    <div class="lbl"><span>Your tasks</span><span>See all</span></div>
+    <div class="list">
+      <div class="li"><span class="chip bad">High</span><div class="grow ell">#18 Offline mode for orders</div><span class="xs muted">Today</span></div>
+      <div class="li"><span class="chip warn">Med</span><div class="grow ell">#21 Dark mode icons</div><span class="xs muted">Fri</span></div>
+    </div>
+    <div class="lbl"><span>Activity</span><span>See all</span></div>
+    <div class="list">
+      <div class="li"><div class="av s2">OM</div><div class="grow"><div class="ell sm"><b>Omar</b> pushed 3 commits to <b>main</b></div><div class="xs muted">app-mobile · 12m</div></div></div>
+      <div class="li"><div class="ic acc"><i class="ti ti-package"></i></div><div class="grow"><div class="ell sm">APK <b>1.4.2 (57)</b> built</div><div class="xs muted">app-mobile · 1h</div></div></div>
+      <div class="li"><div class="av s3">SA</div><div class="grow"><div class="ell sm"><b>Sara</b> moved #12 to Done</div><div class="xs muted">via commit a81f3c2 · 2h</div></div></div>
+    </div>
+  </div>
+  <div class="nav" data-nav="0"></div>
+</div></div><figcaption>Home</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab"><div class="grow"><div class="row sm muted">Shared workspace</div><h3>Good morning, Youssef</h3></div><div class="ib"><i class="ti ti-bell"></i></div></div>
+  <div class="bd"><div class="in"><i class="ti ti-search"></i>Search everything</div><div class="card" style="height:160px"></div></div>
+  <div class="dim"></div>
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="h" style="font-size:20px">Workspaces</div>
+    <div class="opt on"><div class="ic acc"><i class="ti ti-users"></i></div><div class="grow"><div class="b">Shared</div><div class="xs muted">Public · 5 members · your default</div></div><i class="ti ti-check" style="color:var(--accent)"></i></div>
+    <div class="opt"><div class="ic"><i class="ti ti-lock"></i></div><div class="grow"><div class="b">Youssef's lab</div><div class="xs muted">Private · just you</div></div></div>
+    <div class="opt"><div class="ic"><i class="ti ti-building-store"></i></div><div class="grow"><div class="b">Shop app</div><div class="xs muted">Private · 3 members</div></div></div>
+    <div class="lbl"><span>Public, not joined</span></div>
+    <div class="opt"><div class="ic"><i class="ti ti-world"></i></div><div class="grow"><div class="b">Game jam</div><div class="xs muted">Public · 2 members</div></div><span class="btn sm2">Join</span></div>
+    <div class="btn full"><i class="ti ti-plus"></i>New workspace</div>
+  </div>
+</div></div><figcaption>Workspace switcher</figcaption></figure>
+
+</div>
+</section>
+
+<!-- ============ 2. CLAUDE ============ -->
+<section>
+<h2>2 · Claude sessions</h2>
+<p>Sessions run on the VPS under your own Linux user and keep running when you close the phone. Chat is the default. Bypass permissions is on by default. Remote Control is an optional switch.</p>
+<div class="grid">
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab"><h3>Claude</h3><div class="ib"><i class="ti ti-filter"></i></div><div class="ib" style="background:var(--accent);border-color:var(--accent);color:var(--on-accent)"><i class="ti ti-plus"></i></div></div>
+  <div class="bd">
+    <div class="row" style="gap:6px"><span class="chip acc">All</span><span class="chip">app-mobile</span><span class="chip">api-server</span><span class="chip">No project</span></div>
+    <div class="lbl"><span>Needs you</span></div>
+    <div class="card" style="border-color:var(--warning)">
+      <div class="row sp"><div class="b ell">Fix login crash on token expiry</div><span class="dot warn"></span></div>
+      <div class="xs muted">app-mobile · main · Opus 5.5</div>
+      <div class="sm" style="margin-top:6px">Asked: “Keep the old refresh flow as a fallback?”</div>
+    </div>
+    <div class="lbl"><span>Running</span></div>
+    <div class="list">
+      <div class="li"><span class="dot ok"></span><div class="grow"><div class="ell">Add release notes generator</div><div class="xs muted">api-server · Editing changelog.ts</div></div><span class="chip"><i class="ti ti-broadcast"></i>RC</span></div>
+      <div class="li"><span class="dot ok"></span><div class="grow"><div class="ell">Explore payment SDK options</div><div class="xs muted">No project · Searching the web</div></div></div>
+    </div>
+    <div class="lbl"><span>Idle</span><span>Archived (14)</span></div>
+    <div class="list">
+      <div class="li"><span class="dot off"></span><div class="grow"><div class="ell">Orders screen redesign</div><div class="xs muted">app-mobile · yesterday · 41 messages</div></div></div>
+      <div class="li"><span class="dot off"></span><div class="grow"><div class="ell">Nginx → own proxy notes</div><div class="xs muted">DevDash · Mon · 12 messages</div></div></div>
+      <div class="li"><span class="dot off"></span><div class="grow"><div class="ell">Flutter upgrade 3.32</div><div class="xs muted">app-mobile · Sep 30</div></div></div>
+    </div>
+  </div>
+  <div class="nav" data-nav="2"></div>
+</div></div><figcaption>Sessions list</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab"><h3>Claude</h3></div>
+  <div class="bd"><div class="card" style="height:120px"></div><div class="card" style="height:200px"></div></div>
+  <div class="dim"></div>
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="h" style="font-size:20px">New session</div>
+    <div class="lbl"><span>Project</span></div>
+    <div class="in" style="color:var(--text)"><i class="ti ti-folder"></i><span class="grow">app-mobile</span><span class="xs muted">main</span><i class="ti ti-chevron-down"></i></div>
+    <div class="lbl"><span>Model</span></div>
+    <div class="row" style="gap:6px;flex-wrap:wrap"><span class="chip acc">Opus 5.5</span><span class="chip">Sonnet 5.5</span><span class="chip">Haiku 5.5</span><span class="chip">Fable 5.1</span></div>
+    <div class="lbl"><span>Permissions</span></div>
+    <div class="row" style="gap:6px;flex-wrap:wrap"><span class="chip acc"><i class="ti ti-bolt"></i>Bypass</span><span class="chip">Accept edits</span><span class="chip">Plan</span><span class="chip">Ask</span></div>
+    <div class="row sp" style="margin-top:4px"><div><div class="b sm">Remote Control</div><div class="xs muted">Also open it in the Claude app</div></div><div class="tg"></div></div>
+    <div class="row sp"><div><div class="b sm">claude-mem</div><div class="xs muted">Load project memory</div></div><div class="tg on"></div></div>
+    <div class="cbox" style="margin-top:4px">What should Claude work on?</div>
+    <div class="btn pri full" style="height:46px"><i class="ti ti-sparkles"></i>Start session</div>
+  </div>
+</div></div><figcaption>New session</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab" style="padding-bottom:6px">
+    <div class="ib ghost"><i class="ti ti-arrow-left"></i></div>
+    <div class="grow" style="min-width:0"><div class="b ell">Fix login crash</div><div class="row xs muted"><span class="dot ok"></span>app-mobile · main</div></div>
+    <div class="seg2"><span class="on">Chat</span><span>CLI</span></div>
+    <div class="ib ghost"><i class="ti ti-dots-vertical"></i></div>
+  </div>
+  <div class="row" style="padding:0 16px 8px;gap:6px;border-bottom:1px solid var(--line)">
+    <span class="chip"><i class="ti ti-cpu"></i>Opus 5.5</span><span class="chip acc"><i class="ti ti-bolt"></i>Bypass</span><span class="chip"><i class="ti ti-brain"></i>mem</span><span class="chip">ctx 38%</span>
+  </div>
+  <div class="bd" style="padding-top:10px">
+    <div class="bub">The app crashes on login when the token is expired. Fix it and add a test.</div>
+    <div class="row xs muted"><i class="ti ti-brain"></i>Loaded 3 memories from earlier sessions</div>
+    <div class="say">The refresh call runs before the secure store finishes loading. I'll make it wait.</div>
+    <div class="tool"><div class="th"><i class="ti ti-file-search"></i><span class="b">Read</span><span class="mono muted ell">lib/auth/auth_service.dart</span></div></div>
+    <div class="tool"><div class="th"><i class="ti ti-pencil"></i><span class="b">Edit</span><span class="mono muted ell grow">auth_service.dart</span><span class="xs add">+3</span><span class="xs del">−1</span></div>
+      <div class="tb"><div class="muted">41  Future&lt;void&gt; init() async {</div><div class="del">42 -  _refresh();</div><div class="add">42 +  await _store.ready;</div><div class="add">43 +  if (_token?.expired ?? true) {</div><div class="add">44 +    await _refresh(); }</div></div></div>
+    <div class="tool"><div class="th"><i class="ti ti-terminal-2"></i><span class="b">Bash</span><span class="mono muted ell grow">flutter test test/auth</span><i class="ti ti-loader-2"></i></div>
+      <div class="tb"><span class="muted">00:04 +11: loading…</span></div></div>
+  </div>
+  <div class="comp">
+    <div class="cbox">Queue a message…</div>
+    <div class="cbar"><div class="ib ghost"><i class="ti ti-slash"></i></div><div class="ib ghost"><i class="ti ti-at"></i></div><div class="ib ghost"><i class="ti ti-paperclip"></i></div><div class="ib ghost"><i class="ti ti-microphone"></i></div><div style="flex:1"></div><div class="stop"><i class="ti ti-player-stop"></i></div></div>
+  </div>
+</div></div><figcaption>Chat mode (default) while Claude works</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab" style="padding-bottom:6px">
+    <div class="ib ghost"><i class="ti ti-arrow-left"></i></div>
+    <div class="grow" style="min-width:0"><div class="b ell">Fix login crash</div><div class="row xs muted"><span class="dot warn"></span>Waiting for you</div></div>
+    <div class="seg2"><span class="on">Chat</span><span>CLI</span></div>
+    <div class="ib ghost"><i class="ti ti-dots-vertical"></i></div>
+  </div>
+  <div class="row" style="padding:0 16px 8px;gap:6px;border-bottom:1px solid var(--line)">
+    <span class="chip"><i class="ti ti-cpu"></i>Opus 5.5</span><span class="chip acc"><i class="ti ti-bolt"></i>Bypass</span><span class="chip"><i class="ti ti-brain"></i>mem</span><span class="chip">ctx 41%</span>
+  </div>
+  <div class="bd" style="padding-top:10px">
+    <div class="tool"><div class="th"><i class="ti ti-circle-check" style="color:var(--success)"></i><span class="b">Bash</span><span class="mono muted ell grow">flutter test test/auth</span><span class="xs" style="color:var(--success)">12 passed</span></div></div>
+    <div class="tool"><div class="th"><i class="ti ti-list-check"></i><span class="b">To-dos</span><span class="xs muted grow">2 of 3</span></div>
+      <div class="tb" style="font-family:var(--f-ui);font-size:12.5px"><div class="add"><i class="ti ti-check"></i> Wait for store before refresh</div><div class="add"><i class="ti ti-check"></i> Add expired-token test</div><div class="muted"><i class="ti ti-circle"></i> Clean up old refresh path</div></div></div>
+    <div class="card" style="border-color:var(--accent)">
+      <div class="row b"><i class="ti ti-help-circle" style="color:var(--accent)"></i>Claude has a question</div>
+      <div class="sm" style="margin:6px 0 10px">The old refresh flow is still used by the widget. What should I do with it?</div>
+      <div class="col">
+        <div class="opt on" style="padding:8px 10px"><div class="radio"></div><div class="grow"><div class="b sm">Keep it as a fallback (Recommended)</div><div class="xs muted">Safest, removed next release</div></div></div>
+        <div class="opt" style="padding:8px 10px"><div class="radio"></div><div class="grow"><div class="b sm">Remove it now</div><div class="xs muted">Also update the widget</div></div></div>
+        <div class="opt" style="padding:8px 10px"><div class="radio"></div><div class="grow"><div class="b sm">Other…</div></div></div>
+      </div>
+      <div class="btn pri full" style="margin-top:10px">Answer</div>
+    </div>
+  </div>
+  <div class="comp">
+    <div class="cbox">Reply to Claude…</div>
+    <div class="cbar"><div class="ib ghost"><i class="ti ti-slash"></i></div><div class="ib ghost"><i class="ti ti-at"></i></div><div class="ib ghost"><i class="ti ti-paperclip"></i></div><div class="ib ghost"><i class="ti ti-microphone"></i></div><div style="flex:1"></div><div class="send"><i class="ti ti-arrow-up"></i></div></div>
+  </div>
+</div></div><figcaption>Claude asks a question (push notification sent)</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab" style="padding-bottom:6px">
+    <div class="ib ghost"><i class="ti ti-arrow-left"></i></div>
+    <div class="grow" style="min-width:0"><div class="b ell">Orders redesign</div><div class="row xs muted"><span class="dot warn"></span>Plan ready</div></div>
+    <div class="seg2"><span class="on">Chat</span><span>CLI</span></div>
+  </div>
+  <div class="row" style="padding:0 16px 8px;gap:6px;border-bottom:1px solid var(--line)">
+    <span class="chip"><i class="ti ti-cpu"></i>Sonnet 5.5</span><span class="chip warn"><i class="ti ti-map"></i>Plan</span><span class="chip">ctx 22%</span>
+  </div>
+  <div class="bd" style="padding-top:10px">
+    <div class="card">
+      <div class="row b"><i class="ti ti-map" style="color:var(--warning)"></i>Plan</div>
+      <div class="sm" style="margin-top:6px"><b>1.</b> Split <span class="mono">orders_page.dart</span> into list + filters</div>
+      <div class="sm"><b>2.</b> Add sticky status tabs with counts</div>
+      <div class="sm"><b>3.</b> Swipe actions: mark ready, cancel</div>
+      <div class="sm"><b>4.</b> Golden tests for light and dark</div>
+      <div class="row" style="margin-top:10px;gap:8px"><div class="btn pri sm2 grow">Approve and build</div><div class="btn sm2">Keep planning</div></div>
+    </div>
+    <div class="lbl"><span>In “Ask” mode, permission cards look like this</span></div>
+    <div class="card">
+      <div class="row b"><i class="ti ti-shield-question" style="color:var(--accent)"></i>Allow this command?</div>
+      <div class="tb mono" style="margin:8px 0;padding:8px;border-radius:8px;background:var(--surface-2)">git push origin feat/orders</div>
+      <div class="row" style="gap:6px"><div class="btn pri sm2">Allow</div><div class="btn sm2">Always allow</div><div class="btn sm2">Deny</div></div>
+    </div>
+  </div>
+  <div class="comp">
+    <div class="cbox">Message Claude…</div>
+    <div class="cbar"><div class="ib ghost"><i class="ti ti-slash"></i></div><div class="ib ghost"><i class="ti ti-at"></i></div><div class="ib ghost"><i class="ti ti-paperclip"></i></div><div class="ib ghost"><i class="ti ti-microphone"></i></div><div style="flex:1"></div><div class="send"><i class="ti ti-arrow-up"></i></div></div>
+  </div>
+</div></div><figcaption>Plan approval and permission card (non-bypass modes)</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab" style="padding-bottom:6px">
+    <div class="ib ghost"><i class="ti ti-arrow-left"></i></div>
+    <div class="grow"><div class="b ell">Fix login crash</div><div class="row xs muted"><span class="dot ok"></span>Idle</div></div>
+    <div class="seg2"><span class="on">Chat</span><span>CLI</span></div>
+  </div>
+  <div class="bd" style="padding-top:6px"><div class="say muted">Done. All 12 auth tests pass. Committed as <span class="mono">fixes #12</span>.</div></div>
+  <div style="flex:none;margin:0 12px 8px;background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden">
+    <div class="lbl" style="padding:8px 12px 4px;margin:0"><span>Commands</span><span>/co</span></div>
+    <div class="li" style="background:var(--accent-soft)"><span class="mono b" style="color:var(--accent)">/compact</span><span class="sm muted grow ell">Summarize to free context</span></div>
+    <div class="li"><span class="mono b">/context</span><span class="sm muted grow ell">Show context usage</span></div>
+    <div class="li"><span class="mono b">/cost</span><span class="sm muted grow ell">Tokens used this session</span></div>
+    <div class="lbl" style="padding:6px 12px 4px;margin:0"><span>Skills and plugins</span></div>
+    <div class="li"><span class="mono b">/code-review</span><span class="sm muted grow ell">Review current diff</span></div>
+    <div class="li"><span class="mono b">/commit</span><span class="sm muted grow ell">Your custom command</span></div>
+    <div class="lbl" style="padding:6px 12px 4px;margin:0"><span>Also: /model /clear /resume /init /memory /mcp /mem-search /frontend-design …</span></div>
+  </div>
+  <div class="comp">
+    <div class="cbox" style="color:var(--text)"><span class="mono">/co</span><span style="color:var(--accent)">|</span></div>
+    <div class="cbar"><div class="ib ghost" style="color:var(--accent)"><i class="ti ti-slash"></i></div><div class="ib ghost"><i class="ti ti-at"></i></div><div class="ib ghost"><i class="ti ti-paperclip"></i></div><div class="ib ghost"><i class="ti ti-microphone"></i></div><div style="flex:1"></div><div class="send"><i class="ti ti-arrow-up"></i></div></div>
+  </div>
+</div></div><figcaption>Slash command palette</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab"><div class="ib ghost"><i class="ti ti-arrow-left"></i></div><div class="grow b">Fix login crash</div></div>
+  <div class="bd"><div class="bub">Fix it and add a test.</div><div class="card" style="height:120px"></div></div>
+  <div class="dim"></div>
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="h" style="font-size:20px">Model and mode</div>
+    <div class="opt on" style="padding:8px 12px"><div class="radio"></div><div class="grow"><div class="b">Opus 5.5</div><div class="xs muted">Most capable</div></div></div>
+    <div class="opt" style="padding:8px 12px"><div class="radio"></div><div class="grow"><div class="b">Sonnet 5.5</div><div class="xs muted">Fast and strong</div></div></div>
+    <div class="opt" style="padding:8px 12px"><div class="radio"></div><div class="grow"><div class="b">Haiku 5.5</div><div class="xs muted">Quickest</div></div></div>
+    <div class="opt" style="padding:8px 12px"><div class="radio"></div><div class="grow"><div class="b">Fable 5.1</div></div></div>
+    <div class="lbl"><span>Effort</span><span>High</span></div>
+    <div class="seg2" style="width:100%;justify-content:space-between"><span>Low</span><span>Med</span><span class="on">High</span><span>XHigh</span><span>Max</span></div>
+    <div class="row sp"><div class="b sm">Fast mode</div><div class="tg"></div></div>
+    <div class="lbl"><span>Permission mode</span></div>
+    <div class="row" style="gap:6px;flex-wrap:wrap"><span class="chip acc"><i class="ti ti-bolt"></i>Bypass</span><span class="chip">Accept edits</span><span class="chip">Plan</span><span class="chip">Ask</span></div>
+    <div class="xs muted">Changes apply from the next message.</div>
+  </div>
+</div></div><figcaption>Model, effort and permission mode</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab" style="padding-bottom:8px">
+    <div class="ib ghost"><i class="ti ti-arrow-left"></i></div>
+    <div class="grow" style="min-width:0"><div class="b ell">Fix login crash</div><div class="row xs muted"><span class="dot ok"></span>Same session · real CLI</div></div>
+    <div class="seg2"><span>Chat</span><span class="on">CLI</span></div>
+  </div>
+<div class="term"><span class="a">╭──────────────────────────────╮
+│ ✻ Welcome to Claude Code     │
+│   /srv/projects/app-mobile   │
+╰──────────────────────────────╯</span>
+<span class="d">Resumed session 7f3c…a21</span>
+
+<span class="a">&gt;</span> The app crashes on login when
+  the token is expired. Fix it.
+
+<span class="a">⏺</span> The refresh call runs before the
+  secure store finishes loading.
+
+<span class="a">⏺</span> <span class="b">Update</span>(lib/auth/auth_service.dart)
+  <span class="d">⎿</span> <span class="g">+3</span> <span class="y">−1</span>
+
+<span class="a">⏺</span> <span class="b">Bash</span>(flutter test test/auth)
+  <span class="d">⎿</span> <span class="g">All tests passed! (12)</span>
+
+<span class="d">──────────────────────────────────</span>
+<span class="a">&gt;</span> <span style="background:var(--term-fg)"> </span>
+<span class="d">──────────────────────────────────</span>
+<span class="y">⏵⏵ bypass permissions on</span> <span class="d">(shift+tab)</span>
+<span class="d">Opus 5.5 · ctx 41% · claude-mem ✓</span></div>
+  <div class="keys"><span>Esc</span><span>Tab</span><span>⇧Tab</span><span>Ctrl</span><span>/</span><span>↑</span><span>↓</span><span>←</span><span>→</span></div>
+</div></div><figcaption>CLI mode: the real Claude CLI of the same session</figcaption></figure>
+
+</div>
+</section>
+
+<!-- ============ 3. TERMINAL ============ -->
+<section>
+<h2>3 · Server terminal</h2>
+<p>A plain shell on the server, separate from Claude and from projects. Your own user by default. The admin shell needs 2FA every time and has a red header so you never mix them up.</p>
+<div class="grid">
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab" style="padding-bottom:8px"><div class="ib ghost"><i class="ti ti-arrow-left"></i></div><div class="grow"><div class="b">Terminal</div><div class="xs muted">youssef@DevDash · kept running in tmux</div></div><div class="ib ghost"><i class="ti ti-settings"></i></div></div>
+  <div class="row" style="padding:0 12px 8px;gap:6px"><span class="chip acc">main</span><span class="chip">logs</span><span class="chip">build</span><span class="chip"><i class="ti ti-plus"></i></span><div style="flex:1"></div><span class="chip bad"><i class="ti ti-shield-lock"></i>Admin</span></div>
+<div class="term"><span class="g">youssef@DevDash</span>:<span class="a">~</span>$ df -h /srv
+<span class="d">Filesystem  Size  Used Avail Use%
+/dev/sda1   300G  112G  188G  38%</span>
+<span class="g">youssef@DevDash</span>:<span class="a">~</span>$ docker ps --format '{{.Names}}'
+<span class="d">DevDash
+DevDash-chromium
+DevDash-backup</span>
+<span class="g">youssef@DevDash</span>:<span class="a">~</span>$ tail -n3 /var/log/DevDash/app.log
+<span class="d">[09:38] git fetch app-mobile: 3 new
+[09:40] build #57 finished (apk)
+[09:41] push sent to 2 devices</span>
+<span class="g">youssef@DevDash</span>:<span class="a">~</span>$ <span style="background:var(--term-fg)"> </span></div>
+  <div class="keys"><span>Esc</span><span>Tab</span><span>Ctrl</span><span>Alt</span><span>|</span><span>~</span><span>↑</span><span>↓</span><span><i class="ti ti-clipboard"></i></span></div>
+</div></div><figcaption>Server terminal (your user)</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab" style="padding-bottom:8px"><div class="ib ghost"><i class="ti ti-arrow-left"></i></div><h3>Admin shell</h3></div>
+  <div class="bd" style="padding-top:30px;gap:14px">
+    <div class="ic" style="width:56px;height:56px;border-radius:18px;background:var(--danger-soft);color:var(--danger);font-size:28px"><i class="ti ti-shield-lock"></i></div>
+    <div class="h" style="font-size:24px">Confirm it's you</div>
+    <div class="muted">The admin shell has sudo on the whole server. Enter your 2FA code to open it. This is recorded in the audit log.</div>
+    <div class="otp"><span>2</span><span>9</span><span>0</span><span>7</span><span>1</span><span class="f">|</span></div>
+    <div class="btn pri full" style="height:46px;background:var(--danger);border-color:var(--danger)">Open admin shell</div>
+    <div class="card sm"><div class="row b"><i class="ti ti-history"></i>Last opened</div><div class="muted xs">Oct 6, 22:14 · from Pixel 8 · 12 min</div></div>
+  </div>
+</div></div><figcaption>Admin shell: 2FA gate</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab" style="padding-bottom:8px;background:var(--danger);color:#fff"><div class="ib ghost" style="color:#fff"><i class="ti ti-arrow-left"></i></div><div class="grow"><div class="b">Admin shell · sudo</div><div class="xs" style="opacity:.85">Auto-closes after 15 min idle</div></div><i class="ti ti-shield-lock" style="font-size:20px"></i></div>
+<div class="term"><span class="y">root@DevDash</span>:<span class="a">/</span># systemctl status DevDash-agent
+<span class="g">● DevDash-agent.service</span> - session agent
+<span class="d">   Active: active (running) 3 days
+   Tasks: 14  Memory: 212M</span>
+<span class="y">root@DevDash</span>:<span class="a">/</span># ufw status
+<span class="d">Status: active
+To              Action  From
+22/tcp          ALLOW   100.64.0.0/10
+443/tcp         ALLOW   100.64.0.0/10</span>
+<span class="y">root@DevDash</span>:<span class="a">/</span># <span style="background:var(--term-fg)"> </span></div>
+  <div class="keys"><span>Esc</span><span>Tab</span><span>Ctrl</span><span>Alt</span><span>|</span><span>~</span><span>↑</span><span>↓</span><span><i class="ti ti-clipboard"></i></span></div>
+</div></div><figcaption>Admin shell (owner only)</figcaption></figure>
+
+</div>
+</section>
+
+<!-- ============ 4. PROJECTS + WORK ============ -->
+<section>
+<h2>4 · Projects, tasks and notes</h2>
+<p>Git activity from the server's own fetches, task board with <span class="mono">fixes #12</span> auto-close, and notes pinned to projects.</p>
+<div class="grid">
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab"><h3>Projects</h3><div class="ib"><i class="ti ti-plus"></i></div></div>
+  <div class="bd">
+    <div class="in"><i class="ti ti-search"></i>Filter projects</div>
+    <div class="card"><div class="row sp"><div class="row b"><div class="ic acc"><i class="ti ti-device-mobile"></i></div>app-mobile</div><span class="chip acc">3 new</span></div><div class="sm muted" style="margin-top:6px">Flutter shop app · main · fetched 4m ago</div><div class="row xs muted" style="margin-top:8px;gap:12px"><span><i class="ti ti-sparkles"></i> 2 sessions</span><span><i class="ti ti-checkbox"></i> 7 open</span><span><i class="ti ti-package"></i> 1.4.2</span></div></div>
+    <div class="card"><div class="row sp"><div class="row b"><div class="ic"><i class="ti ti-server"></i></div>api-server</div><span class="chip ok">up to date</span></div><div class="sm muted" style="margin-top:6px">Bun API · dev · fetched 20m ago</div><div class="row xs muted" style="margin-top:8px;gap:12px"><span><i class="ti ti-sparkles"></i> 1 session</span><span><i class="ti ti-checkbox"></i> 3 open</span></div></div>
+    <div class="card"><div class="row sp"><div class="row b"><div class="ic"><i class="ti ti-layout-dashboard"></i></div>DevDash</div><span class="chip bad"><i class="ti ti-alert-triangle"></i>fetch failed</span></div><div class="sm muted" style="margin-top:6px">This dashboard · auth error · retrying in 8m</div></div>
+    <div class="card"><div class="row sp"><div class="row b"><div class="ic"><i class="ti ti-device-gamepad-2"></i></div>jam-2026</div><span class="chip">auto-fetch off</span></div><div class="sm muted" style="margin-top:6px">Godot · main · fetched Oct 2</div></div>
+  </div>
+  <div class="nav" data-nav="1"></div>
+</div></div><figcaption>Projects</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab"><div class="ib ghost"><i class="ti ti-arrow-left"></i></div><div class="grow"><h3>app-mobile</h3><div class="sub">main · 4 branches · fetched 4m ago</div></div><div class="ib"><i class="ti ti-refresh"></i></div></div>
+  <div class="bd">
+    <div class="row" style="gap:8px"><div class="btn pri sm2 grow"><i class="ti ti-sparkles"></i>New Claude session</div><div class="btn sm2"><i class="ti ti-hammer"></i>Build</div></div>
+    <div class="card" style="background:var(--warning-soft);border-color:transparent"><div class="row b sm" style="color:var(--warning)"><i class="ti ti-pin"></i>Release checklist</div><div class="sm">Bump build number, update store screenshots, keystore is in the vault.</div></div>
+    <div class="row" style="gap:6px"><span class="chip acc">Commits</span><span class="chip">Tasks 7</span><span class="chip">Sessions 2</span><span class="chip">Notes 5</span></div>
+    <div class="list">
+      <div class="li"><div class="av s2">OM</div><div class="grow"><div class="ell sm">Orders: add pull to refresh</div><div class="xs muted mono">a81f3c2 · 12m · <span class="add">+48</span> <span class="del">−9</span></div></div></div>
+      <div class="li"><div class="av">YE</div><div class="grow"><div class="ell sm">fixes #12 wait for store before refresh</div><div class="xs muted mono">e02b9d1 · 1h · <span class="add">+31</span> <span class="del">−4</span></div></div><span class="chip ok xs">#12</span></div>
+      <div class="li"><div class="av s2">OM</div><div class="grow"><div class="ell sm">Bump deps</div><div class="xs muted mono">77c01aa · 3h · <span class="add">+6</span> <span class="del">−6</span></div></div></div>
+      <div class="li"><div class="av s3">SA</div><div class="grow"><div class="ell sm">Dark theme for checkout</div><div class="xs muted mono">3fe9e10 · yesterday · <span class="add">+120</span> <span class="del">−40</span></div></div></div>
+    </div>
+    <div class="lbl"><span>This week</span></div>
+    <div class="card"><div class="row sm" style="gap:10px"><div class="av s2">OM</div><div class="grow bar"><i style="width:70%"></i></div><span class="xs muted">14</span></div><div class="row sm" style="gap:10px;margin-top:6px"><div class="av">YE</div><div class="grow bar"><i style="width:45%"></i></div><span class="xs muted">9</span></div></div>
+  </div>
+  <div class="nav" data-nav="1"></div>
+</div></div><figcaption>Project page</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab"><h3>Tasks</h3><div class="ib"><i class="ti ti-calendar"></i></div><div class="ib" style="background:var(--accent);border-color:var(--accent);color:var(--on-accent)"><i class="ti ti-plus"></i></div></div>
+  <div class="row" style="padding:0 16px 10px;gap:6px"><span class="chip">app-mobile <i class="ti ti-chevron-down"></i></span><span class="chip acc">Board</span><span class="chip">List</span><span class="chip">Mine</span></div>
+  <div style="flex:1;display:flex;gap:10px;padding:0 16px;overflow:hidden">
+    <div class="kcol">
+      <div class="row sp sm"><span class="b">In progress</span><span class="muted">2</span></div>
+      <div class="card"><div class="row sp"><span class="xs muted mono">#18</span><span class="chip bad">High</span></div><div class="b" style="margin:4px 0">Offline mode for orders</div><div class="row sp"><div class="row xs muted"><i class="ti ti-calendar"></i>Today</div><div class="av">YE</div></div></div>
+      <div class="card"><div class="row sp"><span class="xs muted mono">#21</span><span class="chip warn">Med</span></div><div class="b" style="margin:4px 0">Dark mode icons</div><div class="row xs muted" style="gap:4px"><span class="chip">design</span></div><div class="row sp" style="margin-top:6px"><div class="row xs" style="color:var(--accent)"><i class="ti ti-sparkles"></i>Claude on it</div><div class="av s3">SA</div></div></div>
+      <div class="row muted sm" style="gap:6px;padding:4px"><i class="ti ti-plus"></i>Add task</div>
+    </div>
+    <div class="kcol" style="opacity:.75">
+      <div class="row sp sm"><span class="b">Review</span><span class="muted">1</span></div>
+      <div class="card"><div class="row sp"><span class="xs muted mono">#15</span><span class="chip">Low</span></div><div class="b" style="margin:4px 0">Haptics on add to cart</div><div class="row sp"><div class="row xs muted"><i class="ti ti-message"></i>3</div><div class="av s2">OM</div></div></div>
+    </div>
+  </div>
+  <div class="row" style="justify-content:center;gap:6px;padding:8px"><span class="dot off"></span><span class="dot"></span><span class="dot off"></span><span class="dot off"></span></div>
+  <div class="nav" data-nav="3"></div>
+</div></div><figcaption>Tasks board (swipe between columns)</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab"><div class="ib ghost"><i class="ti ti-arrow-left"></i></div><div class="grow"><div class="xs muted mono">app-mobile #18</div><div class="b">Offline mode for orders</div></div><div class="ib ghost"><i class="ti ti-dots-vertical"></i></div></div>
+  <div class="bd">
+    <div class="row" style="gap:6px;flex-wrap:wrap"><span class="chip warn">In progress</span><span class="chip bad">High</span><span class="chip"><i class="ti ti-calendar"></i>Today</span><span class="chip">offline</span></div>
+    <div class="row" style="gap:6px"><div class="av">YE</div><div class="av s2">OM</div><span class="sm muted">assigned</span></div>
+    <div class="card sm">Cache the last 50 orders locally. Show a banner when offline. Queue status changes and sync when back online.</div>
+    <div class="btn pri full"><i class="ti ti-sparkles"></i>Give to Claude</div>
+    <div class="lbl"><span>Linked</span></div>
+    <div class="list"><div class="li"><i class="ti ti-git-commit muted"></i><span class="mono sm grow ell">b12e0f4 orders cache layer</span></div><div class="li"><i class="ti ti-sparkles muted"></i><span class="sm grow ell">Session: Offline orders</span><span class="dot ok"></span></div></div>
+    <div class="lbl"><span>Comments</span></div>
+    <div class="row" style="align-items:flex-start;gap:8px"><div class="av s2">OM</div><div class="card sm grow" style="padding:8px 12px">Use the same queue as the cart, it already retries.</div></div>
+    <div class="in">Write a comment…</div>
+  </div>
+</div></div><figcaption>Task detail with “Give to Claude”</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab"><div class="ib ghost"><i class="ti ti-arrow-left"></i></div><h3>Notes</h3><div class="ib"><i class="ti ti-plus"></i></div></div>
+  <div class="bd">
+    <div class="in"><i class="ti ti-search"></i>Search notes</div>
+    <div class="row" style="gap:6px;flex-wrap:wrap"><span class="chip acc">All projects</span><span class="chip">No project</span><span class="chip">High priority</span><span class="chip">#infra</span></div>
+    <div class="card"><div class="row sp"><span class="b">Release checklist</span><i class="ti ti-pin" style="color:var(--accent)"></i></div><div class="sm muted" style="margin:4px 0 8px">Bump build number, update store screenshots, keystore is in the vault…</div><div class="row xs muted" style="gap:6px"><span class="chip">app-mobile</span><span>Youssef · 2d</span></div></div>
+    <div class="card"><div class="row sp"><span class="b">ADB over Tailscale</span><span class="chip bad">High</span></div><div class="sm muted" style="margin:4px 0 8px">adb pair 100.x.y.z:port, then adb connect… phone must be on tailnet.</div><div class="row xs muted" style="gap:6px"><span class="chip">#infra</span><span>Omar · 5d</span></div></div>
+    <div class="card"><div class="b">Ideas for v2</div><div class="sm muted" style="margin:4px 0 8px">Loyalty points, order again button, Arabic RTL check on every screen.</div><div class="row xs muted" style="gap:6px"><span class="chip">No project</span><span>Sara · 1w</span></div></div>
+  </div>
+  <div class="nav" data-nav="4"></div>
+</div></div><figcaption>Notes</figcaption></figure>
+
+</div>
+</section>
+
+<!-- ============ 5. MORE ============ -->
+<section>
+<h2>5 · More: vault, builds, files, browser, server</h2>
+<p>Everything else lives under More on the phone and in the sidebar on desktop.</p>
+<div class="grid">
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab"><h3>More</h3><div class="av">YE</div></div>
+  <div class="bd">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+      <div class="card col" style="align-items:center;padding:14px 6px"><div class="ic acc"><i class="ti ti-terminal-2"></i></div><span class="sm">Terminal</span></div>
+      <div class="card col" style="align-items:center;padding:14px 6px"><div class="ic"><i class="ti ti-lock"></i></div><span class="sm">Vault</span></div>
+      <div class="card col" style="align-items:center;padding:14px 6px"><div class="ic"><i class="ti ti-notes"></i></div><span class="sm">Notes</span></div>
+      <div class="card col" style="align-items:center;padding:14px 6px"><div class="ic"><i class="ti ti-package"></i></div><span class="sm">Builds</span></div>
+      <div class="card col" style="align-items:center;padding:14px 6px"><div class="ic"><i class="ti ti-folder"></i></div><span class="sm">Files</span></div>
+      <div class="card col" style="align-items:center;padding:14px 6px"><div class="ic"><i class="ti ti-browser"></i></div><span class="sm">Browser</span></div>
+      <div class="card col" style="align-items:center;padding:14px 6px"><div class="ic"><i class="ti ti-activity"></i></div><span class="sm">Activity</span></div>
+      <div class="card col" style="align-items:center;padding:14px 6px"><div class="ic"><i class="ti ti-code"></i></div><span class="sm">Snippets</span></div>
+      <div class="card col" style="align-items:center;padding:14px 6px"><div class="ic"><i class="ti ti-devices"></i></div><span class="sm">Devices</span></div>
+      <div class="card col" style="align-items:center;padding:14px 6px"><div class="ic"><i class="ti ti-server-2"></i></div><span class="sm">Server</span></div>
+      <div class="card col" style="align-items:center;padding:14px 6px"><div class="ic"><i class="ti ti-key"></i></div><span class="sm">Secrets</span></div>
+      <div class="card col" style="align-items:center;padding:14px 6px"><div class="ic"><i class="ti ti-settings"></i></div><span class="sm">Settings</span></div>
+    </div>
+    <div class="list">
+      <div class="li"><i class="ti ti-sparkles muted"></i><span class="grow">Claude setup</span><span class="chip warn">claude-mem down</span></div>
+      <div class="li"><i class="ti ti-users muted"></i><span class="grow">Members and invites</span><i class="ti ti-chevron-right muted"></i></div>
+      <div class="li"><i class="ti ti-file-text muted"></i><span class="grow">Audit log</span><span class="chip">admin</span></div>
+    </div>
+  </div>
+  <div class="nav" data-nav="4"></div>
+</div></div><figcaption>More</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab"><div class="ib ghost"><i class="ti ti-arrow-left"></i></div><div class="grow"><h3>Claude setup</h3><div class="sub">Your Linux user: youssef</div></div></div>
+  <div class="bd">
+    <div class="list">
+      <div class="li"><div class="ic"><i class="ti ti-terminal"></i></div><div class="grow"><div class="b sm">Claude Code</div><div class="xs muted">v2.4.1 · latest</div></div><span class="chip ok">OK</span></div>
+      <div class="li"><div class="ic"><i class="ti ti-user-check"></i></div><div class="grow"><div class="b sm">Account</div><div class="xs muted">Team seat · logged in</div></div><span class="chip ok">OK</span></div>
+      <div class="li"><div class="ic"><i class="ti ti-brain"></i></div><div class="grow"><div class="b sm">claude-mem worker</div><div class="xs muted">Failed to spawn SDK subprocess</div></div><span class="btn sm2">Restart</span></div>
+      <div class="li"><div class="ic"><i class="ti ti-plug-connected"></i></div><div class="grow"><div class="b sm"><span class="appname">DevDash</span> MCP</div><div class="xs muted">Token ends …4f2a</div></div><span class="chip ok">OK</span></div>
+    </div>
+    <div class="lbl"><span>Defaults for new sessions</span></div>
+    <div class="list">
+      <div class="li"><span class="grow sm">Permission mode</span><span class="chip acc"><i class="ti ti-bolt"></i>Bypass</span></div>
+      <div class="li"><span class="grow sm">Model</span><span class="chip">Opus 5.5</span></div>
+      <div class="li"><span class="grow sm">Open sessions in</span><span class="seg2"><span class="on">Chat</span><span>CLI</span></span></div>
+      <div class="li"><span class="grow sm">Remote Control by default</span><div class="tg"></div></div>
+    </div>
+    <div class="lbl"><span>Plugins and skills</span><span>Manage</span></div>
+    <div class="row" style="gap:6px;flex-wrap:wrap"><span class="chip ok">claude-mem</span><span class="chip ok">frontend-design</span><span class="chip ok">code-review</span><span class="chip ok">security-review</span><span class="chip"><i class="ti ti-plus"></i>Add</span></div>
+  </div>
+</div></div><figcaption>Claude setup and health</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab"><div class="ib ghost"><i class="ti ti-arrow-left"></i></div><div class="grow"><h3>Vault</h3><div class="row sub"><i class="ti ti-lock-open"></i>Unlocked · locks in 4:12</div></div><div class="ib"><i class="ti ti-lock"></i></div></div>
+  <div class="bd">
+    <div class="row" style="gap:6px"><span class="chip acc">Personal</span><span class="chip">Shared · 4</span><span class="chip">Shop app</span></div>
+    <div class="in"><i class="ti ti-search"></i>Search vault</div>
+    <div class="list">
+      <div class="li"><div class="ic"><i class="ti ti-brand-github"></i></div><div class="grow"><div class="b sm">GitHub</div><div class="xs muted">youssef-dev</div></div><span class="chip mono acc">482 913</span></div>
+      <div class="li"><div class="ic"><i class="ti ti-brand-google-play"></i></div><div class="grow"><div class="b sm">Play Console</div><div class="xs muted">team account</div></div><i class="ti ti-copy muted"></i></div>
+      <div class="li"><div class="ic"><i class="ti ti-cloud"></i></div><div class="grow"><div class="b sm">Hetzner</div><div class="xs muted">owner</div></div><span class="chip mono acc">107 554</span></div>
+      <div class="li"><div class="ic"><i class="ti ti-key"></i></div><div class="grow"><div class="b sm">Android keystore</div><div class="xs muted">app-mobile release</div></div><i class="ti ti-copy muted"></i></div>
+    </div>
+    <div class="card">
+      <div class="row sp"><span class="b">Play Console</span><span class="xs muted">Shared vault</span></div>
+      <div class="li" style="padding:8px 0 4px;border:0"><span class="xs muted" style="width:70px">Password</span><span class="mono grow">•••••••••••••</span><i class="ti ti-eye muted"></i><i class="ti ti-copy" style="color:var(--accent)"></i></div>
+      <div class="xs muted">Clipboard clears in 30s</div>
+    </div>
+    <div class="btn full"><i class="ti ti-wand"></i>Generate password</div>
+  </div>
+</div></div><figcaption>Vault (zero-knowledge)</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab"><div class="ib ghost"><i class="ti ti-arrow-left"></i></div><div class="grow"><h3>Builds</h3><div class="sub">app-mobile</div></div><div class="ib" style="background:var(--accent);border-color:var(--accent);color:var(--on-accent)"><i class="ti ti-player-play"></i></div></div>
+  <div class="bd">
+    <div class="card" style="border-color:var(--accent)">
+      <div class="row sp"><div class="row b"><i class="ti ti-loader-2" style="color:var(--accent)"></i>Build #58 · APK release</div><span class="xs muted">2:41</span></div>
+      <div class="bar" style="margin:8px 0"><i style="width:62%"></i></div>
+      <div class="mono" style="background:var(--term-bg);color:var(--term-fg);border-radius:10px;padding:8px;font-size:11px;line-height:1.5">Running Gradle task 'assembleRelease'…<br><span style="color:var(--term-dim)">&gt; Task :app:minifyReleaseWithR8</span></div>
+    </div>
+    <div class="lbl"><span>Releases</span></div>
+    <div class="card">
+      <div class="row sp"><div><div class="b">1.4.2 <span class="muted">(57)</span></div><div class="xs muted">APK · 28.4 MB · Omar · 1h</div></div><span class="chip ok">Ready</span></div>
+      <div class="sm muted" style="margin:8px 0">• Pull to refresh on orders<br>• Fix login crash on expired token (#12)</div>
+      <div class="row" style="gap:8px"><div class="btn sm2 grow"><i class="ti ti-download"></i>Download</div><div class="btn sm2 grow"><i class="ti ti-link"></i>Share link</div></div>
+    </div>
+    <div class="list">
+      <div class="li"><i class="ti ti-circle-check" style="color:var(--success)"></i><span class="grow sm">1.4.1 (56) · APK</span><span class="xs muted">Oct 3</span></div>
+      <div class="li"><i class="ti ti-circle-x" style="color:var(--danger)"></i><span class="grow sm">Build #55 failed</span><span class="xs muted">Oct 3</span></div>
+      <div class="li"><i class="ti ti-circle-check" style="color:var(--success)"></i><span class="grow sm">1.4.0 (54) · APK</span><span class="xs muted">Sep 28</span></div>
+    </div>
+  </div>
+</div></div><figcaption>Builds and releases</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab"><div class="ib ghost"><i class="ti ti-arrow-left"></i></div><div class="grow"><h3>Files</h3><div class="sub mono">/shared/designs</div></div><div class="ib"><i class="ti ti-upload"></i></div></div>
+  <div class="bd">
+    <div class="list">
+      <div class="li"><div class="ic"><i class="ti ti-folder"></i></div><span class="grow">icons</span><span class="xs muted">24 items</span></div>
+      <div class="li"><div class="ic"><i class="ti ti-photo"></i></div><div class="grow"><div class="sm">store-shot-1.png</div><div class="xs muted">1.2 MB · Sara</div></div></div>
+      <div class="li" style="background:var(--accent-soft)"><div class="ic acc"><i class="ti ti-file-zip"></i></div><div class="grow"><div class="sm b">brand-kit.zip</div><div class="xs muted">18 MB · You</div></div></div>
+      <div class="li"><div class="ic"><i class="ti ti-file-type-pdf"></i></div><div class="grow"><div class="sm">pitch.pdf</div><div class="xs muted">3.4 MB · Omar</div></div></div>
+    </div>
+  </div>
+  <div class="dim"></div>
+  <div class="sheet">
+    <div class="grab"></div>
+    <div class="h" style="font-size:20px">Share brand-kit.zip</div>
+    <div class="lbl"><span>Expires</span></div>
+    <div class="row" style="gap:6px"><span class="chip">1 hour</span><span class="chip acc">1 day</span><span class="chip">7 days</span><span class="chip">Never</span></div>
+    <div class="row sp"><div class="sm b">Password</div><div class="tg on"></div></div>
+    <div class="in" style="color:var(--text)">••••••</div>
+    <div class="row sp"><div class="sm b">Max downloads</div><span class="chip">5</span></div>
+    <div class="btn pri full"><i class="ti ti-link"></i>Create link</div>
+    <div class="xs muted">Share links are the only public part of <span class="appname">DevDash</span>.</div>
+  </div>
+</div></div><figcaption>Files and share link</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab" style="padding-bottom:6px"><div class="ib ghost"><i class="ti ti-arrow-left"></i></div><div class="in grow" style="height:36px;font-size:13px"><i class="ti ti-lock"></i><span class="ell" style="color:var(--text)">play.google.com/console</span></div><div class="ib ghost"><i class="ti ti-copy"></i></div></div>
+  <div class="row" style="padding:0 12px 8px;gap:6px"><span class="chip acc">Console</span><span class="chip">Gmail</span><span class="chip"><i class="ti ti-plus"></i></span><div style="flex:1"></div><span class="chip"><i class="ti ti-home"></i>Home IP</span></div>
+  <div style="flex:1;background:#fff;margin:0 10px;border-radius:12px;overflow:hidden;color:#202124;font-family:system-ui;display:flex;flex-direction:column">
+    <div style="background:#f1f3f4;padding:10px 12px;font-size:13px;display:flex;justify-content:space-between"><b>Google Play Console</b><span>☰</span></div>
+    <div style="padding:14px;font-size:13px;display:flex;flex-direction:column;gap:10px">
+      <div style="font-size:16px">Shop app</div>
+      <div style="border:1px solid #dadce0;border-radius:8px;padding:10px">Production · 1.4.1 (56)<br><span style="color:#188038">Available on Google Play</span></div>
+      <div style="border:1px solid #dadce0;border-radius:8px;padding:10px">Internal testing · 1.4.2 (57)<br><span style="color:#b06000">In review</span></div>
+      <div style="border:1px solid #dadce0;border-radius:8px;padding:10px;height:120px;color:#5f6368">Installs last 30 days</div>
+    </div>
+  </div>
+  <div class="row xs muted" style="justify-content:space-between;padding:8px 14px 18px"><span><i class="ti ti-keyboard"></i> Keyboard</span><span><i class="ti ti-arrow-back-up"></i> Back</span><span><i class="ti ti-refresh"></i> Reload</span><span>Profile: Shop app</span></div>
+</div></div><figcaption>Remote browser on the VPS (logged in)</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab"><div class="ib ghost"><i class="ti ti-arrow-left"></i></div><div class="grow"><h3>Server</h3><div class="sub">up 3 days · Hetzner CPX41</div></div></div>
+  <div class="bd">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="card"><div class="xs muted">CPU</div><div class="h" style="font-size:24px">38%</div><div class="bar"><i style="width:38%"></i></div></div>
+      <div class="card"><div class="xs muted">RAM</div><div class="h" style="font-size:24px">9.1 <span class="sm muted">/ 16 GB</span></div><div class="bar"><i style="width:57%"></i></div></div>
+      <div class="card"><div class="xs muted">Disk</div><div class="h" style="font-size:24px">112 <span class="sm muted">/ 300 GB</span></div><div class="bar"><i style="width:38%"></i></div></div>
+      <div class="card"><div class="xs muted">Claude sessions</div><div class="h" style="font-size:24px">4 <span class="sm muted">running</span></div><div class="xs muted">YE 2 · OM 1 · SA 1</div></div>
+    </div>
+    <div class="lbl"><span>Services</span></div>
+    <div class="list">
+      <div class="li"><span class="dot ok"></span><span class="grow sm"><span class="appname">DevDash</span> app</span><span class="xs muted">212 MB</span><i class="ti ti-refresh muted"></i></div>
+      <div class="li"><span class="dot ok"></span><span class="grow sm">Session agent</span><span class="xs muted">88 MB</span><i class="ti ti-refresh muted"></i></div>
+      <div class="li"><span class="dot ok"></span><span class="grow sm">Chromium</span><span class="xs muted">1.1 GB</span><i class="ti ti-refresh muted"></i></div>
+      <div class="li"><span class="dot warn"></span><span class="grow sm">claude-mem (youssef)</span><span class="xs muted">failing</span><i class="ti ti-refresh muted"></i></div>
+      <div class="li"><span class="dot ok"></span><span class="grow sm">Last backup</span><span class="xs muted">03:00 · 4.2 GB</span></div>
+    </div>
+    <div class="lbl"><span>Devices</span></div>
+    <div class="list"><div class="li"><i class="ti ti-device-desktop muted"></i><span class="grow sm">Home PC</span><span class="chip">offline</span><span class="btn sm2">Wake</span></div></div>
+  </div>
+</div></div><figcaption>Server status and devices</figcaption></figure>
+
+<figure><div class="phone"><div class="scr">
+  <div class="sb"><span>9:41</span><span><i class="ti ti-antenna-bars-5"></i><i class="ti ti-wifi"></i><i class="ti ti-battery-3"></i></span></div>
+  <div class="ab"><div class="ib ghost"><i class="ti ti-arrow-left"></i></div><h3>Notifications</h3><span class="sm" style="color:var(--accent)">Read all</span></div>
+  <div class="bd">
+    <div class="list">
+      <div class="li" style="background:var(--accent-soft)"><div class="ic acc"><i class="ti ti-sparkles"></i></div><div class="grow"><div class="sm"><b>Claude needs you</b> in “Fix login crash”</div><div class="xs muted">2m</div></div><span class="dot"></span></div>
+      <div class="li" style="background:var(--accent-soft)"><div class="av s2">OM</div><div class="grow"><div class="sm"><b>Omar</b> assigned you #18</div><div class="xs muted">20m</div></div><span class="dot"></span></div>
+      <div class="li"><div class="ic"><i class="ti ti-package"></i></div><div class="grow"><div class="sm">Build #57 finished</div><div class="xs muted">1h</div></div></div>
+      <div class="li"><div class="ic"><i class="ti ti-calendar-due"></i></div><div class="grow"><div class="sm">#18 is due today</div><div class="xs muted">8:00</div></div></div>
+      <div class="li"><div class="ic"><i class="ti ti-link"></i></div><div class="grow"><div class="sm">brand-kit.zip downloaded (2/5)</div><div class="xs muted">yesterday</div></div></div>
+      <div class="li"><div class="ic"><i class="ti ti-user-plus"></i></div><div class="grow"><div class="sm"><b>Sara</b> joined Shop app</div><div class="xs muted">Mon</div></div></div>
+    </div>
+  </div>
+  <div class="nav" data-nav="0"></div>
+</div></div><figcaption>Notifications</figcaption></figure>
+
+</div>
+</section>
+
+<!-- ============ 6. DESKTOP ============ -->
+<section>
+<h2>6 · Desktop</h2>
+<p>Same screens, with a sidebar instead of the bottom nav. Claude chat gets the session list on the left and the files it touched on the right.</p>
+<div class="grid" style="overflow-x:auto;padding-bottom:20px">
+<div class="desk">
+  <div class="side">
+    <div class="row" style="padding:4px 8px 14px;gap:10px"><div class="logo" style="width:34px;height:34px;border-radius:11px;font-size:18px">د</div><div><div class="h appname" style="font-size:18px">DevDash</div><div class="xs muted">Shared workspace</div></div></div>
+    <a><i class="ti ti-home"></i>Home</a>
+    <a><i class="ti ti-folder"></i>Projects</a>
+    <a class="on"><i class="ti ti-sparkles"></i>Claude<span class="chip acc" style="margin-left:auto">1</span></a>
+    <a><i class="ti ti-checkbox"></i>Tasks</a>
+    <a><i class="ti ti-notes"></i>Notes</a>
+    <div class="sh">Tools</div>
+    <a><i class="ti ti-terminal-2"></i>Terminal</a>
+    <a><i class="ti ti-lock"></i>Vault</a>
+    <a><i class="ti ti-package"></i>Builds</a>
+    <a><i class="ti ti-browser"></i>Browser</a>
+    <a><i class="ti ti-server-2"></i>Server</a>
+    <div style="flex:1"></div>
+    <a><i class="ti ti-settings"></i>Settings</a>
+  </div>
+  <div style="width:270px;border-right:1px solid var(--line);padding:16px 12px;display:flex;flex-direction:column;gap:8px">
+    <div class="row sp"><div class="h" style="font-size:20px">Sessions</div><div class="btn pri sm2"><i class="ti ti-plus"></i>New</div></div>
+    <div class="card" style="border-color:var(--accent);padding:10px 12px"><div class="row sp"><span class="b sm ell">Fix login crash</span><span class="dot warn"></span></div><div class="xs muted">app-mobile · waiting for you</div></div>
+    <div class="card" style="padding:10px 12px"><div class="row sp"><span class="b sm ell">Release notes generator</span><span class="dot ok"></span></div><div class="xs muted">api-server · working</div></div>
+    <div class="card" style="padding:10px 12px"><div class="row sp"><span class="b sm ell">Payment SDK options</span><span class="dot ok"></span></div><div class="xs muted">No project · working</div></div>
+    <div class="lbl"><span>Idle</span></div>
+    <div class="card" style="padding:10px 12px"><div class="b sm ell">Orders screen redesign</div><div class="xs muted">app-mobile · yesterday</div></div>
+  </div>
+  <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+    <div class="row" style="padding:12px 18px;border-bottom:1px solid var(--line);gap:10px"><div class="grow"><div class="b">Fix login crash</div><div class="xs muted">app-mobile · main · /srv/projects/app-mobile</div></div><span class="chip"><i class="ti ti-cpu"></i>Opus 5.5</span><span class="chip acc"><i class="ti ti-bolt"></i>Bypass</span><span class="chip"><i class="ti ti-brain"></i>mem</span><div class="seg2"><span class="on">Chat</span><span>CLI</span></div></div>
+    <div style="flex:1;padding:18px 18px 0;display:flex;flex-direction:column;gap:10px;max-width:760px;overflow:hidden">
+      <div class="bub">The app crashes on login when the token is expired. Fix it and add a test.</div>
+      <div>The refresh call runs before the secure store finishes loading. I'll make it wait, then add a test for the expired-token path.</div>
+      <div class="tool"><div class="th"><i class="ti ti-pencil"></i><span class="b">Edit</span><span class="mono muted grow">lib/auth/auth_service.dart</span><span class="xs add">+3</span><span class="xs del">−1</span></div><div class="tb"><div class="del">42 -  _refresh();</div><div class="add">42 +  await _store.ready;</div><div class="add">43 +  if (_token?.expired ?? true) await _refresh();</div></div></div>
+      <div class="tool"><div class="th"><i class="ti ti-circle-check" style="color:var(--success)"></i><span class="b">Bash</span><span class="mono muted grow">flutter test test/auth</span><span class="xs" style="color:var(--success)">12 passed</span></div></div>
+      <div class="card" style="border-color:var(--accent)"><div class="row b"><i class="ti ti-help-circle" style="color:var(--accent)"></i>The old refresh flow is still used by the widget. What should I do with it?</div><div class="row" style="gap:8px;margin-top:10px"><div class="btn pri sm2">Keep it as a fallback</div><div class="btn sm2">Remove it now</div><div class="btn sm2">Other…</div></div></div>
+    </div>
+    <div style="padding:12px 18px 16px;max-width:796px"><div class="cbox row" style="justify-content:space-between"><span>Reply to Claude…  <span class="mono xs">/ for commands · @ for files</span></span><div class="send"><i class="ti ti-arrow-up"></i></div></div></div>
+  </div>
+  <div style="width:230px;border-left:1px solid var(--line);padding:16px 14px;display:flex;flex-direction:column;gap:8px">
+    <div class="b sm">Changed files</div>
+    <div class="row sm mono"><i class="ti ti-file muted"></i><span class="grow ell">auth_service.dart</span><span class="add xs">+3</span></div>
+    <div class="row sm mono"><i class="ti ti-file muted"></i><span class="grow ell">auth_test.dart</span><span class="add xs">+42</span></div>
+    <div class="b sm" style="margin-top:12px">To-dos</div>
+    <div class="sm add"><i class="ti ti-check"></i> Wait for store</div>
+    <div class="sm add"><i class="ti ti-check"></i> Add test</div>
+    <div class="sm muted"><i class="ti ti-circle"></i> Clean old path</div>
+    <div class="b sm" style="margin-top:12px">Linked task</div>
+    <div class="card sm" style="padding:8px 10px"><span class="mono muted">#12</span> Login crash on expired token</div>
+  </div>
+</div>
+</div>
+</section>
+
+<div style="height:40px"></div>
+
+<script>
+const APP_NAME = 'DevDash';
+document.querySelectorAll('.appname').forEach(e => e.textContent = APP_NAME);
+document.title = APP_NAME + ' mockups';
+
+const NAV = [['home','Home'],['folder','Projects'],['sparkles','Claude'],['checkbox','Tasks'],['dots','More']];
+document.querySelectorAll('[data-nav]').forEach(n => {
+  const on = +n.dataset.nav;
+  n.innerHTML = NAV.map(([i,l],k) => `<a class="${k===on?'on':''} ${k===2?'mid':''}"><i class="ti ti-${i}"></i>${l}</a>`).join('');
+});
+
+const btns = document.querySelectorAll('#theme button');
+function setTheme(t){
+  document.documentElement.dataset.theme = t;
+  btns.forEach(b => b.classList.toggle('on', b.dataset.t === t));
+  try { localStorage.setItem('DevDash-theme', t); } catch(e) {}
+}
+btns.forEach(b => b.onclick = () => setTheme(b.dataset.t));
+let saved = null; try { saved = localStorage.getItem('DevDash-theme'); } catch(e) {}
+setTheme(saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+</script>
+</body>
+</html>
