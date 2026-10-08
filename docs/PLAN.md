@@ -352,7 +352,8 @@ Each phase ends deployed on `dev.spacie.net`, with a short demo checklist and it
 - **Vault KDF:** PBKDF2-SHA256 (600k) in WebCrypto instead of Argon2 (no extra library); keys P-256 ECDH. Optionally stays unlocked on a device, sealed with a non-extractable device key.
 - **Remote browser:** neko multiuser mode (its bundled client needs it): members with full control, invite links for watch-only guests. uBlock Origin Lite ships with the image (Chromium no longer runs MV2 extensions).
 - **Backups:** nightly local snapshots (database, /etc/devdash, data; 14 days), optional off-site with restic via /etc/devdash/backup.env.
-- **Preview URLs for services:** waiting on a wildcard DNS decision (Cloudflare's free certificate doesn't cover *.dev.spacie.net).
+- **Service addresses:** https://<space>:8443/service/<name>/ (the team chose paths over wildcard DNS). The separate port is a separate origin, so service pages can't act on DevDash; members get in with their DevDash session, public services for anyone with the link.
+- **Backups:** kept on the server only (the team's choice); restic off-site stays available via /etc/devdash/backup.env.
 
 ## 13. Out of scope for v1
 
