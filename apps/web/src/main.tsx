@@ -85,6 +85,7 @@ const files = createRoute({
     ...(typeof s.path === 'string' ? { path: s.path } : {}), ...(s.tab === 'links' ? { tab: 'links' as const } : {}),
   }),
 })
+const vaultRoute = createRoute({ getParentRoute: () => app, path: '/vault', component: lazy(() => import('./features/vault/VaultPage'), 'VaultPage') })
 const services = createRoute({ getParentRoute: () => app, path: '/services', component: lazyRouteComponent(() => import('./features/services/ServicesPage'), 'ServicesPage') })
 const service = createRoute({ getParentRoute: () => app, path: '/services/$name', component: lazyRouteComponent(() => import('./features/services/ServicePage'), 'ServicePage') })
 // Claude is master-detail on wide screens: ClaudeLayout keeps the session list beside whatever is open.
@@ -98,7 +99,7 @@ const claudeSession = createRoute({
 })
 
 const router = createRouter({
-  routeTree: root.addChildren([login, invite, app.addChildren([home, claude.addChildren([claudeIndex, claudeSetup, claudeSession]), terminal, files, services, service, projects, project, buildRun, tasks, task, notes, note, members, account, more])]),
+  routeTree: root.addChildren([login, invite, app.addChildren([home, claude.addChildren([claudeIndex, claudeSetup, claudeSession]), terminal, files, vaultRoute, services, service, projects, project, buildRun, tasks, task, notes, note, members, account, more])]),
   context: { queryClient },
   defaultPreload: 'intent',
 })

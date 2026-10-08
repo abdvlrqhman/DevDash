@@ -23,15 +23,17 @@ export function MembersPage() {
   const me = useQuery(meQuery).data!
   const { data, error } = useQuery(membersQuery)
   const [inviting, setInviting] = useState(false)
+  const [removing, setRemoving] = useState<{ id: number; name: string } | null>(null)
+  const users = (data?.users ?? []).filter((u) => !u.disabled_at)
 
   return (
     <>
       <PageHeader title="Members" actions={me.role === 'admin' && <Button size="sm" onClick={() => setInviting(true)}><UserPlus />Invite</Button>} />
       <PageBody>
         <ErrorAlert error={error} />
-        <Section title={data ? `${data.users.length} ${data.users.length === 1 ? 'member' : 'members'}` : 'Members'}>
+        <Section title={data ? `${users.length} ${users.length === 1 ? 'member' : 'members'}` : 'Members'}>
           <ItemGroup className="rounded-xl border">
-            {data?.users.map((u) => (
+            {users.map((u) => (
               <Item key={u.id} className="rounded-none border-0 border-b last:border-b-0">
                 <ItemMedia><Avatar className="size-9"><AvatarFallback>{initials(u.name)}</AvatarFallback></Avatar></ItemMedia>
                 <ItemContent>
@@ -48,6 +50,9 @@ export function MembersPage() {
                     </Tooltip>
                   )}
                   {u.role === 'admin' && <Badge variant="outline">Admin</Badge>}
+                  {me.role === 'admin' && u.id !== me.id && (
+                    <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setRemoving({ id: u.id, name: u.name })}>Remove</Button>
+                  )}
                 </ItemActions>
               </Item>
             ))}
@@ -69,6 +74,7 @@ export function MembersPage() {
           </Section>
         )}
       </PageBody>
+      {removing && <RemoveMember member={removing} onClose={() => setRemoving(null)} />}
       {me.role === 'admin' && <InviteDialog open={inviting} onOpenChange={setInviting} />}
     </>
   )
@@ -141,6 +147,26 @@ function InviteDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (v:
           </FieldGroup>
         </form>
       )}
+    </ResponsiveDialog>
+  )
+}
+
+function RemoveMember({ member, onClose }: { member: { id: number; name: string }; onClose: () => void }) {
+  const qc = useQueryClient()
+  const remove = useMutation({
+    mutationFn: () => unwrap(api.api.members[':id'].remove.$post({ param: { id: String(member.id) } })),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['members'] }); toast.success(`${member.name} was removed.`); onClose() },
+  })
+  return (
+    <ResponsiveDialog open onOpenChange={(v) => !v && onClose()} title={`Remove ${member.name}?`}
+      description="They're signed out everywhere and can't sign in again. Their server account and files stay, so nothing they built is lost. The team vault gets a new key the next time someone unlocks it.">
+      <div className="flex flex-col gap-3">
+        <ErrorAlert error={remove.error} />
+        <div className="flex justify-end gap-2">
+          <Button variant="outline" onClick={onClose}>Keep them</Button>
+          <Button variant="destructive" disabled={remove.isPending} onClick={() => remove.mutate()}>Remove {member.name.split(' ')[0]}</Button>
+        </div>
+      </div>
     </ResponsiveDialog>
   )
 }

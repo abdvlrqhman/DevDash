@@ -10,12 +10,18 @@ const InviteInput = z.object({
   role: z.enum(['admin', 'member']),
 })
 
-export function membersRoutes(auth: AuthService, mw: ReturnType<typeof authMiddleware>, ip: (c: Context) => string, origin: string) {
+export function membersRoutes(auth: AuthService, mw: ReturnType<typeof authMiddleware>, ip: (c: Context) => string, origin: string, onRemoved: (userId: number) => void) {
   return new Hono<AuthEnv>()
     .use(mw.requireUser)
     .get('/', (c) => c.json(auth.members()))
     .post('/invites', mw.requireAdmin, json(InviteInput), (c) => {
       const { token } = auth.createInvite(c.req.valid('json'), c.get('user').id, ip(c))
       return c.json({ link: `${origin}/invite/${token}` })
+    })
+    .post('/:id/remove', mw.requireAdmin, (c) => {
+      const id = Number(c.req.param('id'))
+      auth.removeMember(c.get('user'), id, ip(c))
+      onRemoved(id)
+      return c.json({ ok: true })
     })
 }

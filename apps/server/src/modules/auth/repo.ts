@@ -38,8 +38,10 @@ export function authRepo(db: Db) {
       values (?, ?, ?, ?, ?, '', ?)`),
     setTotpSecret: db.prepare('update users set totp_secret = ? where id = ?'),
     advanceTotpStep: db.prepare('update users set totp_last_step = ?1 where id = ?2 and totp_last_step < ?1'),
-    listUsers: db.prepare('select id, email, username, name, role, created_at, disabled_at, provisioned_at, provision_error from users order by created_at'),
+    listUsers: db.prepare('select id, email, username, name, role, created_at, disabled_at, provisioned_at, provision_error from users where disabled_at is null order by created_at'),
     setPassword: db.prepare('update users set password_hash = ? where id = ?'),
+    disable: db.prepare('update users set disabled_at = unixepoch() where id = ? and disabled_at is null'),
+    deleteAllSessions: db.prepare('delete from sessions where user_id = ?'),
     deleteOtherSessions: db.prepare('delete from sessions where user_id = ? and token_hash != ?'),
     insertBackupCode: db.prepare('insert into backup_codes (user_id, code_hash) values (?, ?)'),
     useBackupCode: db.prepare('update backup_codes set used_at = unixepoch() where user_id = ? and code_hash = ? and used_at is null'),
@@ -72,6 +74,11 @@ export function authRepo(db: Db) {
     advanceTotpStep: (id: number, step: number) => s.advanceTotpStep.run(step, id).changes === 1,
     listUsers: () => s.listUsers.all() as (User & { created_at: number; disabled_at: number | null; provisioned_at: number | null; provision_error: string | null })[],
     setPassword: (id: number, hash: string) => void s.setPassword.run(hash, id),
+    /** Signs the member out everywhere and blocks sign-in. Their Linux account and files stay. */
+    disable(id: number) {
+      s.disable.run(id)
+      s.deleteAllSessions.run(id)
+    },
     deleteOtherSessions: (userId: number, keepHash: string) => Number(s.deleteOtherSessions.run(userId, keepHash).changes),
     insertBackupCodes: (userId: number, hashes: string[]) => hashes.forEach((h) => s.insertBackupCode.run(userId, h)),
     useBackupCode: (userId: number, hash: string) => s.useBackupCode.run(userId, hash).changes === 1,

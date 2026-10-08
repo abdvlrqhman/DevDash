@@ -13,6 +13,8 @@ import { registerMcp } from './modules/mcp/rpc.ts'
 import { filesRoutes, publicShareRoutes } from './modules/files/routes.ts'
 import { sharesService } from './modules/files/shares.ts'
 import { buildsRoutes } from './modules/builds/routes.ts'
+import { vaultRoutes } from './modules/vault/routes.ts'
+import { vaultService } from './modules/vault/service.ts'
 import { buildsService } from './modules/builds/service.ts'
 import { notesRoutes } from './modules/notes/routes.ts'
 import { notesService } from './modules/notes/service.ts'
@@ -72,6 +74,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   const ip = (c: Context) => clientIp(c, config.trustCfIp)
 
   const builds = buildsService({ db, agents, projects, shares })
+  const vault = vaultService({ db })
   const app = new Hono()
     // Public: lets the native shell check that a domain is a DevDash space before loading it.
     .get('/.well-known/devdash.json', (c) => {
@@ -83,7 +86,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     .route('/s', publicShareRoutes(shares, ip))
     .use('/api/*', sameOrigin(config.origin))
     .route('/api/auth', authRoutes(auth, mw, ip, (u) => void provisioning.ensure(u)))
-    .route('/api/members', membersRoutes(auth, mw, ip, config.origin))
+    .route('/api/members', membersRoutes(auth, mw, ip, config.origin, (id) => vault.memberRemoved(id)))
     .route('/api/terminals', terminalsRoutes(terms, auth, mw, provisioning, ip))
     .route('/api/claude', claudeRoutes(claude, mw))
     .route('/api/notifications', notificationsRoutes(notifications, mw))
@@ -93,6 +96,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     .route('/api/notes', notesRoutes(notes, mw))
     .route('/api/files', filesRoutes(agents, shares, mw))
     .route('/api/builds', buildsRoutes(builds, mw))
+    .route('/api/vault', vaultRoutes(vault, mw))
     .route('/api', searchRoutes({ db, search, notes, projects, claude, services, activity }, mw))
 
   app.notFound((c) => c.json({ error: { code: 'not_found', message: 'Not found' } }, 404))

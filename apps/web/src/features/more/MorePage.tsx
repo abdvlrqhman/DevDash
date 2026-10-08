@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { ArrowLeftRight, ChevronRight, Download, HardDrive, LogOut, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Users } from 'lucide-react'
+import { ArrowLeftRight, ChevronRight, Download, HardDrive, KeyRound, LogOut, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Users } from 'lucide-react'
 import { initials } from '@/components/app/brand'
 import { PageBody, PageHeader, Section } from '@/components/app/page'
 import { useSignOut } from '@/components/app/shell'
@@ -13,6 +13,7 @@ import { APP_DOWNLOADS, inShell, openExternal } from '@/lib/shell'
 import { setTheme, useTheme, type ThemePref } from '@/lib/theme'
 
 const LINKS = [
+  { to: '/vault', label: 'Vault', description: 'Passwords and 2FA codes, encrypted on your device', icon: KeyRound },
   { to: '/notes', label: 'Notes', description: 'Decisions, setup steps and links for the team', icon: StickyNote },
   { to: '/terminal', label: 'Terminal', description: 'Shells on the server that keep running', icon: SquareTerminal },
   { to: '/files', label: 'Files', description: 'Browse, upload and share files on the server', icon: HardDrive },

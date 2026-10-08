@@ -188,6 +188,13 @@ export function authService(deps: { db: Db; masterKey: Buffer; spaceName: string
       return step !== null && repo.advanceTotpStep(u.id, step)
     },
 
+    removeMember(actor: User, id: number, ip: string) {
+      if (actor.id === id) throw new AppError(400, 'self', 'You cannot remove yourself.')
+      const u = repo.userById(id)
+      if (!u || u.disabled_at) throw new AppError(404, 'not_found', 'No such member.')
+      repo.disable(id)
+      repo.audit(actor.id, 'member.remove', u.username, ip, {})
+    },
     members() {
       return { users: repo.listUsers(), invites: repo.pendingInvites() }
     },

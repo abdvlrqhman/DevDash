@@ -37,8 +37,13 @@ import { useTopic } from '@/lib/live'
 const light = (s: Session['status']) => (s === 'working' ? 'live' : s === 'waiting' ? 'waiting' : s === 'error' ? 'error' : 'idle')
 const termSize = () => ({ cols: Math.max(40, Math.min(220, Math.floor(innerWidth / 8.2))), rows: Math.max(15, Math.min(80, Math.floor(innerHeight / 19))) })
 
+/** One view per session: switching sessions mounts a fresh one, so no messages or requests carry over. */
 export function SessionPage() {
   const { id } = useParams({ from: '/app/claude/$id' })
+  return <SessionView key={id} id={id} />
+}
+
+function SessionView({ id }: { id: string }) {
   const me = useQuery(meQuery).data!
   const qc = useQueryClient()
   const info = useQuery(sessionQuery(id))
