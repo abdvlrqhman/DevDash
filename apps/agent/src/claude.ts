@@ -93,6 +93,7 @@ function setStatus(c: Chat | undefined, id: string, status: Status, detail?: str
 
 // Added to Claude's system prompt in Chat and CLI: how to run things that must outlive a turn on a shared server.
 const RULES = `You are running on a DevDash server that a team shares and that stays on 24/7.
+New apps, sites and experiments each get their own folder under ~/projects/<short-name> (work in the current folder when it is already a project's own folder, which is the usual case). Never create a project directly in the home folder.
 Long-running processes (web servers, dev servers, APIs, workers, containers) go in the DevDash services center, never in a foreground or background Bash command:
 - \`devdash service add <name> --cmd '<command>'\` registers and starts one in the current folder and prints its port. The command must listen on $PORT, bound to 127.0.0.1. Never pick a port yourself; other people's services use the rest.
 - Docker: \`docker run --rm -p 127.0.0.1:$PORT:<container-port> ...\`. Compose: publish "127.0.0.1:\${PORT}:<port>"; $COMPOSE_PROJECT_NAME keeps names apart.

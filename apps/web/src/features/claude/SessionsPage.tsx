@@ -135,7 +135,7 @@ function Choice({ id, label, value, options, onChange, description }: {
 const WORDS = [['quiet', 'amber', 'swift', 'bright', 'calm', 'bold', 'lucky', 'misty', 'brave', 'cosmic', 'gentle', 'rapid'],
   ['river', 'falcon', 'maple', 'harbor', 'comet', 'meadow', 'otter', 'canyon', 'cedar', 'lantern', 'summit', 'willow']]
 const pick = (a: string[]) => a[Math.floor(Math.random() * a.length)]!
-export const sessionFolder = () => `~/sessions/${pick(WORDS[0]!)}-${pick(WORDS[1]!)}`
+export const sessionFolder = () => `~/projects/${pick(WORDS[0]!)}-${pick(WORDS[1]!)}`
 const OTHER_MODEL = '__other'
 
 export function NewSession({ open, onClose, initialPrompt = '', initialCwd, initialProject }: {
@@ -221,7 +221,7 @@ export function NewSession({ open, onClose, initialPrompt = '', initialCwd, init
             <Field>
               <FieldLabel htmlFor="ns-cwd">Folder</FieldLabel>
               <Input id="ns-cwd" className="h-10 font-mono" value={cwd} onChange={(e) => setCwd(e.target.value)} spellCheck={false} autoCapitalize="none" />
-              <FieldDescription>A new folder of its own, made for this session. Change it to work somewhere else, like ~/projects/app (~ is your home folder).</FieldDescription>
+              <FieldDescription>A new folder of its own in your projects folder (~/projects). Rename it, or pick an existing folder to work there.</FieldDescription>
             </Field>
           )}
           {profiles.length > 1 && (
