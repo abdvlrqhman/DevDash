@@ -17,7 +17,7 @@ import { vaultRoutes } from './modules/vault/routes.ts'
 import { browserRoutes, watchRoutes } from './modules/browser/routes.ts'
 import { browserService } from './modules/browser/service.ts'
 import { statusRoutes } from './modules/status/routes.ts'
-import { previewsService } from './modules/previews/service.ts'
+import { servicePages } from './modules/previews/service.ts'
 import { statusService } from './modules/status/service.ts'
 import { vaultService } from './modules/vault/service.ts'
 import { buildsService } from './modules/builds/service.ts'
@@ -73,8 +73,8 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     if (t.status !== 'in_progress') tasks.update({ user }, slug, number, { status: 'in_progress', assignee: t.assignee?.id ?? user.id })
     return { sessionId: s.id }
   }
-  const previews = previewsService({ db, masterKey: config.masterKey, origin: config.origin, template: config.previewHost })
-  const services = servicesService({ db, agents, hub, notify: notifications.notify, previewUrl: previews.urlOf })
+  const previews = servicePages({ db, auth, origin: config.origin, port: config.servicesPort })
+  const services = servicesService({ db, agents, hub, notify: notifications.notify, previewUrl: previews.urlOf, basePath: previews.basePathOf })
   hub.authorize('services', () => true)
   const mw = authMiddleware(auth)
   const ip = (c: Context) => clientIp(c, config.trustCfIp)
@@ -84,15 +84,8 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   const browser = browserService({ db, runDir: config.runDir, dataDir: config.dataDir, masterKey: config.masterKey, origin: config.origin })
   const status = statusService({ db, agents, services, browser, runDir: config.runDir, dataDir: config.dataDir, version: config.version })
   const app = new Hono()
-    // Service previews live on their own hosts: answered before anything else, never mixed with DevDash's routes.
+    // Requests from the services site (port 8443) are proxied to services, never mixed with DevDash's routes.
     .use('*', previews.middleware)
-    // A member opening a preview: a one-minute ticket that the preview host turns into its own cookie.
-    .get('/api/previews/auth', (c) => {
-      const user = mw.signedIn(c)
-      if (!user) return c.redirect('/')
-      const to = previews.ticket(user.id, c.req.query('host') ?? '', c.req.query('next') ?? '/')
-      return to ? c.redirect(to) : c.text('No such preview.', 404)
-    })
     // Public: lets the native shell check that a domain is a DevDash space before loading it.
     .get('/.well-known/devdash.json', (c) => {
       c.header('access-control-allow-origin', '*')

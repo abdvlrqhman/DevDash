@@ -72,6 +72,7 @@ async function main(argv: string[]) {
       })
       const s = r as unknown as Service
       console.log(`${s.name} is starting on port ${s.port} (PORT=${s.port}), in ${s.cwd}.`)
+      if ((s as { previewUrl?: string }).previewUrl) console.log(`Open it at ${(s as { previewUrl?: string }).previewUrl}`)
       console.log(`Check it: curl -sI http://127.0.0.1:${s.port}  Logs: devdash service logs ${s.name}`)
       return
     }

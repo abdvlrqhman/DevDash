@@ -98,6 +98,7 @@ Long-running processes (web servers, dev servers, APIs, workers, containers) go 
 - Docker: \`docker run --rm -p 127.0.0.1:$PORT:<container-port> ...\`. Compose: publish "127.0.0.1:\${PORT}:<port>"; $COMPOSE_PROJECT_NAME keeps names apart.
 - Before starting anything, run \`devdash service ls\` (everyone's services) and \`devdash service ports\` (every port in use on the server); reuse what's already running instead of starting a duplicate.
 - \`devdash service logs <name>\`, \`restart <name>\`, \`stop <name>\`, \`rm <name>\`. Options for add: \`--env KEY=value\`, \`--no-autostart\`, \`--no-restart\`. Services keep running after this session ends, start with the server and restart if they crash.
+- Each service opens in the browser at $DEVDASH_URL (members only, or anyone with the link if made public); \`devdash service add\` prints it. Apps that build absolute URLs should use the base path $DEVDASH_BASE_PATH (Vite: \`--base $DEVDASH_BASE_PATH\`).
 - Services you add are linked to this session. Only stop or change services that belong to this person.`
 
 // Questions and plan approvals need a person in every mode. Bypass mode skips canUseTool entirely, so these two

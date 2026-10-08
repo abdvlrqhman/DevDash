@@ -53,14 +53,6 @@ for unit in devdash-server.service devdash-helper.socket devdash-helper@.service
 done
 install -m 755 "$REL/deploy/devdash-cli" /usr/local/bin/devdash
 
-# Service previews: a wildcard site when DEVDASH_PREVIEW_HOST is set (e.g. "{name}-dev.example.com" -> *.example.com).
-PREVIEW=$(sed -n 's|^DEVDASH_PREVIEW_HOST=||p' "$ENV_FILE")
-if [[ -n $PREVIEW ]]; then
-  printf '*.%s {\n\timport /etc/caddy/devdash-tls.caddy\n\theader -Server\n\treverse_proxy 127.0.0.1:8787\n}\n' "${PREVIEW#*.}" > /etc/caddy/devdash-previews.caddy
-else
-  : > /etc/caddy/devdash-previews.caddy
-fi
-
 # Caddy: domain via env, TLS mode from what's on disk.
 install -m 644 "$REL/deploy/Caddyfile" /etc/caddy/Caddyfile
 install -d /etc/systemd/system/caddy.service.d

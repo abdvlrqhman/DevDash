@@ -1,120 +1,113 @@
-import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage } from 'node:http'
 import { connect } from 'node:net'
 import type { Duplex } from 'node:stream'
 import type { Context, MiddlewareHandler } from 'hono'
-import { getCookie, setCookie } from 'hono/cookie'
+import { setCookie } from 'hono/cookie'
 import { parse as parseCookies } from 'hono/utils/cookie'
 import type { Db } from '../../core/db.ts'
+import type { AuthService } from '../auth/service.ts'
 
-const COOKIE = '__Host-ddpreview'
+/** Set only by Caddy's services site (port 8443); stripped from requests to DevDash itself. */
+const MARK = 'x-devdash-services'
+const SESSION = '__Host-devdash'
+const LAST = 'dd_svc'
 const HOP = ['connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'upgrade', 'te', 'trailer', 'host']
+const PATH_RE = /^\/service\/([a-z][a-z0-9-]{0,30})(\/.*)?$/
 
 /**
- * Preview URLs: each service opens at its own address (DEVDASH_PREVIEW_HOST, e.g. "{name}-dev.example.com"), proxied
- * to its port on 127.0.0.1. Members get in through a one-time handoff from the DevDash origin (their DevDash cookie
- * can't cross hosts); a service marked public opens for anyone with the link (testers). WebSockets (live reload) too.
+ * Services open at https://<space>:8443/service/<name>/, proxied to their port on 127.0.0.1. The separate port makes
+ * it a separate origin for browsers, so a service's pages can't act on DevDash as whoever opens them; the DevDash
+ * session cookie still comes along (cookies ignore ports), so signed-in members get in without another login.
+ * Public services open for anyone with the link (testers). Apps that request absolute paths (/assets/app.js) still
+ * work: such requests go to the service the page came from (Referer, else the last service opened).
  */
-export function previewsService({ db, masterKey, origin, template }: { db: Db; masterKey: Buffer; origin: string; template: string }) {
-  const pattern = template && /^\{name\}[a-z0-9.-]*\.[a-z]{2,}$/.test(template)
-    ? new RegExp(`^${template.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('\\{name\\}', '([a-z][a-z0-9-]{0,30})')}$`)
-    : null
-  const q = {
-    service: db.prepare('select port, public from services where name = ?'),
-    member: db.prepare('select 1 from users where id = ? and disabled_at is null'),
+export function servicePages({ db, auth, origin, port }: { db: Db; auth: AuthService; origin: string; port: number }) {
+  const base = `${origin.replace(/:\d+$/, '')}:${port}`
+  const q = { service: db.prepare('select port, public from services where name = ?') }
+
+  function resolve(path: string, referer: string | undefined, cookies: Record<string, string>) {
+    const m = PATH_RE.exec(path)
+    if (m) return { name: m[1]!, rest: m[2] ?? '', direct: true }
+    let from: string | undefined
+    try { from = referer ? PATH_RE.exec(new URL(referer).pathname)?.[1] : undefined } catch { /* bad referer */ }
+    const name = from ?? cookies[LAST]
+    return name && /^[a-z][a-z0-9-]{0,30}$/.test(name) ? { name, rest: path, direct: false } : null
   }
-  const mac = (s: string) => createHmac('sha256', masterKey).update(`preview:${s}`).digest('base64url')
-  const sign = (payload: object) => {
-    const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
-    return `${body}.${mac(body)}`
-  }
-  function verify<T extends { exp: number }>(token: string | undefined): T | null {
-    const [body, sig] = (token ?? '').split('.')
-    if (!body || !sig) return null
-    const want = Buffer.from(mac(body))
-    const got = Buffer.from(sig)
-    if (want.length !== got.length || !timingSafeEqual(want, got)) return null
-    try {
-      const p = JSON.parse(Buffer.from(body, 'base64url').toString()) as T
-      return p.exp > Date.now() / 1000 ? p : null
-    } catch { return null }
-  }
-  const hostOf = (raw: string | undefined) => (raw ?? '').toLowerCase().replace(/:\d+$/, '')
-  const own = new URL(origin).hostname // DevDash's own address is never a preview, whatever the pattern
-  const nameOf = (host: string) => (pattern && host !== own ? pattern.exec(host)?.[1] ?? null : null)
-  /** Allowed in: a public service, or a member's cookie for exactly this host. */
-  function allowed(name: string, host: string, cookie: string | undefined) {
+  function allowed(name: string, cookies: Record<string, string>) {
     const s = q.service.get(name) as { port: number; public: number } | undefined
     if (!s) return { s: null, ok: false }
-    if (s.public) return { s, ok: true }
-    const p = verify<{ u: number; h: string; exp: number }>(cookie)
-    return { s, ok: !!p && p.h === host && !!q.member.get(p.u) }
+    return { s, ok: s.public === 1 || !!auth.sessionUser(cookies[SESSION]) }
   }
-  const loginUrl = (host: string, next: string) => `${origin}/api/previews/auth?${new URLSearchParams({ host, next })}`
+  const forwardCookies = (header: string | undefined) =>
+    (header ?? '').split(/;\s*/).filter((c) => c && !c.startsWith(`${SESSION}=`) && !c.startsWith(`${LAST}=`)).join('; ')
+
+  const page = (c: Context, status: 401 | 404 | 502, title: string, text: string) => c.html(`<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title>
+<body style="font-family:system-ui;display:grid;place-items:center;min-height:100vh;margin:0;color-scheme:light dark"><main style="max-width:26rem;padding:1rem"><h1 style="font-size:1.2rem">${title}</h1><p style="opacity:.7">${text}</p></main></body>`, status)
 
   return {
-    enabled: !!pattern,
-    urlOf: (name: string) => (pattern ? `https://${template.replace('{name}', name)}/` : null),
+    urlOf: (name: string) => `${base}/service/${name}/`,
+    basePathOf: (name: string) => `/service/${name}/`,
 
-    /** On the DevDash origin: a signed-in member asks for a preview; they get a one-minute ticket for that host. */
-    ticket(userId: number, host: string, next: string) {
-      const name = nameOf(hostOf(host))
-      if (!name || !q.service.get(name)) return null
-      const path = next.startsWith('/') && !next.startsWith('//') ? next : '/'
-      return `https://${hostOf(host)}/__devdash/auth?${new URLSearchParams({ t: sign({ u: userId, h: hostOf(host), exp: Math.floor(Date.now() / 1000) + 60 }), next: path })}`
-    },
-
-    /** Runs first for every request: answers preview hosts, passes everything else on. */
     middleware: (async (c: Context, next) => {
-      const host = hostOf(c.req.header('x-forwarded-host') ?? c.req.header('host'))
-      const name = nameOf(host)
-      if (!name) return next()
+      if (c.req.header(MARK) !== '1') return next()
       const url = new URL(c.req.url)
-      if (url.pathname === '/__devdash/auth') {
-        const p = verify<{ u: number; h: string; exp: number }>(url.searchParams.get('t') ?? '')
-        if (!p || p.h !== host) return c.text('This sign-in link expired. Open the preview from DevDash again.', 401)
-        setCookie(c, 'ddpreview', sign({ u: p.u, h: host, exp: Math.floor(Date.now() / 1000) + 7 * 86400 }), { prefix: 'host', path: '/', secure: true, httpOnly: true, sameSite: 'Lax', maxAge: 7 * 86400 })
-        const to = url.searchParams.get('next') ?? '/'
-        return c.redirect(to.startsWith('/') && !to.startsWith('//') ? to : '/')
-      }
-      const { s, ok } = allowed(name, host, getCookie(c, 'ddpreview', 'host'))
-      if (!s) return c.text(`There is no service called ${name}.`, 404)
-      if (!ok) return c.redirect(loginUrl(host, url.pathname + url.search))
+      const cookies = parseCookies(c.req.header('cookie') ?? '')
+      const r = resolve(url.pathname, c.req.header('referer'), cookies)
+      if (!r) return page(c, 404, 'No service here', 'Service addresses look like /service/&lt;name&gt;/. Open one from the Services page in DevDash.')
+      if (r.direct && !r.rest) return c.redirect(`/service/${r.name}/${url.search}`) // relative URLs need the slash
+      const { s, ok } = allowed(r.name, cookies)
+      if (!s) return page(c, 404, 'No such service', `There is no service called ${r.name}.`)
+      if (!ok) return page(c, 401, 'Sign in to DevDash first', `${r.name} is for members. <a href="${origin}/">Sign in to DevDash</a>, then open this link again.`)
 
       const headers = new Headers()
-      c.req.raw.headers.forEach((v, k) => { if (!HOP.includes(k)) headers.set(k, v) })
-      const kept = (c.req.header('cookie') ?? '').split(/;\s*/).filter((x) => x && !x.startsWith(`${COOKIE}=`)).join('; ')
+      c.req.raw.headers.forEach((v, k) => { if (!HOP.includes(k) && k !== MARK) headers.set(k, v) })
+      const kept = forwardCookies(c.req.header('cookie'))
       if (kept) headers.set('cookie', kept); else headers.delete('cookie')
-      headers.set('x-forwarded-host', host)
+      headers.set('x-forwarded-host', url.host)
       headers.set('x-forwarded-proto', 'https')
+      headers.set('x-forwarded-prefix', `/service/${r.name}`)
+      let res: Response
       try {
-        const res = await fetch(`http://127.0.0.1:${s.port}${url.pathname}${url.search}`, {
+        res = await fetch(`http://127.0.0.1:${s.port}${r.rest}${url.search}`, {
           method: c.req.method, headers, redirect: 'manual',
           body: ['GET', 'HEAD'].includes(c.req.method) ? undefined : c.req.raw.body, duplex: 'half',
         } as RequestInit)
-        const out = new Headers(res.headers)
-        out.delete('content-encoding') // fetch already decompressed the body
-        out.delete('content-length')
-        return new Response(res.body, { status: res.status, headers: out })
       } catch {
-        return c.text(`${name} isn't answering on its port. Is it running? Check its logs in DevDash.`, 502)
+        return page(c, 502, `${r.name} isn't answering`, 'Is it running? Check its logs on the Services page in DevDash.')
       }
+      const out = new Headers(res.headers)
+      out.delete('content-encoding') // fetch already decompressed the body
+      out.delete('content-length')
+      // Redirects to "/x" stay inside the service.
+      const loc = out.get('location')
+      if (r.direct && loc?.startsWith('/') && !loc.startsWith('//') && !loc.startsWith(`/service/${r.name}/`)) out.set('location', `/service/${r.name}${loc}`)
+      const response = new Response(res.body, { status: res.status, headers: out })
+      if (r.direct && (out.get('content-type') ?? '').includes('text/html')) {
+        response.headers.append('set-cookie', `${LAST}=${r.name}; Path=/; Secure; SameSite=Lax`)
+      }
+      return response
     }) as MiddlewareHandler,
 
-    /** WebSocket upgrades on preview hosts (e.g. a dev server's live reload): checked, then piped to the service. */
+    /** WebSockets (e.g. a dev server's live reload): resolved and checked the same way, then piped to the service. */
     upgrade(req: IncomingMessage, socket: Duplex, head: Buffer) {
-      const host = hostOf((req.headers['x-forwarded-host'] as string | undefined) ?? req.headers.host)
-      const name = nameOf(host)
-      if (!name) return false
-      const { s, ok } = allowed(name, host, parseCookies(req.headers.cookie ?? '', COOKIE)[COOKIE])
-      if (!s || !ok) {
+      if (req.headers[MARK] !== '1') return false
+      const cookies = parseCookies(req.headers.cookie ?? '')
+      const url = new URL(req.url ?? '/', 'http://x')
+      const r = resolve(url.pathname, req.headers.referer ?? (req.headers.origin ? `${req.headers.origin}/service/${cookies[LAST] ?? ''}/` : undefined), cookies)
+      const { s, ok } = r ? allowed(r.name, cookies) : { s: null, ok: false }
+      if (!r || !s || !ok) {
         socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n')
         return true
       }
       socket.on('error', () => upstream.destroy())
       const upstream = connect(s.port, '127.0.0.1', () => {
-        const lines = [`${req.method} ${req.url} HTTP/1.1`, `Host: 127.0.0.1:${s.port}`]
-        for (let i = 0; i < req.rawHeaders.length; i += 2) if (req.rawHeaders[i]!.toLowerCase() !== 'host') lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`)
+        const lines = [`${req.method} ${r.rest || '/'}${url.search} HTTP/1.1`, `Host: 127.0.0.1:${s.port}`]
+        for (let i = 0; i < req.rawHeaders.length; i += 2) {
+          const k = req.rawHeaders[i]!.toLowerCase()
+          if (k === 'host' || k === MARK) continue
+          if (k === 'cookie') { const kept = forwardCookies(req.rawHeaders[i + 1]); if (kept) lines.push(`Cookie: ${kept}`); continue }
+          lines.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`)
+        }
         upstream.write(`${lines.join('\r\n')}\r\n\r\n`)
         if (head.length) upstream.write(head)
         upstream.pipe(socket)
@@ -126,4 +119,4 @@ export function previewsService({ db, masterKey, origin, template }: { db: Db; m
   }
 }
 
-export type PreviewsService = ReturnType<typeof previewsService>
+export type ServicePages = ReturnType<typeof servicePages>

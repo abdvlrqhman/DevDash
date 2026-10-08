@@ -38,7 +38,9 @@ const SELECT = `select s.*, u.username as owner_username, u.name as owner_name, 
  * The services center. The registry lives here; the processes run in each owner's agent (tmux, as the owner),
  * so they survive DevDash restarts. A monitor keeps every service whose desired state is "running" up.
  */
-export function servicesService({ db, agents, hub, notify, previewUrl }: { db: Db; agents: AgentsService; hub: Hub; notify: NotificationsService['notify']; previewUrl: (name: string) => string | null }) {
+export function servicesService({ db, agents, hub, notify, previewUrl, basePath }: {
+  db: Db; agents: AgentsService; hub: Hub; notify: NotificationsService['notify']; previewUrl: (name: string) => string; basePath: (name: string) => string
+}) {
   const q = {
     all: db.prepare(`${SELECT} order by s.name`),
     byName: db.prepare(`${SELECT} where s.name = ?`),
@@ -83,7 +85,9 @@ export function servicesService({ db, agents, hub, notify, previewUrl }: { db: D
     }
   }
 
-  const start = (s: Row) => agents.request(s.owner_username, { op: 'service.start', name: s.name, cwd: s.cwd, command: s.command, port: s.port, env: parseEnv(s.env) })
+  const start = (s: Row) => agents.request(s.owner_username, {
+    op: 'service.start', name: s.name, cwd: s.cwd, command: s.command, port: s.port, env: parseEnv(s.env), url: previewUrl(s.name), basePath: basePath(s.name),
+  })
   const stop = (s: Row) => agents.request(s.owner_username, { op: 'service.stop', name: s.name }, 30_000)
 
   const probe = (port: number) => new Promise<boolean>((resolve) => {

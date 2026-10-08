@@ -36,7 +36,9 @@ export async function start(r: Record<string, unknown>) {
   if (typeof r.command !== 'string' || !r.command.trim()) throw new Error('missing command')
   if (!Number.isInteger(port) || port < 20000 || port > 20999) throw new Error('invalid port')
   const extra = Array.isArray(r.env) ? (r.env as [string, string][]).filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k) && k !== 'PORT') : []
-  const env = [...extra.flatMap(([k, v]) => ['-e', `${k}=${v}`]), '-e', `PORT=${port}`, '-e', `COMPOSE_PROJECT_NAME=dd-${name}`, '-e', `DEVDASH_SERVICE=${name}`]
+  // Where people open it: apps that need a base path (Vite --base, Next basePath) can use DEVDASH_BASE_PATH.
+  const where = typeof r.url === 'string' && typeof r.basePath === 'string' ? ['-e', `DEVDASH_URL=${r.url}`, '-e', `DEVDASH_BASE_PATH=${r.basePath}`] : []
+  const env = [...extra.flatMap(([k, v]) => ['-e', `${k}=${v}`]), '-e', `PORT=${port}`, '-e', `COMPOSE_PROJECT_NAME=dd-${name}`, '-e', `DEVDASH_SERVICE=${name}`, ...where]
   const run = ['respawn-pane', '-k', '-t', target(name), '-c', cwd, ...env, 'bash', '-lc', r.command]
   if (await exists(name)) return void (await svcTmux(...run))
   // Create the session with a placeholder, keep panes after exit, then swap in the real command (no race with fast exits).
