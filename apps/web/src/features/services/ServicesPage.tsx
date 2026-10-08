@@ -70,7 +70,7 @@ export function ServicesPage() {
                     <Sparkles /><span className="truncate">{session === ANY ? 'Any session' : sessions.find((x) => x.id === session)?.title}</span><ChevronDown />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="max-w-80">
+                <DropdownMenuContent align="start">
                   <DropdownMenuRadioGroup value={session} onValueChange={setSession}>
                     <DropdownMenuRadioItem value={ANY}>Any session</DropdownMenuRadioItem>
                     {sessions.map((x) => <DropdownMenuRadioItem key={x.id} value={x.id}><span className="truncate">{x.title}</span></DropdownMenuRadioItem>)}
