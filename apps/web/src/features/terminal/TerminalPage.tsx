@@ -175,7 +175,7 @@ function KeyBar({ term, mods }: { term: React.RefObject<TerminalHandle | null>; 
         </button>
       ))}
       <button onPointerDown={keep} aria-label="Paste" className="h-9 min-w-10 px-2.5 rounded-[9px] bg-surface border border-line shrink-0 flex items-center justify-center"
-        onClick={() => void navigator.clipboard.readText().then((t) => term.current?.send(t))}>
+        onClick={() => void navigator.clipboard.readText().then((t) => term.current?.paste(t))}>
         <IconClipboard size={16} />
       </button>
     </div>

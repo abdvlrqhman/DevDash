@@ -1,8 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, Outlet, useNavigate } from '@tanstack/react-router'
-import { IconDeviceDesktop, IconHome, IconLogout, IconMoon, IconSettings, IconSun, IconTerminal2, IconUsers } from '@tabler/icons-react'
+import { IconArrowsExchange, IconDeviceDesktop, IconHome, IconLogout, IconMoon, IconSettings, IconSun, IconTerminal2, IconUsers } from '@tabler/icons-react'
 import { api, meQuery, spaceQuery } from '../lib/api'
+import { inShell } from '../lib/shell'
 import { getTheme, setTheme, type ThemePref } from '../lib/theme'
 import { Avatar, Logo, cx } from '../ui'
 
@@ -115,6 +116,11 @@ function AccountMenu({ up }: { up?: boolean }) {
         <Link to="/account" className="flex items-center gap-2 px-2 h-10 rounded-[10px] text-[14px] hover:bg-surface-2">
           <IconSettings size={18} />Account settings
         </Link>
+        {inShell() && (
+          <button onClick={() => window.devdashShell!.switchSpace()} className="flex items-center gap-2 px-2 h-10 rounded-[10px] text-[14px] hover:bg-surface-2">
+            <IconArrowsExchange size={18} />Switch space
+          </button>
+        )}
         <button onClick={signOut} className="flex items-center gap-2 px-2 h-10 rounded-[10px] text-[14px] text-danger hover:bg-danger-soft">
           <IconLogout size={18} />Sign out
         </button>

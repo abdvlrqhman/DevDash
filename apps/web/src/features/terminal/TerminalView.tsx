@@ -5,10 +5,11 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { ClipboardAddon } from '@xterm/addon-clipboard'
 import '@xterm/xterm/css/xterm.css'
+import { openExternal } from '../../lib/shell'
 
 export type Status = 'connecting' | 'live' | 'reconnecting' | 'ended'
 export type Mods = { ctrl: boolean; alt: boolean }
-export type TerminalHandle = { send: (data: string) => void; focus: () => void; toggle: (mod: keyof Mods) => void }
+export type TerminalHandle = { send: (data: string) => void; paste: (text: string) => void; focus: () => void; toggle: (mod: keyof Mods) => void }
 
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 
@@ -28,6 +29,7 @@ export function TerminalView({ name, onStatus, onMods, ref }: {
   cb.current = { onStatus, onMods }
   useImperativeHandle(ref, () => ({
     send: (d) => handle.current?.send(d),
+    paste: (t) => handle.current?.paste(t),
     focus: () => handle.current?.focus(),
     toggle: (mod) => handle.current?.toggle(mod),
   }), [])
@@ -38,13 +40,13 @@ export function TerminalView({ name, onStatus, onMods, ref }: {
       fontSize: matchMedia('(pointer: coarse)').matches ? 12 : 13,
       lineHeight: 1.15,
       cursorBlink: true,
-      scrollback: 0, // tmux keeps the history
+      scrollback: 10_000,
       macOptionIsMeta: true,
       theme: { background: css('--term-bg'), foreground: css('--term-fg'), cursor: css('--accent'), selectionBackground: '#8a6a5266' },
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
-    term.loadAddon(new WebLinksAddon((_e, uri) => window.open(uri, '_blank', 'noopener,noreferrer')))
+    term.loadAddon(new WebLinksAddon((_e, uri) => openExternal(uri)))
     term.loadAddon(new ClipboardAddon()) // OSC 52: tmux copy-mode selections land in the device clipboard
     term.open(host.current!)
     try {
@@ -82,6 +84,7 @@ export function TerminalView({ name, onStatus, onMods, ref }: {
     }
     handle.current = {
       send: raw,
+      paste: (t) => term.paste(t),
       focus: () => term.focus(),
       toggle: (mod) => {
         mods[mod] = !mods[mod]
@@ -113,6 +116,30 @@ export function TerminalView({ name, onStatus, onMods, ref }: {
     }
     connect()
 
+    // Windows Terminal conventions: Ctrl+C copies when text is selected, Ctrl+V pastes,
+    // right-click copies the selection or pastes when there is none.
+    const copySelection = () => {
+      const text = term.getSelection()
+      if (!text) return false
+      void navigator.clipboard.writeText(text)
+      term.clearSelection()
+      return true
+    }
+    const paste = () => void navigator.clipboard.readText().then((t) => t && term.paste(t)).catch(() => {})
+    term.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown' || !(e.ctrlKey || e.metaKey) || e.altKey) return true
+      const k = e.key.toLowerCase()
+      if (k === 'c' && (e.shiftKey || term.hasSelection())) return !copySelection() && !e.shiftKey
+      if (k === 'v') return false // let the browser fire its paste event; xterm turns it into input
+      return true
+    })
+    const onContextMenu = (e: MouseEvent) => {
+      if (!('readText' in navigator.clipboard)) return // keep the browser menu where reading the clipboard isn't allowed
+      e.preventDefault()
+      if (!copySelection()) paste()
+    }
+    host.current!.addEventListener('contextmenu', onContextMenu)
+
     const sub = term.onData(typed)
     const ro = new ResizeObserver(() => {
       refit()
@@ -123,6 +150,7 @@ export function TerminalView({ name, onStatus, onMods, ref }: {
 
     return () => {
       disposed = true
+      host.current?.removeEventListener('contextmenu', onContextMenu)
       clearTimeout(timer)
       ro.disconnect()
       sub.dispose()

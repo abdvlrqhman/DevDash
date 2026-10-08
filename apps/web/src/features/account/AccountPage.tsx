@@ -4,6 +4,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { IconCheck, IconLock, IconLogout, IconMail } from '@tabler/icons-react'
 import { PageHeader } from '../../app/AppShell'
 import { api, meQuery, unwrap } from '../../lib/api'
+import { APP_DOWNLOADS, inShell, openExternal } from '../../lib/shell'
 import { getTheme, setTheme, type ThemePref } from '../../lib/theme'
 import { Button, Chip, ErrorText, Field, cx } from '../../ui'
 
@@ -33,6 +34,12 @@ export function AccountPage() {
         <Section title="Password"><PasswordForm /></Section>
         <Section title="Email"><EmailForm /></Section>
         <Section title="Appearance"><ThemePicker /></Section>
+        {!inShell() && (
+          <Section title="Get the app">
+            <p className="text-muted m-0">Windows and Android installers, and an iPhone build for AltStore or SideStore. On iPhone you can also use Safari: Share, then Add to Home Screen.</p>
+            <div><Button onClick={() => openExternal(APP_DOWNLOADS)}>Download DevDash</Button></div>
+          </Section>
+        )}
         <div><Button onClick={signOut} className="text-danger"><IconLogout size={18} />Sign out</Button></div>
       </div>
     </>

@@ -46,10 +46,19 @@ function send(conn: Socket, msg: object) {
   return conn.write(JSON.stringify(msg) + '\n')
 }
 
+const HISTORY_LINES = 3000
+
 async function attach(conn: Socket, lines: AsyncIterator<string>, req: { name: string; cols: number; rows: number }) {
   const cols = clamp(req.cols, 10, 500)
   const rows = clamp(req.rows, 4, 200)
   await ensureSession(req.name, cols, rows)
+  // Older output first, so the browser's own scrollback has it; attaching then draws the visible screen below.
+  try {
+    const { stdout } = await tmux('capture-pane', '-p', '-e', '-J', '-S', `-${HISTORY_LINES}`, '-E', '-1', '-t', `=${session(req.name)}`)
+    if (stdout.trim()) send(conn, { d: stdout.replace(/\n/g, '\r\n') })
+  } catch {
+    // no history yet
+  }
   const term = pty.spawn('tmux', [...TMUX, 'attach-session', '-t', `=${session(req.name)}`], {
     name: 'xterm-256color', cols, rows, cwd: homedir(), env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
   })
@@ -111,6 +120,9 @@ async function handle(conn: Socket) {
     conn.end()
   }
 }
+
+// Apply the current tmux.conf to an already running tmux server (no-op when none is running).
+void tmux('source-file', TMUX_CONF).catch(() => {})
 
 const server = createServer((conn) => void handle(conn))
 if (process.env.LISTEN_FDS === '1') server.listen({ fd: 3 }) // socket activation
