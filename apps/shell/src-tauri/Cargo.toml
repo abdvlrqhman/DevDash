@@ -1,6 +1,6 @@
 [package]
 name = "devdash"
-version = "0.1.1"
+version = "0.1.2"
 description = "DevDash: your team's space on your own server"
 license = "MIT"
 edition = "2021"
