@@ -37,6 +37,15 @@ let emit: (ev: Record<string, unknown>) => void = () => {}
 export const setEmitter = (fn: typeof emit) => { emit = fn }
 
 const chats = new Map<string, Chat>()
+
+// Mode changes, sends and stops for one session run one at a time (a double tap must not start two processes).
+const queues = new Map<string, Promise<unknown>>()
+function serial<T>(id: string, fn: () => Promise<T>): Promise<T> {
+  const next = (queues.get(id) ?? Promise.resolve()).catch(() => {}).then(fn)
+  queues.set(id, next)
+  void next.finally(() => { if (queues.get(id) === next) queues.delete(id) }).catch(() => {})
+  return next
+}
 const cliName = (id: string) => `c-${id}`
 export const cliSession = cliName
 
@@ -189,13 +198,13 @@ async function stopCli(id: string) {
 }
 
 /** Sends a user message in Chat mode, starting or resuming the SDK process if needed. */
-export async function send(l: Launch, content: unknown[], uuid: string) {
+export const send = (l: Launch, content: unknown[], uuid: string) => serial(l.id, async () => {
   if (await hasSession(cliName(l.id))) throw new Error('This session is open in the CLI. Switch to Chat to send from here.')
   const c = chats.get(l.id) ?? (await startChat(l))
   c.inbox.push({ type: 'user', message: { role: 'user', content }, parent_tool_use_id: null, session_id: l.id, uuid })
   c.lastActive = Date.now()
   setStatus(c, l.id, 'working')
-}
+})
 
 export function answer(id: string, requestId: string, result: PermissionResult) {
   const c = chats.get(id)
@@ -223,14 +232,15 @@ export async function setOption(id: string, key: 'model' | 'permissionMode' | 'e
   c.launch = { ...c.launch, [key]: value }
 }
 
-export async function stop(id: string) {
+export const stop = (id: string) => serial(id, async () => {
   const c = chats.get(id)
   if (c) await stopChat(c)
   await stopCli(id)
-}
+})
 
 /** Opens CLI mode: the SDK process must be gone first, so only one process ever writes the transcript. */
-export async function openCli(l: Launch, cols: number, rows: number) {
+export const openCli = (l: Launch, cols: number, rows: number) => serial(l.id, () => openCliNow(l, cols, rows))
+async function openCliNow(l: Launch, cols: number, rows: number) {
   validate(l)
   const c = chats.get(l.id)
   if (c) await stopChat(c)
@@ -240,15 +250,19 @@ export async function openCli(l: Launch, cols: number, rows: number) {
   if (l.effort) args.push('--effort', l.effort)
   args.push(...(l.permissionMode === 'bypassPermissions' ? ['--dangerously-skip-permissions'] : ['--permission-mode', l.permissionMode]))
   const env = Object.entries({ ...profileEnv(l.profile), DEVDASH_SESSION_ID: l.id }).flatMap(([k, v]) => ['-e', `${k}=${v}`])
-  await tmux('new-session', '-d', '-s', cliName(l.id), '-c', l.cwd, '-x', String(cols), '-y', String(rows), ...env, ...args)
+  try {
+    await tmux('new-session', '-d', '-s', cliName(l.id), '-c', l.cwd, '-x', String(cols), '-y', String(rows), ...env, ...args)
+  } catch (err) {
+    if (!/duplicate session/.test((err as Error).message)) throw new Error('Could not start the Claude CLI. Try again in a moment.')
+  }
   emit({ ev: 'claude.status', id: l.id, status: 'idle', mode: 'cli' })
 }
 
 /** Leaves CLI mode; the next Chat message resumes the session through the SDK. */
-export async function closeCli(id: string) {
+export const closeCli = (id: string) => serial(id, async () => {
   await stopCli(id)
   emit({ ev: 'claude.status', id, status: 'idle', mode: 'chat' })
-}
+})
 
 export async function snapshot() {
   const cli = (await listSessions()).filter((s) => s.name.startsWith('c-')).map((s) => ({ id: s.name.slice(2), mode: 'cli' }))
