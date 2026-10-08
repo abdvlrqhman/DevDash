@@ -19,6 +19,7 @@ class Live {
     ws.onopen = () => {
       const reconnected = this.retry > 0
       this.retry = 0
+      ws.send(JSON.stringify({ active: looking() }))
       for (const t of this.topics.keys()) ws.send(JSON.stringify({ sub: t }))
       if (reconnected) for (const fn of this.onReconnect) fn() // refetch whatever may have changed while offline
     }
@@ -55,13 +56,21 @@ class Live {
     }
   }
 
+  reportActive() {
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ active: looking() }))
+  }
+
   whenReconnected(fn: () => void) {
     this.onReconnect.add(fn)
     return () => void this.onReconnect.delete(fn)
   }
 }
 
+/** Someone is looking at this tab right now (visible and focused). */
+export const looking = () => document.visibilityState === 'visible' && document.hasFocus()
+
 export const live = new Live()
+for (const ev of ['visibilitychange', 'focus', 'blur']) window.addEventListener(ev, () => live.reportActive())
 
 /** Subscribes while mounted. The handler can change between renders without resubscribing. */
 export function useTopic(topic: string | null, handler: Handler, onReconnect?: () => void) {

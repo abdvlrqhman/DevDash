@@ -1,8 +1,10 @@
 // DevDash shell: a thin native window around a DevDash space.
 // The bundled connect screen (../ui) asks for a space domain, checks /.well-known/devdash.json,
 // then loads the space. The space gets no native permissions (no IPC capabilities); it can only ask the shell,
-// through navigations to devdash-shell://, to open a link in the system browser or go back to the connect screen.
-use tauri::{Manager, Url, WebviewUrl, WebviewWindowBuilder};
+// through navigations to devdash-shell://, to open a link in the system browser, go back to the connect screen,
+// or show a system notification.
+use tauri::{plugin::PermissionState, Manager, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
 
 /// URL of the bundled connect screen, so "Switch space" can return to it from the space.
@@ -12,6 +14,15 @@ const BRIDGE: &str = r#"
   window.devdashShell = {
     switchSpace() { location.href = 'devdash-shell://switch' },
     openExternal(url) { location.href = 'devdash-shell://open?u=' + encodeURIComponent(url) },
+    notify(title, body) {
+      location.href = 'devdash-shell://notify?t=' + encodeURIComponent(title) + '&b=' + encodeURIComponent(body || '')
+    },
+    notificationPermission(ask) {
+      return new Promise((resolve) => {
+        window.__devdashPermission = resolve;
+        location.href = 'devdash-shell://notification-permission?ask=' + (ask ? 1 : 0);
+      });
+    },
   };
 "#;
 
@@ -19,10 +30,15 @@ fn is_external(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https" | "mailto")
 }
 
+fn param(url: &Url, key: &str) -> String {
+    url.query_pairs().find(|(k, _)| k == key).map(|(_, v)| v.chars().take(300).collect()).unwrap_or_default()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let nav_app = app.handle().clone();
             let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
@@ -41,6 +57,28 @@ pub fn run() {
                                     }
                                 }
                             }
+                        }
+                        Some("notify") => {
+                            let _ = app.notification().builder().title(param(&url, "t")).body(param(&url, "b")).show();
+                        }
+                        Some("notification-permission") => {
+                            let ask = param(&url, "ask") == "1";
+                            // Asking shows a system prompt on phones; answer the page once it is decided.
+                            std::thread::spawn(move || {
+                                let n = app.notification();
+                                let mut state = n.permission_state().unwrap_or(PermissionState::Denied);
+                                if ask && state != PermissionState::Granted && state != PermissionState::Denied {
+                                    state = n.request_permission().unwrap_or(PermissionState::Denied);
+                                }
+                                let s = match state {
+                                    PermissionState::Granted => "granted",
+                                    PermissionState::Denied => "denied",
+                                    _ => "prompt",
+                                };
+                                if let Some(w) = app.get_webview_window("main") {
+                                    let _ = w.eval(&format!("window.__devdashPermission && window.__devdashPermission('{s}')"));
+                                }
+                            });
                         }
                         Some("switch") => {
                             // Navigate after this callback returns.

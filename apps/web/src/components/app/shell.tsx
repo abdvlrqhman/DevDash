@@ -20,6 +20,7 @@ import { APP_DOWNLOADS, inShell, openExternal } from '@/lib/shell'
 import { setTheme, useTheme, type ThemePref } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 import { sessionsQuery, useLiveSessions } from '@/features/claude/data'
+import { useNotificationEvents } from '@/features/notifications/Notifications'
 import { initials, Logo } from './brand'
 
 const NAV = [
@@ -67,6 +68,7 @@ function useWaitingCount() {
 
 export function AppShell() {
   usePinToVisualViewport()
+  useNotificationEvents()
   const waiting = useWaitingCount()
   return (
     <TooltipProvider>

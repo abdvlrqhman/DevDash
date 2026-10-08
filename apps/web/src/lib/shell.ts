@@ -1,7 +1,13 @@
 // Bridge injected by the native app (apps/shell/src-tauri/src/lib.rs). Absent in a normal browser.
 declare global {
   interface Window {
-    devdashShell?: { switchSpace(): void; openExternal(url: string): void }
+    devdashShell?: {
+      switchSpace(): void
+      openExternal(url: string): void
+      /** Native apps from 0.1.3 on. */
+      notify?(title: string, body: string): void
+      notificationPermission?(ask: boolean): Promise<'granted' | 'denied' | 'prompt'>
+    }
   }
 }
 

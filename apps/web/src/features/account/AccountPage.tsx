@@ -14,6 +14,7 @@ import { api, meQuery, unwrap } from '@/lib/api'
 import { APP_DOWNLOADS, inShell, openExternal } from '@/lib/shell'
 import { setTheme, useTheme, type ThemePref } from '@/lib/theme'
 import { CodeInput, ErrorAlert } from '../auth/LoginPage'
+import { NotificationsPanel } from '../notifications/Notifications'
 
 function Panel({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
@@ -51,6 +52,9 @@ export function AccountPage() {
             <ServerPasswordForm />
           </Panel>
         )}
+        <Panel title="Notifications" description="Choose what DevDash tells you about. These apply to all your devices.">
+          <NotificationsPanel />
+        </Panel>
         <Panel title="Appearance">
           <ToggleGroup type="single" variant="outline" value={theme} onValueChange={(v) => v && setTheme(v as ThemePref)}>
             <ToggleGroupItem value="system">Match device</ToggleGroupItem>

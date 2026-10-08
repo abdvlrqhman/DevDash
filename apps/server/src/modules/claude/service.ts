@@ -43,7 +43,7 @@ function content(text: string, images: Image[]) {
   ]
 }
 
-type Notify = (userId: number, kind: NotificationKind, n: { title: string; body?: string; url?: string; focusKey?: string }) => Promise<void>
+type Notify = (userId: number, kind: NotificationKind, n: { title: string; body?: string; url?: string; tag?: string }) => Promise<void>
 
 const clip = (t: string, n = 160) => (t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t)
 function describeRequest(toolName: string, input: Record<string, unknown>) {
@@ -59,7 +59,7 @@ function describeRequest(toolName: string, input: Record<string, unknown>) {
 export function claudeService({ db, agents, hub, notify }: { db: Db; agents: AgentsService; hub: Hub; notify: Notify }) {
   const repo = claudeRepo(db)
   const alert = (s: SessionRow, kind: NotificationKind, title: string, body?: string) =>
-    void notify(s.owner_id, kind, { title, body, url: `/claude/${s.id}`, focusKey: `session:${s.id}` }).catch((err) => console.error('notify:', err))
+    void notify(s.owner_id, kind, { title, body, url: `/claude/${s.id}`, tag: `session:${s.id}` }).catch((err) => console.error('notify:', err))
 
   function find(user: User, id: string) {
     const s = repo.byId(id)

@@ -18,6 +18,10 @@ export function notificationsRoutes(n: NotificationsService, mw: ReturnType<type
       n.readAll(c.get('user').id)
       return c.json({ ok: true })
     })
+    .post('/test', async (c) => {
+      await n.notify(c.get('user').id, 'needs_you', { title: 'Notifications work', body: 'This is how DevDash tells you Claude needs you.', url: '/account', tag: 'test' }, true)
+      return c.json({ ok: true })
+    })
     .get('/prefs', (c) => c.json({ prefs: n.prefs(c.get('user').id), publicKey: n.publicKey }))
     .put('/prefs', json(Prefs), (c) => c.json({ prefs: n.savePrefs(c.get('user').id, c.req.valid('json')) }))
     .post('/subscriptions', json(z.object({ subscription: Subscription, device: z.string().max(200) })), (c) => {

@@ -12,8 +12,8 @@ type Sub = { id: number; endpoint: string; p256dh: string; auth: string }
 
 /**
  * Notifications reach a member three ways: the in-app feed, a live event to their open tabs and native apps
- * (which show it themselves), and Web Push to subscribed devices. Push is skipped when the member is already
- * looking at the thing it is about.
+ * (a toast when looking, a system notification from the native app otherwise), and Web Push to subscribed
+ * devices. Push is skipped while the member has DevDash open and focused somewhere, so nothing arrives twice.
  */
 export function notificationsService({ db, hub, dataDir, origin }: { db: Db; hub: Hub; dataDir: string; origin: string }) {
   // VAPID keys identify this server to browsers' push services. Created once, kept with the data.
@@ -68,14 +68,14 @@ export function notificationsService({ db, hub, dataDir, origin }: { db: Db; hub
   return {
     publicKey: keys.publicKey,
 
-    /** Sends if the member wants this kind. `focusKey` (e.g. "session:<id>") skips push while they're looking at it. */
-    async notify(userId: number, kind: NotificationKind, n: { title: string; body?: string; url?: string; focusKey?: string }) {
-      if (!prefs(userId)[kind]) return
+    /** Sends if the member wants this kind. `tag` (e.g. "session:<id>") replaces older notifications about the same thing. */
+    async notify(userId: number, kind: NotificationKind, n: { title: string; body?: string; url?: string; tag?: string }, force = false) {
+      if (!force && !prefs(userId)[kind]) return
       const id = Number(s.insert.run(userId, kind, n.title, n.body ?? null, n.url ?? null).lastInsertRowid)
-      const event = { id, kind, title: n.title, body: n.body ?? '', url: n.url ?? '/' }
+      const event = { id, kind, title: n.title, body: n.body ?? '', url: n.url ?? '/', tag: n.tag ?? `${kind}:${id}` }
       hub.publish('notifications', { type: 'notification', notification: event }, (u) => u.id === userId)
-      if (n.focusKey && hub.isFocused(userId, n.focusKey)) return
-      await push(userId, { ...event, tag: n.focusKey ?? `${kind}:${id}` })
+      if (!force && hub.isActive(userId)) return
+      await push(userId, event)
     },
 
     prefs,
