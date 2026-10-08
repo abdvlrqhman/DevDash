@@ -93,8 +93,10 @@ function find(textRe) {
 }
 const webviewBox = () => {
   adb('shell', 'uiautomator', 'dump', '/sdcard/ui.xml')
-  const m = adb('shell', 'cat', '/sdcard/ui.xml').match(/class="android\.webkit\.WebView"[^>]*?bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/)
-  return m ? { x: +m[1], y: +m[2] } : { x: 0, y: 0 }
+  // Tauri's WebView is a subclass (RustWebView), so match any class that ends in WebView.
+  const m = adb('shell', 'cat', '/sdcard/ui.xml').match(/class="[\w.$]*WebView"[^>]*?bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/)
+  if (!m) throw new Error('WebView not found on screen')
+  return { x: +m[1], y: +m[2] }
 }
 
 async function run() {
