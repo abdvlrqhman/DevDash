@@ -40,6 +40,7 @@ export function TerminalPage() {
   // A Claude sign-in tab finished: refresh the sign-in status shown on Claude setup.
   useEffect(() => {
     if (status === 'ended' && active?.startsWith('login-')) void qc.invalidateQueries({ queryKey: ['claude', 'profiles'] })
+    if (status === 'ended' && active === 'github-login') void qc.invalidateQueries({ queryKey: ['github'] })
   }, [status, active, qc])
 
   const kill = useMutation({

@@ -16,6 +16,8 @@ export function terminalsRoutes(terms: TerminalsService, auth: AuthService, mw: 
   return new Hono<AuthEnv>()
     .use(mw.requireUser)
     .get('/', async (c) => c.json({ terminals: await terms.list(c.get('user').username) }))
+    // This member's GitHub connection on the server (gh, used for cloning, fetching and pushing as them).
+    .get('/github', async (c) => c.json(await terms.github(c.get('user').username)))
     .delete('/:name', async (c) => {
       await terms.kill(c.get('user').username, c.req.param('name'))
       return c.json({ ok: true })

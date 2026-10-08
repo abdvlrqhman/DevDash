@@ -16,6 +16,7 @@ export function terminalsService({ agents }: { agents: AgentsService }) {
     async list(username: string) {
       return (await agents.request<{ terminals: TerminalInfo[] }>(username, { op: 'terminals.list' })).terminals
     },
+    github: (username: string) => agents.request<{ connected: boolean; login: string | null; installed?: boolean }>(username, { op: 'gh.status' }, 20_000),
     async kill(username: string, name: string) {
       if (!TERMINAL_NAME_RE.test(name)) throw new AppError(400, 'bad_name', 'Invalid terminal name.')
       await agents.request(username, { op: 'terminals.kill', name })

@@ -14,6 +14,7 @@ import { Spinner } from '@/components/ui/spinner'
 import { api, unwrap } from '@/lib/api'
 import { ErrorAlert } from '../auth/LoginPage'
 import { projectsQuery, useLiveWork } from '../work/data'
+import { GitHubConnection } from '../work/GitHub'
 
 export const repoLabel = (url: string | null) => (url ? url.replace(/^(https:\/\/|git@)/, '').replace(/^github\.com[:/]/, '').replace(/\.git$/, '') : 'Only on this server')
 
@@ -102,8 +103,9 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
             <FieldLabel htmlFor="np-repo">Repository</FieldLabel>
             <Input id="np-repo" className="h-10 font-mono" placeholder="https://github.com/you/app.git" value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)}
               spellCheck={false} autoCapitalize="none" autoFocus />
-            <FieldDescription>Leave empty to start a new repository here. Private repositories: run <code className="font-mono">gh auth login</code> in your terminal first; DevDash clones as you.</FieldDescription>
+            <FieldDescription>Leave empty to start a new repository here. DevDash clones as you, with your GitHub account.</FieldDescription>
           </Field>
+          {/github\.com/.test(repoUrl) && <GitHubConnection compact />}
           <Field>
             <FieldLabel htmlFor="np-name">Name</FieldLabel>
             <Input id="np-name" className="h-10" placeholder={guess || 'Shop app'} value={name} onChange={(e) => setName(e.target.value)} />

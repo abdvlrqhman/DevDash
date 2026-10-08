@@ -3,7 +3,9 @@
 // the member's own processes (e.g. the DevDash plugin's hooks) can connect.
 // Protocol: the first line is a JSON request. Most ops answer with one JSON line; attach ops then stream JSON lines
 // both ways ({d} data, {r} resize); `subscribe` keeps the connection open for events.
+import { execFile } from 'node:child_process'
 import { createServer, type Socket } from 'node:net'
+import { promisify } from 'node:util'
 import { createInterface } from 'node:readline'
 import * as claude from './claude.ts'
 import * as services from './services.ts'
@@ -14,6 +16,7 @@ const NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}$/
 const ADMIN = 'admin'
 const ADMIN_IDLE_MS = 15 * 60_000
 const term = (name: string) => `t-${name}`
+const GH_LOGIN = 'github-login'
 
 // Every process the agent starts (terminals, Claude) can reach this agent, e.g. for plugin hooks.
 process.env.DEVDASH_AGENT_SOCKET ??= `/run/devdash/agent-${process.env.USER}.sock`
@@ -23,6 +26,13 @@ async function ensureTerminal(name: string, cols: number, rows: number) {
   if (await hasSession(term(name))) return
   const base = ['new-session', '-d', '-s', term(name), '-x', String(cols), '-y', String(rows)]
   if (name === ADMIN) return void (await tmux(...base, 'sudo -i')) // asks for the admin's Linux password
+  // Connect GitHub: gh signs in with a one-time code in the browser, then git uses it for https remotes.
+  if (name === GH_LOGIN) {
+    const script = 'gh auth login --hostname github.com --git-protocol https --web --insecure-storage && gh auth setup-git --hostname github.com'
+      + ' && echo && echo "GitHub is connected. This tab closes in a few seconds." && sleep 4'
+      + ' || { echo; echo "GitHub sign-in did not finish."; read -r -p "Press Enter to close this tab. " _; }'
+    return void (await tmux(...base, '-e', 'BROWSER=echo', 'bash', '-lc', script))
+  }
   if (name.startsWith('login-')) {
     const { env, args } = claude.loginCommand(name.slice(6))
     return void (await tmux(...base, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]), ...args))
@@ -31,6 +41,7 @@ async function ensureTerminal(name: string, cols: number, rows: number) {
 }
 
 type Req = Record<string, unknown> & { op?: string }
+const run = promisify(execFile)
 const str = (v: unknown, what: string) => {
   if (typeof v !== 'string') throw new Error(`missing ${what}`)
   return v
@@ -66,6 +77,15 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
   'claude.usage': async (r) => ({ usage: await claude.usage(str(r.profile, 'profile')) }),
   'claude.profile.create': (r) => (claude.createProfile(str(r.name, 'name')), { ok: true }),
   'fs.dir': async (r) => ({ path: await services.dir(r.path) }),
+  'gh.status': async () => {
+    try {
+      const { stdout, stderr } = await run('gh', ['auth', 'status', '--hostname', 'github.com'], { timeout: 15_000 })
+      const out = stdout + stderr
+      return { connected: true, login: out.match(/account (\S+)/)?.[1] ?? out.match(/ as (\S+)/)?.[1] ?? null }
+    } catch (err) {
+      return { connected: false, login: null, installed: (err as { code?: string }).code !== 'ENOENT' }
+    }
+  },
   'git.clone': (r) => git.clone(r),
   'git.init': (r) => git.init(r),
   'git.fetch': (r) => git.fetch(r),

@@ -15,6 +15,7 @@ import { APP_DOWNLOADS, inShell, openExternal } from '@/lib/shell'
 import { setTheme, useTheme, type ThemePref } from '@/lib/theme'
 import { CodeInput, ErrorAlert } from '../auth/LoginPage'
 import { NotificationsPanel } from '../notifications/Notifications'
+import { GitHubConnection } from '../work/GitHub'
 
 function Panel({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
@@ -47,6 +48,9 @@ export function AccountPage() {
         </Panel>
         <Panel title="Notifications" description="Choose what DevDash tells you about. These apply to all your devices.">
           <NotificationsPanel />
+        </Panel>
+        <Panel title="GitHub" description="Your own GitHub account on the server. DevDash clones, fetches and pushes as you; you sign in once with a code in your browser.">
+          <GitHubConnection />
         </Panel>
         <Panel title="Password" description="Changing it signs you out on your other devices."><PasswordForm /></Panel>
         <Panel title="Email"><EmailForm /></Panel>
