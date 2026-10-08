@@ -55,7 +55,7 @@ test('set-password: validated, sent to chpasswd on stdin (never on the command l
   assert.equal(r.ok, true)
   assert.deepEqual(r.planned, ['chpasswd <stdin>'])
   assert.ok(!JSON.stringify(r.planned).includes('correct horse'))
-  assert.match(call({ cmd: 'set-password', args: { username: 'alice', password: 'short' } }, { DEVDASH_HELPER_FAKE_UID: '1000' }).error!, /refused/)
+  assert.match(call({ cmd: 'set-password', args: { username: 'alice', password: '' } }, { DEVDASH_HELPER_FAKE_UID: '1000' }).error!, /refused/)
   assert.match(call({ cmd: 'set-password', args: { username: 'alice', password: 'a:b long enough' } }, { DEVDASH_HELPER_FAKE_UID: '1000' }).error!, /refused/)
   assert.match(call({ cmd: 'set-password', args: { username: 'root', password: 'long enough pw' } }).error!, /refused: invalid username/)
   assert.match(call({ cmd: 'set-password', args: { username: 'alice', password: 'long enough pw' } }, { DEVDASH_HELPER_FAKE_UID: '33' }).error!, /refused: not a member/)
