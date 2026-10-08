@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch: # also startable from a project's Builds tab in DevDash
 
 permissions:
   contents: read
@@ -22,6 +23,12 @@ jobs:
       - run: npm test
       - run: npm run build
       - run: bash -n deploy/*.sh
+      # The built web app, downloadable (and shareable from DevDash) for a week.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: devdash-web
+          path: apps/web/dist
+          retention-days: 7
 
   secrets:
     runs-on: ubuntu-24.04
