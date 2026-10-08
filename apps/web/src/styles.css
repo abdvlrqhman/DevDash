@@ -142,6 +142,30 @@
   button:not(:disabled), [role="button"]:not(:disabled) {
     cursor: pointer;
   }
+  /* App feel on touch screens: no double-tap zoom, no rubber-band or pull-to-refresh, no callouts on controls. */
+  html {
+    touch-action: manipulation;
+    overscroll-behavior: none;
+    -webkit-text-size-adjust: 100%;
+  }
+  button, [role="button"], [role="tab"], [role="option"], [role="menuitem"], nav, header, label, [data-slot="item"] {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+}
+
+/* Inside the native app nothing selects except what people actually copy: messages, code, inputs, the terminal. */
+.shell body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.shell :is(input, textarea, [contenteditable], .prose-dd, pre, code, .xterm, [data-selectable]) {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+/* Pressed state for rows and buttons where there is no hover. */
+@media (hover: none) {
+  a[data-slot="item"]:active, button[data-slot="item"]:active { background: var(--muted); }
+  [data-slot="button"]:active:not(:disabled) { opacity: 0.75; }
 }
 
 /* The one animation that isn't a response to the member: a "needs you" light blinks three times when it appears. */

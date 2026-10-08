@@ -13,10 +13,18 @@ import { SessionsPage } from './features/claude/SessionsPage'
 import { SetupPage } from './features/claude/SetupPage'
 
 import { ApiError, meQuery } from './lib/api'
+import { inShell } from './lib/shell'
 import { getTheme, setTheme } from './lib/theme'
 import './styles.css'
 
 setTheme(getTheme())
+
+// Inside the native app: behave like an app, not a web page (no zoom, no selecting UI text; see styles.css).
+if (inShell()) {
+  document.documentElement.classList.add('shell')
+  document.querySelector('meta[name=viewport]')?.setAttribute('content',
+    'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content')
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
