@@ -22,6 +22,7 @@ export function browserRoutes(browser: BrowserService, mw: ReturnType<typeof aut
       return c.json({ ok: true })
     })
     .post('/stop', async (c) => {
+      console.log(`browser stopped by ${c.get('user').username}`)
       await browser.stop()
       return c.json({ ok: true })
     })

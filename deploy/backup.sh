@@ -27,7 +27,7 @@ trap 'finish false "the backup stopped with an error; see journalctl -u devdash-
 
 sqlite3 /var/lib/devdash/devdash.db ".backup '$OUT/devdash.db'"
 tar -czf "$OUT/etc-devdash.tgz" -C /etc devdash
-tar -czf "$OUT/data.tgz" -C /var/lib devdash --exclude='devdash/devdash.db*'
+tar -czf "$OUT/data.tgz" --exclude='devdash/devdash.db*' -C /var/lib devdash
 
 # Keep two weeks.
 find "$ROOT" -mindepth 1 -maxdepth 1 -type d -mtime +14 -exec rm -rf {} +

@@ -107,6 +107,7 @@ export function browserService({ db, runDir, dataDir, masterKey, origin }: { db:
         if (await anyoneWatching()) lastSeen = Date.now()
         else {
           lastSeen = 0
+          console.log('browser stopped: nobody watched for 30 minutes')
           await helper('browser-stop').catch((err) => console.error('browser stop:', (err as Error).message))
         }
       }
