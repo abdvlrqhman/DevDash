@@ -104,7 +104,7 @@ function ServiceRow({ s, showOwner }: { s: Service; showOwner: boolean }) {
         <ItemContent className="min-w-0">
           <ItemTitle className="font-mono">{s.name}</ItemTitle>
           <ItemDescription className="truncate">
-            {st.label}, port {s.port}{s.session ? <>, from <span className="text-foreground">{s.session.title}</span></> : null}
+            {st.label}, port {s.port}{s.session ? <>, from “{s.session.title}”</> : null}
           </ItemDescription>
         </ItemContent>
         {showOwner && (

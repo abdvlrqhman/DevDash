@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 
 /** Square-Kufic د built from grid cells with a brass cursor block. Same drawing as public/icon.svg. */
@@ -20,8 +21,15 @@ export type LightState = 'live' | 'waiting' | 'idle' | 'error'
 
 /** Status as a grid cell, like the logo: running (green), waiting for you (brass, blinks), idle (outline), error. */
 export function StatusLight({ state, label, className }: { state: LightState; label?: string; className?: string }) {
+  // When a light changes while you watch (a service comes up, a session fails) it catches like an LED; see .led-on.
+  const prev = useRef(state)
+  const [changes, setChanges] = useState(0)
+  useEffect(() => {
+    if (prev.current !== state) { prev.current = state; setChanges((n) => n + 1) }
+  }, [state])
   return (
     <span
+      key={changes}
       role={label ? 'img' : undefined}
       aria-label={label}
       aria-hidden={label ? undefined : true}
@@ -31,6 +39,7 @@ export function StatusLight({ state, label, className }: { state: LightState; la
         state === 'waiting' && 'needs-you bg-attention',
         state === 'idle' && 'border-[1.5px] border-muted-foreground/60',
         state === 'error' && 'bg-destructive',
+        changes > 0 && (state === 'live' || state === 'error') && 'led-on',
         className,
       )}
     />

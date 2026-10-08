@@ -33,7 +33,7 @@ export function TasksPage() {
     <>
       <PageHeader title="Tasks" width="full" actions={<Button size="sm" onClick={() => setAdding(true)}><Plus />New</Button>} />
       <PageBody width="full">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <ToggleGroup type="single" variant="outline" size="sm" value={view} onValueChange={(v) => { if (v) { setView(v); store('tasks-view', v) } }} aria-label="View">
             <ToggleGroupItem value="board" aria-label="Board"><Columns3 /><span className="hidden sm:inline">Board</span></ToggleGroupItem>
             <ToggleGroupItem value="list" aria-label="List"><List /><span className="hidden sm:inline">List</span></ToggleGroupItem>
@@ -43,7 +43,7 @@ export function TasksPage() {
             <ToggleGroupItem value="mine">Mine</ToggleGroupItem>
           </ToggleGroup>
           {projects.length > 1 && (
-            <NativeSelect aria-label="Project" className="w-48 [&_select]:h-8" value={project} onChange={(e) => { setProject(e.target.value); store('tasks-project', e.target.value) }}>
+            <NativeSelect aria-label="Project" className="w-48 [&_select]:h-7 pointer-coarse:[&_select]:h-9" value={project} onChange={(e) => { setProject(e.target.value); store('tasks-project', e.target.value) }}>
               <option value="">All projects</option>
               {projects.map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}
             </NativeSelect>

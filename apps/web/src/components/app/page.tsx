@@ -33,10 +33,10 @@ export function PageHeader({ title, description, back, backOnSmall, actions, wid
         </Button>
       )}
       <div className="min-w-0 flex-1 py-2">
-        <h1 className="truncate text-[15px] leading-tight font-semibold">{title}</h1>
+        <h1 className="truncate text-base leading-tight font-semibold">{title}</h1>
         {description && <div className="truncate text-xs text-muted-foreground">{description}</div>}
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-1.5 pointer-coarse:[&_[data-slot=button]]:h-9">{actions}</div>}
+      {actions && <div className="flex shrink-0 items-center gap-1.5">{actions}</div>}
     </header>
   )
 }
@@ -55,7 +55,7 @@ export function Section({ title, description, action, children, className }: {
       {(title || action) && (
         <div className="flex min-h-7 items-end justify-between gap-3">
           <div className="min-w-0">
-            {title && <h2 className="text-[13px] font-semibold">{title}</h2>}
+            {title && <h2 className="text-sm font-semibold">{title}</h2>}
             {description && <p className="mt-0.5 text-sm text-pretty text-muted-foreground">{description}</p>}
           </div>
           {action}

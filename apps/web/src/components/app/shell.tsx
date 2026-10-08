@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import {
@@ -17,6 +17,7 @@ import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { api, meQuery, spaceQuery } from '@/lib/api'
 import { APP_DOWNLOADS, inShell, openExternal } from '@/lib/shell'
+import { useMotion } from '@/lib/motion'
 import { setTheme, useTheme, type ThemePref } from '@/lib/theme'
 import { cn } from '@/lib/utils'
 import { sessionsQuery, useLiveSessions } from '@/features/claude/data'
@@ -104,7 +105,7 @@ export function AppShell() {
         className="fixed inset-x-0 top-0 h-[var(--app-h,100dvh)] min-h-0 translate-y-[var(--app-top,0px)] overflow-hidden">
         <AppSidebar waiting={waiting} pane={pane} />
         <SidebarInset className="min-h-0 min-w-0">
-          <div className="min-h-0 flex-1 overflow-y-auto"><Outlet /></div>
+          <PageMotion><Outlet /></PageMotion>
           <MobileTabs waiting={waiting} />
         </SidebarInset>
       </SidebarProvider>
@@ -112,6 +113,24 @@ export function AppShell() {
       <SearchDialog />
     </TooltipProvider>
   )
+}
+
+/**
+ * The scrolling area pages live in. A new page starts at the top, and moving to another section settles it in (180ms).
+ * Not into a Claude chat or the terminal: a live stream or a canvas shouldn't wait on a fade.
+ */
+function PageMotion({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const path = useRouterState({ select: (s) => s.location.pathname })
+  const section = path.split('/')[1] ?? ''
+  const mounted = useRef(false)
+  useEffect(() => { ref.current?.scrollTo(0, 0) }, [path])
+  useEffect(() => { mounted.current = true }, [])
+  useMotion((gsap) => {
+    if (!mounted.current || /^\/(claude\/[0-9a-f-]{36}|terminal)/.test(path)) return
+    gsap.fromTo(ref.current, { opacity: 0, y: 4 }, { opacity: 1, y: 0, duration: 0.18, ease: 'power2.out', clearProps: 'opacity,transform' })
+  }, [section])
+  return <div ref={ref} className="min-h-0 flex-1 overflow-y-auto">{children}</div>
 }
 
 /** The sidebar's edge: drag to resize (remembered on this device), click to collapse to icons. */
