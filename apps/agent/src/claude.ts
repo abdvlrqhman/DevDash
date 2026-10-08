@@ -80,12 +80,30 @@ function setStatus(c: Chat | undefined, id: string, status: Status, detail?: str
   emit({ ev: 'claude.status', id, status, ...(detail ? { detail } : {}) })
 }
 
+// Questions and plan approvals need a person in every mode. Bypass mode skips canUseTool entirely, so these two
+// tools are routed through a PreToolUse hook instead, which always runs.
+const INTERACTIVE = new Set(['AskUserQuestion', 'ExitPlanMode'])
+const WEEK_S = 7 * 86_400
+
 async function startChat(l: Launch): Promise<Chat> {
   validate(l)
+  await requireLogin(l.profile)
   const sdk = await loadSdk()
   const inbox = new Inbox()
   const pending = new Map<string, Pending>()
   let chat: Chat | undefined
+  const ask = (toolName: string, input: Record<string, unknown>, suggestions: unknown[] | undefined, signal: AbortSignal) =>
+    new Promise<PermissionResult>((resolve) => {
+      const requestId = randomUUID()
+      pending.set(requestId, { requestId, toolName, input, suggestions, resolve })
+      setStatus(chat, l.id, 'waiting')
+      emit({ ev: 'claude.permission', id: l.id, requestId, toolName, input, suggestions })
+      signal.addEventListener('abort', () => {
+        if (!pending.delete(requestId)) return
+        emit({ ev: 'claude.permission_done', id: l.id, requestId })
+        resolve({ behavior: 'deny', message: 'Cancelled' })
+      })
+    })
   const q = sdk.query({
     prompt: inbox,
     options: {
@@ -101,18 +119,22 @@ async function startChat(l: Launch): Promise<Chat> {
       systemPrompt: { type: 'preset', preset: 'claude_code' },
       plugins: [{ type: 'local', path: PLUGIN_DIR }],
       includePartialMessages: true,
-      canUseTool: (toolName: string, input: Record<string, unknown>, o: { signal: AbortSignal; suggestions?: unknown[] }) =>
-        new Promise<PermissionResult>((resolve) => {
-          const requestId = randomUUID()
-          pending.set(requestId, { requestId, toolName, input, suggestions: o.suggestions, resolve })
-          setStatus(chat, l.id, 'waiting')
-          emit({ ev: 'claude.permission', id: l.id, requestId, toolName, input, suggestions: o.suggestions })
-          o.signal.addEventListener('abort', () => {
-            if (!pending.delete(requestId)) return
-            emit({ ev: 'claude.permission_done', id: l.id, requestId })
-            resolve({ behavior: 'deny', message: 'Cancelled' })
-          })
-        }),
+      canUseTool: async (toolName: string, input: Record<string, unknown>, o: { signal: AbortSignal; suggestions?: unknown[] }) =>
+        INTERACTIVE.has(toolName) ? { behavior: 'allow', updatedInput: input } : ask(toolName, input, o.suggestions, o.signal),
+      hooks: {
+        PreToolUse: [{
+          matcher: 'AskUserQuestion|ExitPlanMode',
+          timeout: WEEK_S, // people answer from their phone, maybe much later
+          hooks: [async (h: { tool_name: string; tool_input: Record<string, unknown> }, _id: string | undefined, o: { signal: AbortSignal }) => {
+            const r = await ask(h.tool_name, h.tool_input, undefined, o.signal)
+            return {
+              hookSpecificOutput: r.behavior === 'allow'
+                ? { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: r.updatedInput ?? h.tool_input }
+                : { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: r.message },
+            }
+          }],
+        }],
+      },
       stderr: (d: string) => console.error(`[${l.id.slice(0, 8)}] ${d.trimEnd()}`),
     },
   })
@@ -267,18 +289,30 @@ export async function history(l: Launch) {
 export const commands = (profile: string) => commandCache.get(profile) ?? []
 export const models = (profile: string) => modelCache.get(profile) ?? []
 
+async function authStatus(name: string) {
+  try {
+    const { stdout } = await run(CLAUDE_BIN, ['auth', 'status', '--json'], { env: { ...process.env, ...profileEnv(name) }, timeout: 20_000 })
+    const s = JSON.parse(stdout) as { loggedIn?: boolean; authMethod?: string; email?: string; subscriptionType?: string }
+    return { name, loggedIn: !!s.loggedIn, authMethod: s.authMethod ?? null, email: s.email ?? null, plan: s.subscriptionType ?? null }
+  } catch {
+    return { name, loggedIn: false, authMethod: null, email: null, plan: null }
+  }
+}
+
 export async function profiles() {
   const root = join(homedir(), '.claude-profiles')
   const names = ['default', ...(existsSync(root) ? readdirSync(root).filter((n) => PROFILE_RE.test(n) && n !== 'default') : [])]
-  return Promise.all(names.map(async (name) => {
-    try {
-      const { stdout } = await run(CLAUDE_BIN, ['auth', 'status', '--json'], { env: { ...process.env, ...profileEnv(name) }, timeout: 20_000 })
-      const s = JSON.parse(stdout) as { loggedIn?: boolean; authMethod?: string; email?: string; subscriptionType?: string }
-      return { name, loggedIn: !!s.loggedIn, authMethod: s.authMethod ?? null, email: s.email ?? null, plan: s.subscriptionType ?? null }
-    } catch {
-      return { name, loggedIn: false, authMethod: null, email: null, plan: null }
-    }
-  }))
+  return Promise.all(names.map(authStatus))
+}
+
+// Without a login the SDK process waits silently; say so up front instead. Checked at most every 5 minutes.
+const loginChecked = new Map<string, number>()
+async function requireLogin(profile: string) {
+  if ((loginChecked.get(profile) ?? 0) > Date.now() - 5 * 60_000) return
+  if (!(await authStatus(profile)).loggedIn) {
+    throw new Error(`The ${profile === 'default' ? 'default' : `"${profile}"`} Claude profile isn't signed in. Open Claude setup and sign in first.`)
+  }
+  loginChecked.set(profile, Date.now())
 }
 
 export function createProfile(name: string) {
