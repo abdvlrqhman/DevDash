@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearch } from '@tanstack/react-router'
 import { IconClipboard, IconPlus, IconShieldLock, IconX } from '@tabler/icons-react'
 import { PageHeader } from '../../app/AppShell'
 import { api, meQuery, unwrap } from '../../lib/api'
@@ -20,8 +21,9 @@ export function TerminalPage() {
   const me = useQuery(meQuery).data!
   const qc = useQueryClient()
   const list = useQuery({ queryKey: ['terminals'], queryFn: () => unwrap(api.api.terminals.$get()) })
-  const [opened, setOpened] = useState<string[]>([])
-  const [active, setActive] = useState('main')
+  const { open: requested } = useSearch({ from: '/app/terminal' })
+  const [opened, setOpened] = useState<string[]>(() => (requested && NAME_RE.test(requested) ? [requested] : []))
+  const [active, setActive] = useState(() => (requested && NAME_RE.test(requested) ? requested : 'main'))
   const [epoch, setEpoch] = useState(0)
   const [status, setStatus] = useState<Status>('connecting')
   const [mods, setMods] = useState<Mods>({ ctrl: false, alt: false })
@@ -92,7 +94,7 @@ export function TerminalPage() {
 
       {list.error && <div className="mx-2 lg:mx-8 mt-2"><ErrorText error={list.error} /></div>}
       <div className={cx('relative flex-1 min-h-0 m-2 lg:mx-8 lg:my-3 rounded-xl overflow-hidden bg-term-bg p-2.5', isAdmin && 'ring-2 ring-danger')}>
-        <TerminalView key={`${active}:${epoch}`} ref={term} name={active} onStatus={onStatus} onMods={setMods} />
+        <TerminalView key={`${active}:${epoch}`} ref={term} path={`/api/terminals/${active}/ws`} onStatus={onStatus} onMods={setMods} />
         {status === 'ended' && (
           <div className="absolute inset-0 bg-term-bg/90 flex flex-col items-center justify-center gap-3 text-term-fg text-center px-6">
             <p className="m-0">The shell in <span className="font-mono">{active}</span> exited.</p>

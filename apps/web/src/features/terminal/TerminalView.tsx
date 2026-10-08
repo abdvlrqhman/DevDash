@@ -17,8 +17,9 @@ const css = (name: string) => getComputedStyle(document.documentElement).getProp
  * One xterm bound to one tmux-backed terminal on the server. Reconnects after network drops (tmux keeps the state).
  * To start again after the shell exited, the parent remounts it with a new `key`.
  */
-export function TerminalView({ name, onStatus, onMods, ref }: {
-  name: string
+export function TerminalView({ path, onStatus, onMods, ref }: {
+  /** WebSocket path, e.g. /api/terminals/main/ws or /api/claude/sessions/<id>/cli */
+  path: string
   onStatus: (s: Status) => void
   onMods?: (m: Mods) => void
   ref?: Ref<TerminalHandle>
@@ -95,7 +96,7 @@ export function TerminalView({ name, onStatus, onMods, ref }: {
     const connect = () => {
       cb.current.onStatus(retry ? 'reconnecting' : 'connecting')
       const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-      ws = new WebSocket(`${proto}://${location.host}/api/terminals/${name}/ws?cols=${term.cols}&rows=${term.rows}`)
+      ws = new WebSocket(`${proto}://${location.host}${path}?cols=${term.cols}&rows=${term.rows}`)
       ws.onopen = () => {
         retry = 0
         term.reset() // tmux redraws the whole screen on attach
@@ -158,7 +159,7 @@ export function TerminalView({ name, onStatus, onMods, ref }: {
       term.dispose()
       handle.current = null
     }
-  }, [name])
+  }, [path])
 
   return <div ref={host} className="h-full w-full" />
 }

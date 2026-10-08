@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, Outlet, useNavigate } from '@tanstack/react-router'
-import { IconArrowsExchange, IconDeviceDesktop, IconHome, IconLogout, IconMoon, IconSettings, IconSun, IconTerminal2, IconUsers } from '@tabler/icons-react'
+import { IconArrowsExchange, IconDeviceDesktop, IconHome, IconLogout, IconMoon, IconSettings, IconSparkles, IconSun, IconTerminal2, IconUsers } from '@tabler/icons-react'
 import { api, meQuery, spaceQuery } from '../lib/api'
 import { inShell } from '../lib/shell'
 import { getTheme, setTheme, type ThemePref } from '../lib/theme'
@@ -9,6 +9,7 @@ import { Avatar, Logo, cx } from '../ui'
 
 const NAV = [
   { to: '/', label: 'Home', icon: IconHome },
+  { to: '/claude', label: 'Claude', icon: IconSparkles },
   { to: '/terminal', label: 'Terminal', icon: IconTerminal2 },
   { to: '/members', label: 'Members', icon: IconUsers },
 ] as const

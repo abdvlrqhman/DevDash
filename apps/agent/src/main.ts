@@ -1,100 +1,73 @@
 // DevDash agent: one per member, running as that member's Linux user (deploy/systemd/devdash-agent@.service).
-// The server talks to it over a Unix socket that systemd creates (mode 0660, group devdash).
-// Protocol: first line is a JSON request; terminal.attach then streams JSON lines both ways ({d} data, {r} resize).
-import { execFile } from 'node:child_process'
+// The server talks to it over a Unix socket that systemd creates (mode 0660, group devdash), so only the server and
+// the member's own processes (e.g. the DevDash plugin's hooks) can connect.
+// Protocol: the first line is a JSON request. Most ops answer with one JSON line; attach ops then stream JSON lines
+// both ways ({d} data, {r} resize); `subscribe` keeps the connection open for events.
 import { createServer, type Socket } from 'node:net'
-import { homedir } from 'node:os'
 import { createInterface } from 'node:readline'
-import { fileURLToPath } from 'node:url'
-import { promisify } from 'node:util'
-import pty from 'node-pty'
+import * as claude from './claude.ts'
+import { attachPty, hasSession, listSessions, send, tmux, TMUX_CONF } from './tmux.ts'
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}$/
 const ADMIN = 'admin'
 const ADMIN_IDLE_MS = 15 * 60_000
-const TMUX_CONF = fileURLToPath(new URL('../../../deploy/tmux.conf', import.meta.url))
-// A dedicated tmux server, so SSH users can join the same terminals: tmux -L devdash attach -t t-main
-const TMUX = ['-L', 'devdash', '-f', TMUX_CONF]
-const run = promisify(execFile)
-const tmux = (...args: string[]) => run('tmux', [...TMUX, ...args])
-const session = (name: string) => `t-${name}`
-const clamp = (n: unknown, min: number, max: number) => Math.min(max, Math.max(min, Math.floor(Number(n)) || min))
+const term = (name: string) => `t-${name}`
 
-async function listTerminals() {
-  try {
-    const { stdout } = await tmux('list-sessions', '-F', '#{session_name}\t#{session_created}\t#{session_attached}\t#{session_activity}')
-    return stdout.trim().split('\n').filter((l) => l.startsWith('t-')).map((l) => {
-      const [n, created, attached, activity] = l.split('\t')
-      return { name: n!.slice(2), created: Number(created), attached: Number(attached), activity: Number(activity) }
-    })
-  } catch {
-    return [] // no tmux server yet
+// Every process the agent starts (terminals, Claude) can reach this agent, e.g. for plugin hooks.
+process.env.DEVDASH_AGENT_SOCKET ??= `/run/devdash/agent-${process.env.USER}.sock`
+process.env.DISABLE_AUTOUPDATER = '1'
+
+async function ensureTerminal(name: string, cols: number, rows: number) {
+  if (await hasSession(term(name))) return
+  const base = ['new-session', '-d', '-s', term(name), '-x', String(cols), '-y', String(rows)]
+  if (name === ADMIN) return void (await tmux(...base, 'sudo -i')) // asks for the admin's Linux password
+  if (name.startsWith('login-')) {
+    const { env, args } = claude.loginCommand(name.slice(6))
+    return void (await tmux(...base, ...Object.entries(env).flatMap(([k, v]) => ['-e', `${k}=${v}`]), ...args))
   }
+  await tmux(...base)
 }
 
-async function ensureSession(name: string, cols: number, rows: number) {
-  try {
-    await tmux('has-session', '-t', `=${session(name)}`)
-  } catch {
-    const args = ['new-session', '-d', '-s', session(name), '-x', String(cols), '-y', String(rows)]
-    if (name === ADMIN) args.push('sudo -i') // asks for the admin's Linux password
-    await tmux(...args)
-  }
+type Req = Record<string, unknown> & { op?: string }
+const str = (v: unknown, what: string) => {
+  if (typeof v !== 'string') throw new Error(`missing ${what}`)
+  return v
 }
 
-function send(conn: Socket, msg: object) {
-  return conn.write(JSON.stringify(msg) + '\n')
+// One-line request/response ops.
+const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
+  'terminals.list': async () => ({
+    terminals: (await listSessions()).filter((s) => s.name.startsWith('t-')).map((s) => ({ ...s, name: s.name.slice(2) })),
+  }),
+  'terminals.kill': async (r) => {
+    const name = str(r.name, 'name')
+    if (!NAME_RE.test(name)) throw new Error('invalid terminal name')
+    await tmux('kill-session', '-t', `=${term(name)}`).catch(() => {})
+    return { ok: true }
+  },
+  hook: (r) => (claude.hook(r.payload as Parameters<typeof claude.hook>[0]), { ok: true }),
+  upgrade: () => {
+    upgrading = true
+    return { ok: true }
+  },
+  'claude.send': async (r) => (await claude.send(r.launch as claude.Launch, r.content as unknown[], str(r.uuid, 'uuid')), { ok: true }),
+  'claude.answer': (r) => (claude.answer(str(r.id, 'id'), str(r.requestId, 'requestId'), r.result as never), { ok: true }),
+  'claude.interrupt': async (r) => (await claude.interrupt(str(r.id, 'id')), { ok: true }),
+  'claude.set': async (r) => (await claude.setOption(str(r.id, 'id'), r.key as 'model', (r.value as string | null) ?? null), { ok: true }),
+  'claude.stop': async (r) => (await claude.stop(str(r.id, 'id')), { ok: true }),
+  'claude.cli.open': async (r) => (await claude.openCli(r.launch as claude.Launch, Number(r.cols) || 100, Number(r.rows) || 30), { ok: true }),
+  'claude.cli.close': async (r) => (await claude.closeCli(str(r.id, 'id')), { ok: true }),
+  'claude.pending': (r) => ({ pending: claude.pendingFor(str(r.id, 'id')) }),
+  'claude.history': async (r) => ({ messages: await claude.history(r.launch as claude.Launch) }),
+  'claude.commands': (r) => ({ commands: claude.commands(str(r.profile, 'profile')), models: claude.models(str(r.profile, 'profile')) }),
+  'claude.profiles': async () => ({ profiles: await claude.profiles() }),
+  'claude.profile.create': (r) => (claude.createProfile(str(r.name, 'name')), { ok: true }),
 }
 
-const HISTORY_LINES = 3000
-
-async function attach(conn: Socket, lines: AsyncIterator<string>, req: { name: string; cols: number; rows: number }) {
-  const cols = clamp(req.cols, 10, 500)
-  const rows = clamp(req.rows, 4, 200)
-  await ensureSession(req.name, cols, rows)
-  // Older output first, so the browser's own scrollback has it; attaching then draws the visible screen below.
-  try {
-    const { stdout } = await tmux('capture-pane', '-p', '-e', '-J', '-S', `-${HISTORY_LINES}`, '-E', '-1', '-t', `=${session(req.name)}`)
-    if (stdout.trim()) send(conn, { d: stdout.replace(/\n/g, '\r\n') })
-  } catch {
-    // no history yet
-  }
-  const term = pty.spawn('tmux', [...TMUX, 'attach-session', '-t', `=${session(req.name)}`], {
-    name: 'xterm-256color', cols, rows, cwd: homedir(), env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
-  })
-
-  term.onData((d) => {
-    if (!send(conn, { d })) {
-      term.pause()
-      conn.once('drain', () => term.resume())
-    }
-  })
-  term.onExit(() => conn.end())
-  conn.on('close', () => term.kill()) // detaches this client; the tmux session keeps running
-
-  let lastInput = Date.now()
-  const idle = req.name === ADMIN
-    ? setInterval(() => {
-        if (Date.now() - lastInput > ADMIN_IDLE_MS) void tmux('kill-session', '-t', `=${session(ADMIN)}`).catch(() => {})
-      }, 30_000)
-    : undefined
-  conn.on('close', () => clearInterval(idle))
-
-  for (let r = await lines.next(); !r.done; r = await lines.next()) {
-    let m: { d?: unknown; r?: unknown }
-    try {
-      m = JSON.parse(r.value)
-    } catch {
-      continue
-    }
-    if (typeof m.d === 'string') {
-      lastInput = Date.now()
-      term.write(m.d)
-    } else if (Array.isArray(m.r)) {
-      term.resize(clamp(m.r[0], 10, 500), clamp(m.r[1], 4, 200))
-    }
-  }
-}
+let events: Socket | null = null
+claude.setEmitter((ev) => {
+  if (events && !events.destroyed) send(events, ev)
+})
 
 async function handle(conn: Socket) {
   conn.setEncoding('utf8')
@@ -102,29 +75,56 @@ async function handle(conn: Socket) {
   try {
     const first = await lines.next()
     if (first.done) return
-    const req = JSON.parse(first.value) as { op?: string; name?: string; cols?: number; rows?: number }
-    if (req.op === 'terminals.list') {
-      send(conn, { terminals: await listTerminals() })
-      return void conn.end()
+    const req = JSON.parse(first.value) as Req
+
+    if (req.op === 'subscribe') {
+      // The server's event connection. The newest one wins; it starts with a snapshot to reconcile statuses.
+      events?.destroy()
+      events = conn
+      send(conn, { ev: 'snapshot', sessions: await claude.snapshot() })
+      conn.on('close', () => { if (events === conn) events = null })
+      return
     }
-    if (typeof req.name !== 'string' || !NAME_RE.test(req.name)) throw new Error('invalid terminal name')
-    if (req.op === 'terminals.kill') {
-      await tmux('kill-session', '-t', `=${session(req.name)}`).catch(() => {})
-      send(conn, { ok: true })
-      return void conn.end()
+    if (req.op === 'terminal.attach') {
+      const name = str(req.name, 'name')
+      if (!NAME_RE.test(name)) throw new Error('invalid terminal name')
+      await ensureTerminal(name, Number(req.cols) || 80, Number(req.rows) || 24)
+      let lastInput = Date.now()
+      const idle = name === ADMIN
+        ? setInterval(() => {
+            if (Date.now() - lastInput > ADMIN_IDLE_MS) void tmux('kill-session', '-t', `=${term(ADMIN)}`).catch(() => {})
+          }, 30_000)
+        : undefined
+      conn.on('close', () => clearInterval(idle))
+      return await attachPty(conn, lines, term(name), { cols: Number(req.cols), rows: Number(req.rows), onInput: () => (lastInput = Date.now()) })
     }
-    if (req.op === 'terminal.attach') return await attach(conn, lines, req as { name: string; cols: number; rows: number })
-    throw new Error('unknown op')
+    if (req.op === 'claude.attach') {
+      const id = str(req.id, 'id')
+      if (!(await hasSession(claude.cliSession(id)))) throw new Error('This session is not open in the CLI.')
+      return await attachPty(conn, lines, claude.cliSession(id), { cols: Number(req.cols), rows: Number(req.rows), readonly: req.readonly === true })
+    }
+
+    const fn = req.op && Object.hasOwn(ops, req.op) ? ops[req.op] : undefined
+    if (!fn) throw new Error('unknown op')
+    send(conn, { ok: true, ...((await fn(req)) as object) })
+    conn.end()
   } catch (err) {
     send(conn, { error: (err as Error).message })
     conn.end()
   }
 }
 
-// Apply the current tmux.conf to an already running tmux server (no-op when none is running).
+// Deploys ask agents to restart; wait until no Chat turn is running, so nobody's Claude is cut off mid-answer.
+let upgrading = false
+setInterval(() => {
+  if (upgrading && !claude.busy()) process.exit(0) // systemd starts the new code
+}, 5_000).unref()
+
+// Apply the current tmux.conf and environment to an already running tmux server (no-op when none is running).
 void tmux('source-file', TMUX_CONF).catch(() => {})
+for (const k of ['DEVDASH_AGENT_SOCKET', 'DISABLE_AUTOUPDATER']) void tmux('set-environment', '-g', k, process.env[k]!).catch(() => {})
 
 const server = createServer((conn) => void handle(conn))
 if (process.env.LISTEN_FDS === '1') server.listen({ fd: 3 }) // socket activation
-else server.listen(process.env.DEVDASH_AGENT_SOCKET ?? `${homedir()}/.devdash-agent.sock`)
+else server.listen(process.env.DEVDASH_AGENT_SOCKET)
 server.on('listening', () => console.log(`devdash agent for ${process.env.USER} ready`))

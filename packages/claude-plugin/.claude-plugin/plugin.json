@@ -1,0 +1,6 @@
+{
+  "name": "devdash",
+  "version": "0.1.0",
+  "description": "Connects Claude Code sessions to DevDash: live session status now; tasks and notes tools come next.",
+  "license": "MIT"
+}

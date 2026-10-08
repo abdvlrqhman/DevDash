@@ -8,6 +8,8 @@ import { LoginPage } from './features/auth/LoginPage'
 import { HomePage } from './features/home/HomePage'
 import { MembersPage } from './features/members/MembersPage'
 import { AccountPage } from './features/account/AccountPage'
+import { SessionsPage } from './features/claude/SessionsPage'
+import { SetupPage } from './features/claude/SetupPage'
 
 import { ApiError, meQuery } from './lib/api'
 import { getTheme, setTheme } from './lib/theme'
@@ -49,11 +51,19 @@ const terminal = createRoute({
   getParentRoute: () => app,
   path: '/terminal',
   component: lazyRouteComponent(() => import('./features/terminal/TerminalPage'), 'TerminalPage'), // xterm only loads here
+  validateSearch: (s: Record<string, unknown>): { open?: string } => (typeof s.open === 'string' ? { open: s.open } : {}),
 })
 const account = createRoute({ getParentRoute: () => app, path: '/account', component: AccountPage })
+const claudeList = createRoute({ getParentRoute: () => app, path: '/claude', component: SessionsPage })
+const claudeSetup = createRoute({ getParentRoute: () => app, path: '/claude/setup', component: SetupPage })
+const claudeSession = createRoute({
+  getParentRoute: () => app,
+  path: '/claude/$id',
+  component: lazyRouteComponent(() => import('./features/claude/SessionPage'), 'SessionPage'), // markdown + xterm load here
+})
 
 const router = createRouter({
-  routeTree: root.addChildren([login, invite, app.addChildren([home, terminal, members, account])]),
+  routeTree: root.addChildren([login, invite, app.addChildren([home, claudeList, claudeSetup, claudeSession, terminal, members, account])]),
   context: { queryClient },
   defaultPreload: 'intent',
 })

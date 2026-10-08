@@ -38,8 +38,8 @@ if ! healthy; then
   exit 1
 fi
 
-# Agents pick up new code; tmux (terminals, CLI sessions) survives because of KillMode=process.
-systemctl try-restart 'devdash-agent@*.service' || true
+# Agents pick up new code on their own: the new server asks them to restart once no Claude turn is running.
+# tmux (terminals, CLI sessions) survives agent restarts because of KillMode=process.
 
 # Keep the 5 newest releases.
 ls -1dt /opt/devdash/releases/*/ | tail -n +6 | xargs -r rm -rf

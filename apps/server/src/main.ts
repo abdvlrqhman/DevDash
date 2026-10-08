@@ -3,18 +3,20 @@ import { join } from 'node:path'
 import { createApp } from './app.ts'
 import { loadConfig } from './core/config.ts'
 import { openDb } from './core/db.ts'
-import { attachTerminalSockets } from './modules/terminals/ws.ts'
+import { wsRouter } from './core/ws.ts'
+import { registerSockets } from './sockets.ts'
 
 const config = loadConfig()
 const db = openDb(join(config.dataDir, 'devdash.db'))
-const { app, auth, provisioning, terms } = createApp({ db, config })
+const { app, auth, provisioning, terms, agents, claude, hub } = createApp({ db, config })
 
 const server = serve({ fetch: app.fetch, hostname: '127.0.0.1', port: config.port }, (info) =>
   console.log(`devdash ${config.version} listening on 127.0.0.1:${info.port}`))
 
-attachTerminalSockets(server as import('node:http').Server, { auth, terms, origin: config.origin })
+registerSockets(wsRouter(server as import('node:http').Server, { auth, origin: config.origin }), { hub, agents, terms, claude })
 setInterval(() => auth.cleanup(), 3_600_000).unref()
-void provisioning.reconcileAll()
+// Provision every member (each success starts watching their agent), then let agents pick up new code once idle.
+void provisioning.reconcileAll().then(() => agents.upgradeAll(provisioning.usernames()))
 
 for (const sig of ['SIGTERM', 'SIGINT'] as const) {
   process.on(sig, () => {

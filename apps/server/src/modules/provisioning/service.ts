@@ -9,7 +9,7 @@ import type { User } from '../auth/repo.ts'
  * Keeps each member's Linux account in step with DevDash via the root helper (deploy/helper).
  * Never blocks sign-in: failures are stored on the user row and retried on the next server start.
  */
-export function provisioningService({ db, runDir }: { db: Db; runDir: string }) {
+export function provisioningService({ db, runDir, onReady }: { db: Db; runDir: string; onReady?: (username: string) => void }) {
   const s = {
     set: db.prepare('update users set provisioned_at = ?, provision_error = ? where id = ?'),
     pending: db.prepare('select id, email, username, name, role from users where disabled_at is null'),
@@ -29,6 +29,7 @@ export function provisioningService({ db, runDir }: { db: Db; runDir: string }) 
       }, 120_000)
       if (!r.ok) throw new Error(r.error)
       s.set.run(now(), null, u.id)
+      onReady?.(u.username)
     } catch (err) {
       const msg = (err as Error).message.slice(0, 300)
       s.set.run(null, msg, u.id)
@@ -38,6 +39,7 @@ export function provisioningService({ db, runDir }: { db: Db; runDir: string }) 
 
   return {
     ensure,
+    usernames: () => (s.pending.all() as User[]).map((u) => u.username),
     /** Idempotent: re-applies every active member (role changes, missed sign-ups, a fresh host). */
     async reconcileAll() {
       for (const u of s.pending.all() as User[]) await ensure(u)

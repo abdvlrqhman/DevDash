@@ -21,6 +21,14 @@ export const json = <T extends z.ZodType>(schema: T) =>
     return r.data as z.infer<T>
   })
 
+/** Query-string validation with zod (same idea as `json`). */
+export const query = <T extends z.ZodType>(schema: T) =>
+  validator('query', (value) => {
+    const r = schema.safeParse(value)
+    if (!r.success) throw new AppError(400, 'invalid_input', r.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '))
+    return r.data as z.infer<T>
+  })
+
 /** Rejects state-changing requests that don't come from our own origin (CSRF). */
 export const sameOrigin = (origin: string): MiddlewareHandler => async (c, next) => {
   if (!['GET', 'HEAD', 'OPTIONS'].includes(c.req.method) && c.req.header('origin') !== origin) {
