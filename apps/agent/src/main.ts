@@ -11,6 +11,7 @@ import * as claude from './claude.ts'
 import * as services from './services.ts'
 import { ops as git } from './git.ts'
 import * as files from './files.ts'
+import * as gh from './gh.ts'
 import { attachPty, hasSession, listSessions, send, tmux, TMUX_CONF } from './tmux.ts'
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}$/
@@ -84,6 +85,7 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
   'fs.rename': (r) => files.ops.rename(r),
   'fs.remove': (r) => files.ops.remove(r),
   'fs.write': (r) => files.ops.write(r),
+  'gh.api': (r) => gh.ops.api(r),
   'gh.status': async () => {
     try {
       const { stdout, stderr } = await run('gh', ['auth', 'status', '--hostname', 'github.com'], { timeout: 15_000 })
@@ -170,6 +172,7 @@ async function handle(conn: Socket) {
       return await attachPty(conn, lines, term(name), { cols: Number(req.cols), rows: Number(req.rows), onInput: () => (lastInput = Date.now()) })
     }
     if (req.op === 'fs.read') return await files.read(conn, req.path)
+    if (req.op === 'gh.download') return await gh.download(conn, req.path, req.name)
     if (req.op === 'service.attach') {
       const name = services.sessionName(req.name)
       if (!(await services.status())[str(req.name, 'name')]) throw new Error('This service is not running.')

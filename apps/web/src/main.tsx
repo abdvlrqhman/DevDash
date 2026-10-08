@@ -67,6 +67,7 @@ const more = createRoute({ getParentRoute: () => app, path: '/more', component: 
 const lazy = (load: () => Promise<Record<string, unknown>>, name: string) => lazyRouteComponent(load as never, name as never)
 const projects = createRoute({ getParentRoute: () => app, path: '/projects', component: lazy(() => import('./features/projects/ProjectsPage'), 'ProjectsPage') })
 const project = createRoute({ getParentRoute: () => app, path: '/projects/$slug', component: lazy(() => import('./features/projects/ProjectPage'), 'ProjectPage') })
+const buildRun = createRoute({ getParentRoute: () => app, path: '/projects/$slug/builds/$run', component: lazy(() => import('./features/builds/RunPage'), 'RunPage') })
 const tasks = createRoute({ getParentRoute: () => app, path: '/tasks', component: lazy(() => import('./features/tasks/TasksPage'), 'TasksPage') })
 const task = createRoute({ getParentRoute: () => app, path: '/tasks/$slug/$number', component: lazy(() => import('./features/tasks/TaskPage'), 'TaskPage') })
 const notes = createRoute({ getParentRoute: () => app, path: '/notes', component: lazy(() => import('./features/notes/NotesPage'), 'NotesPage') })
@@ -97,7 +98,7 @@ const claudeSession = createRoute({
 })
 
 const router = createRouter({
-  routeTree: root.addChildren([login, invite, app.addChildren([home, claude.addChildren([claudeIndex, claudeSetup, claudeSession]), terminal, files, services, service, projects, project, tasks, task, notes, note, members, account, more])]),
+  routeTree: root.addChildren([login, invite, app.addChildren([home, claude.addChildren([claudeIndex, claudeSetup, claudeSession]), terminal, files, services, service, projects, project, buildRun, tasks, task, notes, note, members, account, more])]),
   context: { queryClient },
   defaultPreload: 'intent',
 })

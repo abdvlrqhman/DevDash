@@ -12,6 +12,8 @@ import { activityService } from './modules/activity/service.ts'
 import { registerMcp } from './modules/mcp/rpc.ts'
 import { filesRoutes, publicShareRoutes } from './modules/files/routes.ts'
 import { sharesService } from './modules/files/shares.ts'
+import { buildsRoutes } from './modules/builds/routes.ts'
+import { buildsService } from './modules/builds/service.ts'
 import { notesRoutes } from './modules/notes/routes.ts'
 import { notesService } from './modules/notes/service.ts'
 import { projectsRoutes } from './modules/projects/routes.ts'
@@ -69,6 +71,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   const mw = authMiddleware(auth)
   const ip = (c: Context) => clientIp(c, config.trustCfIp)
 
+  const builds = buildsService({ db, agents, projects, shares })
   const app = new Hono()
     // Public: lets the native shell check that a domain is a DevDash space before loading it.
     .get('/.well-known/devdash.json', (c) => {
@@ -89,6 +92,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     .route('/api/tasks', tasksRoutes(tasks, giveToClaude, mw))
     .route('/api/notes', notesRoutes(notes, mw))
     .route('/api/files', filesRoutes(agents, shares, mw))
+    .route('/api/builds', buildsRoutes(builds, mw))
     .route('/api', searchRoutes({ db, search, notes, projects, claude, services, activity }, mw))
 
   app.notFound((c) => c.json({ error: { code: 'not_found', message: 'Not found' } }, 404))

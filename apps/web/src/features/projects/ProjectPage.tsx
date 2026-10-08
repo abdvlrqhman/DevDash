@@ -17,6 +17,7 @@ import { activityQuery, commitsQuery, notesQuery, projectQuery, tasksQuery, useL
 import { ActivityList } from '../work/Activity'
 import { NoteList } from '../notes/NotesPage'
 import { repoLabel } from './ProjectsPage'
+import { BuildsTab } from '../builds/BuildsTab'
 import { api, unwrap } from '@/lib/api'
 
 export function ProjectPage() {
@@ -61,6 +62,7 @@ export function ProjectPage() {
             <TabsTrigger value="tasks">Tasks<span className="text-muted-foreground tabular-nums">{p.openTasks}</span></TabsTrigger>
             <TabsTrigger value="notes">Notes</TabsTrigger>
             <TabsTrigger value="sessions">Claude</TabsTrigger>
+            <TabsTrigger value="builds">Builds</TabsTrigger>
             <TabsTrigger value="commits">Commits</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
           </TabsList>
@@ -70,6 +72,7 @@ export function ProjectPage() {
           </TabsContent>
           <TabsContent value="notes"><ProjectNotes slug={slug} /></TabsContent>
           <TabsContent value="sessions"><ProjectSessions slug={slug} onNew={() => setSession(true)} /></TabsContent>
+          <TabsContent value="builds"><BuildsTab slug={slug} isGithub={/github\.com/.test(p.repoUrl ?? '')} /></TabsContent>
           <TabsContent value="commits"><Commits slug={slug} /></TabsContent>
           <TabsContent value="activity"><ProjectActivity slug={slug} /></TabsContent>
         </Tabs>
