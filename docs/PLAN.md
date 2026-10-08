@@ -334,16 +334,25 @@ Times are build time for Claude, excluding your review.
 | **0. Harden server** ✅ | Rotate root password, admin user + SSH key, disable root/password SSH, ufw, swap, Node 24, tmux, Caddy, bubblewrap | ~1 h | Your SSH public key; Cloudflare Origin cert + AOP toggle |
 | **1. Foundation** ✅ | Repo hygiene + CI + gitleaks, monorepo, server/web skeleton, design system from mockup, auth (invite, TOTP, remember me), `/.well-known/devdash.json`, deploy script, first deploy | ~1 day | Admin email |
 | **2. Users + Terminal** ✅ | Root helper, Linux user provisioning, agent unit, terminal tabs, mobile keys, admin shell | ~1 day | — |
-| **3. Claude sessions** | Spikes S1–S6, profiles + login, CLI mode, Chat mode, mode switching, sharing, status, palette, model/effort/mode sheet, images, caps | ~2–3 days | Each dev logs into Claude once |
-| **4. Projects, tasks, notes** | GitHub App, projects + fetch, kanban, auto-close, notes, search, DevDash plugin (MCP + skill + hooks), "Give to Claude", activity feed | ~2 days | Click "Connect GitHub" |
-| **5. Files + builds** | File browser, chunked upload, share links, build targets, dispatch, live progress, log-stream action, artifacts → share links | ~2 days | A project with a build workflow |
-| **6. Vault** | Keys, personal + shared vaults, items, TOTP, generator, auto-lock, key rotation | ~1.5 days | — |
-| **7. Remote browser** | neko on demand, forward_auth, ports, idle stop | ~½ day | — |
-| **8. Shell + polish** | Tauri shell (connect screen, dynamic capability), release workflow (Windows, Android APK, iOS unsigned), web push, server status page, backups | ~1–2 days | — |
+| **3. Claude sessions** ✅ | Spikes S1–S6, profiles + login, CLI mode, Chat mode, mode switching, sharing, status, palette, model/effort/mode sheet, images, caps | ~2–3 days | Each dev logs into Claude once |
+| **4. Projects, tasks, notes** ✅ | Projects + fetch (each member's own `gh` login instead of a GitHub App), kanban, auto-close, notes, search, DevDash plugin (MCP + skill + hooks), "Give to Claude", activity feed | ~2 days | Click "Connect GitHub" |
+| **5. Files + builds** ✅ | File browser, chunked upload, share links, build targets, dispatch, live progress, log-stream action, artifacts → share links | ~2 days | A project with a build workflow |
+| **6. Vault** ✅ | Keys, personal + shared vaults, items, TOTP, generator, auto-lock, key rotation | ~1.5 days | — |
+| **7. Remote browser** ✅ | neko on demand, forward_auth, ports, idle stop | ~½ day | — |
+| **8. Shell + polish** ✅ | Tauri shell (connect screen, dynamic capability), release workflow (Windows, Android APK, iOS unsigned), web push, server status page, backups | ~1–2 days | — |
 
 Each phase ends deployed on `dev.spacie.net`, with a short demo checklist and its tests passing in CI.
 
 ---
+
+### What changed while building (2026-10-08)
+- **GitHub:** no GitHub App. Each member connects their own GitHub (`gh`, Account → GitHub); cloning, fetching, pushing and builds run as them.
+- **Claude tools:** the DevDash MCP server is a stdio script in the plugin that talks to the member's own agent socket (no tokens); the agent relays to the server over its event connection.
+- **Services center** (added): long-running servers and containers on ports 20000-20999, kept up 24/7, `devdash service` CLI; Claude is told to use it.
+- **Vault KDF:** PBKDF2-SHA256 (600k) in WebCrypto instead of Argon2 (no extra library); keys P-256 ECDH. Optionally stays unlocked on a device, sealed with a non-extractable device key.
+- **Remote browser:** neko multiuser mode (its bundled client needs it): members with full control, invite links for watch-only guests. uBlock Origin Lite ships with the image (Chromium no longer runs MV2 extensions).
+- **Backups:** nightly local snapshots (database, /etc/devdash, data; 14 days), optional off-site with restic via /etc/devdash/backup.env.
+- **Preview URLs for services:** waiting on a wildcard DNS decision (Cloudflare's free certificate doesn't cover *.dev.spacie.net).
 
 ## 13. Out of scope for v1
 
