@@ -8,6 +8,8 @@ import { authMiddleware, authRoutes } from './modules/auth/routes.ts'
 import { authService } from './modules/auth/service.ts'
 import { claudeRoutes } from './modules/claude/routes.ts'
 import { claudeService } from './modules/claude/service.ts'
+import { servicesRoutes } from './modules/services/routes.ts'
+import { servicesService } from './modules/services/service.ts'
 import { membersRoutes } from './modules/members/routes.ts'
 import { notificationsRoutes } from './modules/notifications/routes.ts'
 import { notificationsService } from './modules/notifications/service.ts'
@@ -24,6 +26,8 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   const notifications = notificationsService({ db, hub, dataDir: config.dataDir, origin: config.origin })
   hub.authorize('notifications', () => true)
   const claude = claudeService({ db, agents, hub, notify: notifications.notify })
+  const services = servicesService({ db, agents, hub, notify: notifications.notify })
+  hub.authorize('services', () => true)
   const mw = authMiddleware(auth)
   const ip = (c: Context) => clientIp(c, config.trustCfIp)
 
@@ -40,6 +44,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     .route('/api/terminals', terminalsRoutes(terms, auth, mw, provisioning, ip))
     .route('/api/claude', claudeRoutes(claude, mw))
     .route('/api/notifications', notificationsRoutes(notifications, mw))
+    .route('/api/services', servicesRoutes(services, mw))
 
   app.notFound((c) => c.json({ error: { code: 'not_found', message: 'Not found' } }, 404))
   app.onError((err, c) => {
@@ -48,7 +53,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     return c.json({ error: { code: 'internal', message: 'Something went wrong.' } }, 500)
   })
 
-  return { app, auth, provisioning, terms, agents, claude, hub }
+  return { app, auth, provisioning, terms, agents, claude, services, hub }
 }
 
 export type AppType = ReturnType<typeof createApp>['app']

@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { ArrowLeftRight, ChevronRight, Download, LogOut, Settings, Sparkles, Users } from 'lucide-react'
+import { ArrowLeftRight, ChevronRight, Download, LogOut, Server, Settings, Sparkles, Users } from 'lucide-react'
 import { initials } from '@/components/app/brand'
 import { PageBody, PageHeader, Section } from '@/components/app/page'
 import { useSignOut } from '@/components/app/shell'
@@ -12,6 +12,7 @@ import { APP_DOWNLOADS, inShell, openExternal } from '@/lib/shell'
 import { setTheme, useTheme, type ThemePref } from '@/lib/theme'
 
 const LINKS = [
+  { to: '/services', label: 'Services', description: 'Websites, APIs and containers that stay up', icon: Server },
   { to: '/members', label: 'Members', description: 'Invite people and see who has access', icon: Users },
   { to: '/claude/setup', label: 'Claude setup', description: 'Profiles, sign-in and defaults', icon: Sparkles },
   { to: '/account', label: 'Account', description: 'Password, email and appearance', icon: Settings },

@@ -15,6 +15,20 @@ export function agentsService({ runDir }: { runDir: string }) {
     return join(runDir, `agent-${username}.sock`)
   }
   const handlers = new Set<(username: string, ev: AgentEvent) => void>()
+  // Calls from a member's own processes (e.g. the `devdash service` command), relayed by their agent.
+  const rpcs = new Map<string, (username: string, params: unknown) => unknown>()
+  async function answerRpc(username: string, sock: Socket, ev: AgentEvent) {
+    let reply: object
+    try {
+      const fn = rpcs.get(String(ev.method))
+      if (!fn) throw new AppError(400, 'unknown_method', `Unknown request ${String(ev.method)}.`)
+      reply = { rpc: ev.rpc, result: (await fn(username, ev.params)) ?? {} }
+    } catch (err) {
+      if (!(err instanceof AppError)) console.error(`rpc ${String(ev.method)} for ${username}:`, err)
+      reply = { rpc: ev.rpc, error: err instanceof AppError ? err.message : 'Something went wrong on the DevDash server.' }
+    }
+    if (!sock.destroyed) sock.write(JSON.stringify(reply) + '\n')
+  }
   const watched = new Map<string, { sock?: Socket; stop: boolean }>()
 
   async function request<T = Record<string, unknown>>(username: string, msg: object, timeoutMs = 60_000): Promise<T> {
@@ -53,7 +67,8 @@ export function agentsService({ runDir }: { runDir: string }) {
           buf = buf.slice(i + 1)
           try {
             const ev = JSON.parse(line) as AgentEvent
-            for (const h of handlers) h(username, ev)
+            if (ev.ev === 'rpc') void answerRpc(username, sock, ev)
+            else for (const h of handlers) h(username, ev)
           } catch (err) {
             console.error(`agent ${username} event:`, (err as Error).message)
           }
@@ -78,6 +93,7 @@ export function agentsService({ runDir }: { runDir: string }) {
       return sock
     },
     onEvent: (fn: (username: string, ev: AgentEvent) => void) => void handlers.add(fn),
+    onRpc: (method: string, fn: (username: string, params: unknown) => unknown) => void rpcs.set(method, fn),
     watch,
     /** After a deploy: agents restart once no Chat turn is running (apps/agent/src/main.ts). */
     async upgradeAll(usernames: string[]) {

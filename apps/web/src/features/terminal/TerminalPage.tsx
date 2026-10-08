@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearch } from '@tanstack/react-router'
-import { Plus, ShieldAlert, X } from 'lucide-react'
+import { Plus, ShieldAlert, SquareTerminal, X } from 'lucide-react'
 import { StatusLight } from '@/components/app/brand'
 import { PageHeader } from '@/components/app/page'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
 import { Button } from '@/components/ui/button'
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { api, meQuery, unwrap } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -23,7 +24,8 @@ export function TerminalPage() {
   const { open: requested } = useSearch({ from: '/app/terminal' })
   const list = useQuery({ queryKey: ['terminals'], queryFn: () => unwrap(api.api.terminals.$get()) })
   const [opened, setOpened] = useState<string[]>(() => (requested && NAME_RE.test(requested) ? [requested] : []))
-  const [active, setActive] = useState(() => (requested && NAME_RE.test(requested) ? requested : 'main'))
+  // Nothing connects until a terminal is picked (a link may pick one, e.g. Claude sign-in).
+  const [active, setActive] = useState<string | null>(() => (requested && NAME_RE.test(requested) ? requested : null))
   const [epoch, setEpoch] = useState(0)
   const [status, setStatus] = useState<Status>('connecting')
   const [mods, setMods] = useState<Mods>({ ctrl: false, alt: false })
@@ -37,14 +39,14 @@ export function TerminalPage() {
   const onStatus = useCallback((s: Status) => setStatus(s), [])
   // A Claude sign-in tab finished: refresh the sign-in status shown on Claude setup.
   useEffect(() => {
-    if (status === 'ended' && active.startsWith('login-')) void qc.invalidateQueries({ queryKey: ['claude', 'profiles'] })
+    if (status === 'ended' && active?.startsWith('login-')) void qc.invalidateQueries({ queryKey: ['claude', 'profiles'] })
   }, [status, active, qc])
 
   const kill = useMutation({
     mutationFn: (name: string) => unwrap(api.api.terminals[':name'].$delete({ param: { name } })),
     onSuccess: (_r, name) => {
       setOpened((o) => o.filter((n) => n !== name))
-      if (active === name) setActive('main')
+      if (active === name) setActive(null)
       setEpoch((e) => e + 1)
       setClosing(null)
       void qc.invalidateQueries({ queryKey: ['terminals'] })
@@ -58,7 +60,7 @@ export function TerminalPage() {
   return (
     <div className="flex h-full flex-col">
       <PageHeader title="Terminal" description={<span className="font-mono">{me.username}@server</span>}
-        actions={
+        actions={active &&
           <span role="status" className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <StatusLight state={status === 'live' ? 'live' : status === 'ended' ? 'idle' : 'waiting'} />
             <span className="hidden sm:inline">{STATUS_TEXT[status]}</span>
@@ -72,7 +74,7 @@ export function TerminalPage() {
             <div className="font-medium text-destructive">Admin shell</div>
             <div className="text-muted-foreground">Root on the whole server. Closes after 15 minutes without typing.</div>
           </div>
-          <Button size="sm" variant="outline" onClick={() => open('main')}>Leave</Button>
+          <Button size="sm" variant="outline" onClick={() => setActive(null)}>Leave</Button>
         </div>
       ) : (
         <div className="flex items-center gap-1 overflow-x-auto border-b px-2 md:px-4" role="tablist" aria-label="Terminals">
@@ -97,6 +99,26 @@ export function TerminalPage() {
       )}
 
       {list.error && <div className="mx-2 mt-2 md:mx-4"><ErrorAlert error={list.error} /></div>}
+      {!active ? (
+        <Empty className="flex-1">
+          <EmptyHeader>
+            <EmptyMedia variant="icon"><SquareTerminal /></EmptyMedia>
+            <EmptyTitle>Open a terminal</EmptyTitle>
+            <EmptyDescription>Shells run on the server as {me.username} and keep running when you leave, so you can pick up where you were from any device.</EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent className="flex-row flex-wrap justify-center gap-2">
+            {names.map((n) => {
+              const running = list.data?.terminals.some((t) => t.name === n)
+              return (
+                <Button key={n} variant={n === 'main' ? 'default' : 'outline'} className="font-mono" onClick={() => open(n)}>
+                  {running && <StatusLight state="live" />}{n}
+                </Button>
+              )
+            })}
+            <Button variant="outline" onClick={() => setAdding(true)}><Plus />New terminal</Button>
+          </EmptyContent>
+        </Empty>
+      ) : <>
       <div className={cn('relative m-2 min-h-0 flex-1 overflow-hidden rounded-lg bg-term-bg p-2 md:m-4', isAdmin && 'ring-2 ring-destructive')}>
         <TerminalView key={`${active}:${epoch}`} ref={term} path={`/api/terminals/${active}/ws`} onStatus={onStatus} onMods={setMods} />
         {status === 'ended' && (
@@ -108,6 +130,7 @@ export function TerminalPage() {
       </div>
 
       <KeyBar term={term} mods={mods} />
+      </>}
 
       <ResponsiveDialog open={closing !== null} onOpenChange={(v) => !v && setClosing(null)} title={`Close ${closing}?`} description="Anything still running in it stops.">
         <div className="flex flex-col gap-3">

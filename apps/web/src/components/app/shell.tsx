@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import {
-  ArrowLeftRight, ChevronsUpDown, Download, Ellipsis, House, LogOut, Monitor, Moon, Settings, Sparkles, SquareTerminal, Sun, Users,
+  ArrowLeftRight, ChevronsUpDown, Download, Ellipsis, House, LogOut, Monitor, Moon, Server, Settings, Sparkles, SquareTerminal, Sun, Users,
 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -28,6 +28,7 @@ const NAV = [
   { to: '/', label: 'Home', icon: House, exact: true },
   { to: '/claude', label: 'Claude', icon: Sparkles },
   { to: '/terminal', label: 'Terminal', icon: SquareTerminal },
+  { to: '/services', label: 'Services', icon: Server },
   { to: '/members', label: 'Members', icon: Users },
 ] as const
 

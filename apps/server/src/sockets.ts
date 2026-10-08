@@ -4,6 +4,7 @@ import { AppError } from './core/http.ts'
 import { bridgeToAgent, type WsContext, type WsRouter } from './core/ws.ts'
 import type { AgentsService } from './modules/agents/service.ts'
 import type { ClaudeService } from './modules/claude/service.ts'
+import type { ServicesService } from './modules/services/service.ts'
 import { ADMIN_TERMINAL, type TerminalsService } from './modules/terminals/service.ts'
 
 const size = (ctx: WsContext) => {
@@ -22,7 +23,7 @@ function open(sock: WebSocket, agents: AgentsService, username: string, msg: obj
   }
 }
 
-export function registerSockets(ws: WsRouter, d: { hub: Hub; agents: AgentsService; terms: TerminalsService; claude: ClaudeService }) {
+export function registerSockets(ws: WsRouter, d: { hub: Hub; agents: AgentsService; terms: TerminalsService; claude: ClaudeService; services: ServicesService }) {
   // Live updates for one browser tab.
   ws.route(/^\/api\/live$/, (sock, ctx) => d.hub.attach(sock, ctx.user))
 
@@ -35,6 +36,13 @@ export function registerSockets(ws: WsRouter, d: { hub: Hub; agents: AgentsServi
         throw new AppError(403, 'locked', 'Unlock the admin shell first.')
       }
     },
+  )
+
+  // A service's output, read-only, for every member.
+  ws.route(
+    /^\/api\/services\/([a-z][a-z0-9-]{0,30})\/logs$/,
+    (sock, ctx) => open(sock, d.agents, d.services.logsAccess(ctx.user, ctx.match[1]!), { op: 'service.attach', name: ctx.match[1], ...size(ctx) }),
+    (ctx) => void d.services.logsAccess(ctx.user, ctx.match[1]!),
   )
 
   // CLI mode of a Claude session. Shared viewers who may not send get a read-only view.

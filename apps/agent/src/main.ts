@@ -6,6 +6,7 @@
 import { createServer, type Socket } from 'node:net'
 import { createInterface } from 'node:readline'
 import * as claude from './claude.ts'
+import * as services from './services.ts'
 import { attachPty, hasSession, listSessions, send, tmux, TMUX_CONF } from './tmux.ts'
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}$/
@@ -62,6 +63,40 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
   'claude.commands': (r) => ({ commands: claude.commands(str(r.profile, 'profile')), models: claude.models(str(r.profile, 'profile')) }),
   'claude.profiles': async () => ({ profiles: await claude.profiles() }),
   'claude.profile.create': (r) => (claude.createProfile(str(r.name, 'name')), { ok: true }),
+  'fs.dir': async (r) => ({ path: await services.dir(r.path) }),
+  'service.start': async (r) => (await services.start(r), { ok: true }),
+  'service.stop': async (r) => (await services.stop(r), { ok: true }),
+  'service.status': async () => ({ services: await services.status() }),
+  'service.logs': async (r) => ({ text: await services.logs(r) }),
+  // From the member's own processes (the `devdash` command): relayed to the server, which knows who this agent is.
+  rpc: async (r) => ({ result: await rpc(str(r.method, 'method'), r.params) }),
+}
+
+// Requests to the server over the event connection: {ev:'rpc', rpc, method, params} up, {rpc, result|error} back.
+const calls = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
+let nextCall = 0
+function rpc(method: string, params: unknown) {
+  if (!events || events.destroyed) return Promise.reject(new Error('DevDash is not connected to your account right now. Try again in a minute.'))
+  const id = ++nextCall
+  return new Promise((resolve, reject) => {
+    calls.set(id, { resolve, reject })
+    send(events!, { ev: 'rpc', rpc: id, method, params })
+    setTimeout(() => calls.delete(id) && reject(new Error('DevDash did not answer in time.')), 60_000).unref()
+  })
+}
+async function readReplies(lines: AsyncIterator<string>) {
+  for (let r = await lines.next(); !r.done; r = await lines.next()) {
+    try {
+      const m = JSON.parse(r.value) as { rpc?: number; result?: unknown; error?: string }
+      const call = m.rpc !== undefined ? calls.get(m.rpc) : undefined
+      if (!call) continue
+      calls.delete(m.rpc!)
+      if (m.error) call.reject(new Error(m.error))
+      else call.resolve(m.result)
+    } catch {
+      // not a reply
+    }
+  }
 }
 
 let events: Socket | null = null
@@ -83,7 +118,7 @@ async function handle(conn: Socket) {
       events = conn
       send(conn, { ev: 'snapshot', sessions: await claude.snapshot() })
       conn.on('close', () => { if (events === conn) events = null })
-      return
+      return void (await readReplies(lines))
     }
     if (req.op === 'terminal.attach') {
       const name = str(req.name, 'name')
@@ -97,6 +132,11 @@ async function handle(conn: Socket) {
         : undefined
       conn.on('close', () => clearInterval(idle))
       return await attachPty(conn, lines, term(name), { cols: Number(req.cols), rows: Number(req.rows), onInput: () => (lastInput = Date.now()) })
+    }
+    if (req.op === 'service.attach') {
+      const name = services.sessionName(req.name)
+      if (!(await services.status())[str(req.name, 'name')]) throw new Error('This service is not running.')
+      return await attachPty(conn, lines, name, { cols: Number(req.cols), rows: Number(req.rows), readonly: true, services: true })
     }
     if (req.op === 'claude.attach') {
       const id = str(req.id, 'id')

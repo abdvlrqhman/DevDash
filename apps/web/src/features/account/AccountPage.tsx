@@ -131,7 +131,7 @@ function ServerPasswordForm() {
       <FieldGroup>
         <Field>
           <FieldLabel htmlFor="sp-new">New server password</FieldLabel>
-          <Input id="sp-new" type="password" autoComplete="new-password" minLength={8} required className="h-10" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <Input id="sp-new" type="password" autoComplete="new-password" required className="h-10" value={password} onChange={(e) => setPassword(e.target.value)} />
         </Field>
         <Field>
           <FieldLabel htmlFor="sp-current">Your DevDash password</FieldLabel>

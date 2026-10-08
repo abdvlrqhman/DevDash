@@ -7,7 +7,7 @@ import type { ProvisioningService } from '../provisioning/service.ts'
 import type { TerminalsService } from './service.ts'
 
 const ServerPasswordInput = z.object({
-  password: z.string().min(8, 'Use at least 8 characters').max(256),
+  password: z.string().min(1).max(256),
   currentPassword: z.string().min(1).max(256),
   code: z.string().max(10),
 })

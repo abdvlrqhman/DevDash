@@ -91,6 +91,14 @@ function setStatus(c: Chat | undefined, id: string, status: Status, detail?: str
   emit({ ev: 'claude.status', id, status, ...(detail ? { detail } : {}) })
 }
 
+// Added to Claude's system prompt in Chat and CLI: how to run things that must outlive a turn on a shared server.
+const RULES = `You are running on a DevDash server that a team shares and that stays on 24/7.
+Long-running processes (web servers, dev servers, APIs, workers, containers) go in the DevDash services center, never in a foreground or background Bash command:
+- \`devdash service add <name> --cmd '<command>'\` registers and starts one in the current folder and prints its port. The command must listen on $PORT, bound to 127.0.0.1. Never pick a port yourself; other people's services use the rest.
+- Docker: \`docker run --rm -p 127.0.0.1:$PORT:<container-port> ...\`. Compose: publish "127.0.0.1:\${PORT}:<port>"; $COMPOSE_PROJECT_NAME keeps names apart.
+- \`devdash service ls\`, \`logs <name>\`, \`restart <name>\`, \`stop <name>\`, \`rm <name>\`. Services keep running after this session ends and restart if they crash.
+- Only stop or change services you or this person own.`
+
 // Questions and plan approvals need a person in every mode. Bypass mode skips canUseTool entirely, so these two
 // tools are routed through a PreToolUse hook instead, which always runs.
 const INTERACTIVE = new Set(['AskUserQuestion', 'ExitPlanMode'])
@@ -127,7 +135,7 @@ async function startChat(l: Launch): Promise<Chat> {
       permissionMode: l.permissionMode,
       allowDangerouslySkipPermissions: l.permissionMode === 'bypassPermissions',
       // A complete Claude Code session: same system prompt, settings, skills, agents, hooks and MCP as the CLI.
-      systemPrompt: { type: 'preset', preset: 'claude_code' },
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: RULES },
       plugins: [{ type: 'local', path: PLUGIN_DIR }],
       includePartialMessages: true,
       canUseTool: async (toolName: string, input: Record<string, unknown>, o: { signal: AbortSignal; suggestions?: unknown[] }) =>
@@ -249,7 +257,7 @@ async function openCliNow(l: Launch, cols: number, rows: number) {
   const c = chats.get(l.id)
   if (c) await stopChat(c)
   if (await hasSession(cliName(l.id))) return
-  const args = [CLAUDE_BIN, ...(l.started ? ['--resume', l.id] : ['--session-id', l.id]), '--plugin-dir', PLUGIN_DIR]
+  const args = [CLAUDE_BIN, ...(l.started ? ['--resume', l.id] : ['--session-id', l.id]), '--plugin-dir', PLUGIN_DIR, '--append-system-prompt', RULES]
   if (l.model) args.push('--model', l.model)
   if (l.effort) args.push('--effort', l.effort)
   args.push(...(l.permissionMode === 'bypassPermissions' ? ['--dangerously-skip-permissions'] : ['--permission-mode', l.permissionMode]))

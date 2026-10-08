@@ -64,6 +64,8 @@ const terminal = createRoute({
 })
 const account = createRoute({ getParentRoute: () => app, path: '/account', component: AccountPage })
 const more = createRoute({ getParentRoute: () => app, path: '/more', component: MorePage })
+const services = createRoute({ getParentRoute: () => app, path: '/services', component: lazyRouteComponent(() => import('./features/services/ServicesPage'), 'ServicesPage') })
+const service = createRoute({ getParentRoute: () => app, path: '/services/$name', component: lazyRouteComponent(() => import('./features/services/ServicePage'), 'ServicePage') })
 // Claude is master-detail on wide screens: ClaudeLayout keeps the session list beside whatever is open.
 const claude = createRoute({ getParentRoute: () => app, path: '/claude', component: ClaudeLayout })
 const claudeIndex = createRoute({ getParentRoute: () => claude, path: '/', component: ClaudeIndex })
@@ -75,7 +77,7 @@ const claudeSession = createRoute({
 })
 
 const router = createRouter({
-  routeTree: root.addChildren([login, invite, app.addChildren([home, claude.addChildren([claudeIndex, claudeSetup, claudeSession]), terminal, members, account, more])]),
+  routeTree: root.addChildren([login, invite, app.addChildren([home, claude.addChildren([claudeIndex, claudeSetup, claudeSession]), terminal, services, service, members, account, more])]),
   context: { queryClient },
   defaultPreload: 'intent',
 })
