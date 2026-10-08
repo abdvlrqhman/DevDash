@@ -1,10 +1,16 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { IconChevronRight, IconSparkles, IconUserPlus } from '@tabler/icons-react'
-import { PageHeader } from '../../app/AppShell'
-import { api, meQuery, spaceQuery, unwrap } from '../../lib/api'
-import { Avatar, Card, Light } from '../../ui'
-import { sessionsQuery, shortPath, useLiveSessions } from '../claude/data'
+import { ChevronRight, Plus, Sparkles } from 'lucide-react'
+import { initials, StatusLight } from '@/components/app/brand'
+import { PageBody, PageHeader, Section } from '@/components/app/page'
+import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Button } from '@/components/ui/button'
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
+import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item'
+import { meQuery, spaceQuery } from '@/lib/api'
+import { NewSession } from '@/features/claude/SessionsPage'
+import { relativeTime, sessionsQuery, shortPath } from '@/features/claude/data'
 
 const greeting = () => {
   const h = new Date().getHours()
@@ -14,72 +20,74 @@ const greeting = () => {
 export function HomePage() {
   const me = useQuery(meQuery).data!
   const space = useQuery(spaceQuery).data
-  const members = useQuery({ queryKey: ['members'], queryFn: () => unwrap(api.api.members.$get()) })
   const sessions = useQuery(sessionsQuery(false))
-  useLiveSessions()
+  const [creating, setCreating] = useState(false)
 
   const all = sessions.data?.sessions ?? []
   const waiting = all.filter((s) => s.status === 'waiting')
   const running = all.filter((s) => s.status === 'working')
+  const recent = all.filter((s) => s.status !== 'waiting' && s.status !== 'working').slice(0, 5)
 
   return (
     <>
-      <PageHeader title={`${greeting()}, ${me.name.split(' ')[0]}`} sub={space?.name} />
-      <div className="px-4 lg:px-8 pb-8 flex flex-col gap-3 max-w-3xl">
-        {waiting.map((s) => (
-          <Link key={s.id} to="/claude/$id" params={{ id: s.id }} className="block">
-            <Card tone="brass" className="flex items-start gap-3">
-              <span className="mt-[7px]"><Light state="waiting" /></span>
-              <div className="flex-1 min-w-0">
-                <div className="font-medium">Claude needs you</div>
-                <div className="text-[14px] text-muted truncate">{s.title}, in <span className="font-mono">{shortPath(s.cwd, s.owner.username)}</span></div>
-              </div>
-              <IconChevronRight size={18} className="text-muted mt-1" />
-            </Card>
-          </Link>
-        ))}
+      <PageHeader title={space?.name ?? 'Home'} actions={<Button size="sm" onClick={() => setCreating(true)}><Plus />New session</Button>} />
+      <PageBody>
+        <h2 className="text-2xl font-semibold tracking-tight">{greeting()}, {me.name.split(' ')[0]}</h2>
 
-        <section className="flex flex-col">
-          <div className="flex items-baseline justify-between">
-            <h2 className="text-[13px] text-muted font-normal m-0 mb-1">Claude</h2>
-            <Link to="/claude" className="text-[13px] text-accent">All sessions</Link>
-          </div>
-          {running.length ? (
-            <ul className="m-0 p-0 list-none border-t border-line">
-              {running.map((s) => (
-                <li key={s.id} className="border-b border-line">
-                  <Link to="/claude/$id" params={{ id: s.id }} className="flex items-center gap-3 py-3">
-                    <Light state="live" />
-                    <span className="flex-1 min-w-0 truncate">{s.title}</span>
-                    {s.owner.id !== me.id && <Avatar name={s.owner.name} seed={s.owner.id} />}
+        {waiting.length > 0 && (
+          <Section title="Needs you">
+            <ItemGroup className="gap-2">
+              {waiting.map((s) => (
+                <Item key={s.id} asChild className="border-attention/40 bg-attention-soft">
+                  <Link to="/claude/$id" params={{ id: s.id }}>
+                    <ItemMedia><StatusLight state="waiting" /></ItemMedia>
+                    <ItemContent>
+                      <ItemTitle>{s.title}</ItemTitle>
+                      <ItemDescription>Claude is waiting for your answer in <span className="font-mono">{shortPath(s.cwd, s.owner.username)}</span></ItemDescription>
+                    </ItemContent>
+                    <ItemActions><ChevronRight className="size-4 text-muted-foreground" /></ItemActions>
                   </Link>
-                </li>
+                </Item>
               ))}
-            </ul>
-          ) : (
-            <Link to="/claude" className="flex items-center gap-3 py-3 border-y border-line text-muted">
-              <IconSparkles size={18} className="text-accent shrink-0" />
-              <span className="flex-1">Nothing running. Start a session and Claude keeps working after you close the app.</span>
-            </Link>
-          )}
-        </section>
+            </ItemGroup>
+          </Section>
+        )}
 
-        <Link to="/members" className="block mt-2">
-          <Card className="flex items-center gap-3">
-            <div className="flex -space-x-2">
-              {members.data?.users.slice(0, 5).map((u) => <span key={u.id} className="ring-2 ring-surface rounded-lg"><Avatar name={u.name} seed={u.id} /></span>)}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="font-medium">Members</div>
-              <div className="text-muted text-[13px]">
-                {members.data ? `${members.data.users.length} in this space${members.data.invites.length ? `, ${members.data.invites.length} invited` : ''}` : 'Loading…'}
-              </div>
-            </div>
-            {me.role === 'admin' && <IconUserPlus size={20} className="text-accent" aria-label="Invite" />}
-            <IconChevronRight size={18} className="text-muted" />
-          </Card>
-        </Link>
-      </div>
+        <Section title="Claude" action={<Button variant="link" size="sm" asChild className="h-auto p-0"><Link to="/claude">All sessions</Link></Button>}>
+          {running.length + recent.length === 0 ? (
+            <Empty className="border">
+              <EmptyHeader>
+                <EmptyMedia variant="icon"><Sparkles /></EmptyMedia>
+                <EmptyTitle>No sessions yet</EmptyTitle>
+                <EmptyDescription>Start one and Claude works on the server as you, even after you close the app.</EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent><Button onClick={() => setCreating(true)}><Plus />New session</Button></EmptyContent>
+            </Empty>
+          ) : (
+            <ItemGroup className="rounded-xl border">
+              {[...running, ...recent].map((s) => (
+                <Item key={s.id} asChild className="rounded-none border-0 border-b last:border-b-0">
+                  <Link to="/claude/$id" params={{ id: s.id }}>
+                    <ItemMedia><StatusLight state={s.status === 'working' ? 'live' : s.status === 'error' ? 'error' : 'idle'} /></ItemMedia>
+                    <ItemContent>
+                      <ItemTitle className="line-clamp-1">{s.title}</ItemTitle>
+                      <ItemDescription className="line-clamp-1">
+                        {s.status === 'working' ? 'Working' : relativeTime(s.lastActivityAt)}, <span className="font-mono">{shortPath(s.cwd, s.owner.username)}</span>
+                      </ItemDescription>
+                    </ItemContent>
+                    {s.owner.id !== me.id && (
+                      <ItemActions>
+                        <Avatar className="size-7"><AvatarFallback className="text-[11px]">{initials(s.owner.name)}</AvatarFallback></Avatar>
+                      </ItemActions>
+                    )}
+                  </Link>
+                </Item>
+              ))}
+            </ItemGroup>
+          )}
+        </Section>
+      </PageBody>
+      <NewSession open={creating} onClose={() => setCreating(false)} />
     </>
   )
 }

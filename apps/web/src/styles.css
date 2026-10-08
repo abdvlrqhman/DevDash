@@ -1,106 +1,170 @@
 @import "tailwindcss";
-@import "@fontsource-variable/readex-pro";
-@import "@fontsource-variable/jetbrains-mono";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+@custom-variant dark (&:is(.dark *));
 
 /*
- * Kufic grid (docs/design/direction-kufic.html): verdigris + brass on green-black ink.
- * Readex Pro covers Latin and Arabic; JetBrains Mono only where there is code.
- * Light by default; dark follows the device unless the member picks one.
+ * shadcn/ui neutral theme. DevDash adds only status colors (running, needs you), the terminal surface and the logo.
+ * Light by default; dark follows the device unless the member picks one (lib/theme.ts toggles .dark on <html>).
  */
 :root {
-  --bg: #EDF0EC; --surface: #F8FAF7; --surface-2: #E2E7E2; --line: #CFD7D1;
-  --text: #13201B; --muted: #56655E;
-  --accent: #1E6B57; --on-accent: #F3FBF7; --accent-soft: #D6E8E0;
-  --success: #1E6B57; --success-soft: #D6E8E0;
-  --warning: #7A520A; --warning-soft: #F2E5C8; --brass: #C08F25;
-  --danger: #B03E2C; --danger-soft: #F6DCD6;
-  --term-bg: #08110E; --term-fg: #D3E2DA;
-  --logo-bg: #13201B;
-  color-scheme: light;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.52 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --radius: 0.625rem;
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.95 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+
+  --live: oklch(0.6 0.15 152);
+  --attention: oklch(0.7 0.14 75);
+  --attention-foreground: oklch(0.42 0.09 70);
+  --attention-soft: oklch(0.97 0.035 85);
+  --term-bg: oklch(0.18 0 0);
+  --term-fg: oklch(0.93 0 0);
+  --logo-bg: oklch(0.205 0 0);
 }
-:root[data-theme="dark"] {
-  --bg: #0C1613; --surface: #13201C; --surface-2: #1A2924; --line: #22342D;
-  --text: #E2EAE5; --muted: #8DA197;
-  --accent: #4CBC9B; --on-accent: #06120E; --accent-soft: #173A30;
-  --success: #4CBC9B; --success-soft: #173A30;
-  --warning: #E3B45A; --warning-soft: #3A2D12; --brass: #E3B45A;
-  --danger: #EB7A64; --danger-soft: #3A1A14;
-  --term-bg: #060D0B; --term-fg: #D3E2DA;
-  --logo-bg: #1E6B57;
-  color-scheme: dark;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #0C1613; --surface: #13201C; --surface-2: #1A2924; --line: #22342D;
-    --text: #E2EAE5; --muted: #8DA197;
-    --accent: #4CBC9B; --on-accent: #06120E; --accent-soft: #173A30;
-    --success: #4CBC9B; --success-soft: #173A30;
-    --warning: #E3B45A; --warning-soft: #3A2D12; --brass: #E3B45A;
-    --danger: #EB7A64; --danger-soft: #3A1A14;
-    --term-bg: #060D0B; --term-fg: #D3E2DA;
-    --logo-bg: #1E6B57;
-    color-scheme: dark;
-  }
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.185 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.72 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --sidebar: oklch(0.175 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.922 0 0);
+  --sidebar-primary-foreground: oklch(0.205 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+
+  --live: oklch(0.74 0.17 152);
+  --attention: oklch(0.82 0.14 80);
+  --attention-foreground: oklch(0.86 0.12 82);
+  --attention-soft: oklch(0.27 0.05 80);
+  --term-bg: oklch(0.12 0 0);
+  --term-fg: oklch(0.93 0 0);
+  --logo-bg: oklch(0.32 0 0);
 }
 
 @theme inline {
-  --color-bg: var(--bg);
-  --color-surface: var(--surface);
-  --color-surface-2: var(--surface-2);
-  --color-line: var(--line);
-  --color-text: var(--text);
+  --font-sans: "Geist Variable", system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+  --font-heading: var(--font-sans);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
-  --color-on-accent: var(--on-accent);
-  --color-accent-soft: var(--accent-soft);
-  --color-success: var(--success);
-  --color-success-soft: var(--success-soft);
-  --color-warning: var(--warning);
-  --color-warning-soft: var(--warning-soft);
-  --color-brass: var(--brass);
-  --color-danger: var(--danger);
-  --color-danger-soft: var(--danger-soft);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-live: var(--live);
+  --color-attention: var(--attention);
+  --color-attention-foreground: var(--attention-foreground);
+  --color-attention-soft: var(--attention-soft);
   --color-term-bg: var(--term-bg);
   --color-term-fg: var(--term-fg);
-  --font-ui: "Readex Pro Variable", system-ui, sans-serif;
-  --font-head: "Readex Pro Variable", system-ui, sans-serif;
-  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
 }
 
-html, body, #root { height: 100%; }
-body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font-ui);
-  font-size: 15px;
-  line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
-  -webkit-tap-highlight-color: transparent;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:not(:disabled), [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
 }
-/* Headings: same family, heavier and tighter. */
-.font-head { font-weight: 600; letter-spacing: -0.02em; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-::selection { background: var(--accent-soft); }
 
-/* The one orchestrated motion: a "needs you" light blinks three times when it appears. */
+/* The one animation that isn't a response to the member: a "needs you" light blinks three times when it appears. */
 @keyframes needs-you { 50% { opacity: 0.15; } }
 .needs-you { animation: needs-you 1.1s steps(1) 3; }
 @media (prefers-reduced-motion: reduce) { .needs-you { animation: none; } }
 
 /* Markdown in Claude's replies. */
-.prose-dd { overflow-wrap: anywhere; }
+.prose-dd { overflow-wrap: anywhere; line-height: 1.6; }
 .prose-dd > :first-child { margin-top: 0; }
 .prose-dd > :last-child { margin-bottom: 0; }
-.prose-dd p, .prose-dd ul, .prose-dd ol, .prose-dd pre, .prose-dd table, .prose-dd blockquote { margin: 0.6em 0; }
-.prose-dd ul, .prose-dd ol { padding-left: 1.3em; }
+.prose-dd p, .prose-dd ul, .prose-dd ol, .prose-dd pre, .prose-dd table, .prose-dd blockquote { margin: 0.65em 0; }
+.prose-dd ul { list-style: disc; padding-left: 1.3em; }
+.prose-dd ol { list-style: decimal; padding-left: 1.3em; }
 .prose-dd li { margin: 0.2em 0; }
-.prose-dd h1, .prose-dd h2, .prose-dd h3 { font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; margin: 1em 0 0.4em; }
-.prose-dd h1 { font-size: 1.25em; } .prose-dd h2 { font-size: 1.15em; } .prose-dd h3 { font-size: 1.05em; }
-.prose-dd code { font-family: var(--font-mono); font-size: 0.86em; background: var(--surface-2); border-radius: 5px; padding: 0.1em 0.35em; }
+.prose-dd h1, .prose-dd h2, .prose-dd h3 { font-weight: 600; letter-spacing: -0.01em; line-height: 1.3; margin: 1.1em 0 0.4em; }
+.prose-dd h1 { font-size: 1.2em; } .prose-dd h2 { font-size: 1.1em; } .prose-dd h3 { font-size: 1em; }
+.prose-dd strong { font-weight: 600; }
+.prose-dd code { font-family: var(--font-mono); font-size: 0.85em; background: var(--muted); border-radius: 5px; padding: 0.12em 0.35em; }
 .prose-dd pre { background: var(--term-bg); color: var(--term-fg); border-radius: 10px; padding: 10px 12px; overflow-x: auto; }
-.prose-dd pre code { background: none; padding: 0; font-size: 12.5px; }
-.prose-dd a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
-.prose-dd blockquote { border-left: 3px solid var(--line); padding-left: 0.8em; color: var(--muted); }
+.prose-dd pre code { background: none; padding: 0; font-size: 12.5px; color: inherit; }
+.prose-dd a { text-decoration: underline; text-underline-offset: 2px; }
+.prose-dd blockquote { border-left: 3px solid var(--border); padding-left: 0.8em; color: var(--muted-foreground); }
 .prose-dd table { border-collapse: collapse; display: block; overflow-x: auto; }
-.prose-dd th, .prose-dd td { border: 1px solid var(--line); padding: 4px 8px; text-align: left; }
+.prose-dd th, .prose-dd td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
+.prose-dd hr { border: 0; border-top: 1px solid var(--border); margin: 1em 0; }

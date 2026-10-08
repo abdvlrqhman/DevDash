@@ -1,62 +1,67 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from '@tanstack/react-router'
-import { IconCheck, IconLock, IconLogout, IconMail } from '@tabler/icons-react'
-import { PageHeader } from '../../app/AppShell'
-import { api, meQuery, unwrap } from '../../lib/api'
-import { APP_DOWNLOADS, inShell, openExternal } from '../../lib/shell'
-import { getTheme, setTheme, type ThemePref } from '../../lib/theme'
-import { Button, Chip, ErrorText, Field, cx } from '../../ui'
+import { Download, LogOut } from 'lucide-react'
+import { toast } from 'sonner'
+import { PageBody, PageHeader } from '@/components/app/page'
+import { useSignOut } from '@/components/app/shell'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { api, meQuery, unwrap } from '@/lib/api'
+import { APP_DOWNLOADS, inShell, openExternal } from '@/lib/shell'
+import { setTheme, useTheme, type ThemePref } from '@/lib/theme'
+import { ErrorAlert } from '../auth/LoginPage'
+
+function Panel({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        {description && <CardDescription>{description}</CardDescription>}
+      </CardHeader>
+      <CardContent>{children}</CardContent>
+    </Card>
+  )
+}
 
 export function AccountPage() {
   const me = useQuery(meQuery).data!
-  const qc = useQueryClient()
-  const navigate = useNavigate()
-  const signOut = async () => {
-    await api.api.auth.logout.$post()
-    qc.clear()
-    navigate({ to: '/login' })
-  }
+  const signOut = useSignOut()
+  const theme = useTheme()
 
   return (
     <>
       <PageHeader title="Account" />
-      <div className="px-4 lg:px-8 pb-8 flex flex-col gap-7 max-w-xl">
-        <Section title="Profile">
-          <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 m-0 text-[14px]">
-            <dt className="text-muted">Name</dt><dd className="m-0">{me.name}</dd>
-            <dt className="text-muted">Username</dt><dd className="m-0 font-mono">{me.username}</dd>
-            <dt className="text-muted">Email</dt><dd className="m-0 break-all">{me.email}</dd>
-            <dt className="text-muted">Role</dt><dd className="m-0">{me.role === 'admin' ? <Chip tone="accent">Admin</Chip> : 'Member'}</dd>
+      <PageBody className="max-w-2xl">
+        <Panel title="Profile" description="You can sign in with your email or your username.">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-8 gap-y-2 text-sm">
+            <dt className="text-muted-foreground">Name</dt><dd>{me.name}</dd>
+            <dt className="text-muted-foreground">Username</dt><dd className="font-mono">{me.username}</dd>
+            <dt className="text-muted-foreground">Email</dt><dd className="break-all">{me.email}</dd>
+            <dt className="text-muted-foreground">Role</dt><dd>{me.role === 'admin' ? <Badge variant="outline">Admin</Badge> : 'Member'}</dd>
           </dl>
-          <p className="text-muted text-[12px] mt-2 mb-0">You can sign in with your email or your username.</p>
-        </Section>
-        <Section title="Password"><PasswordForm /></Section>
-        <Section title="Email"><EmailForm /></Section>
-        <Section title="Appearance"><ThemePicker /></Section>
+        </Panel>
+        <Panel title="Password" description="Changing it signs you out on your other devices."><PasswordForm /></Panel>
+        <Panel title="Email"><EmailForm /></Panel>
+        <Panel title="Appearance">
+          <ToggleGroup type="single" variant="outline" value={theme} onValueChange={(v) => v && setTheme(v as ThemePref)}>
+            <ToggleGroupItem value="system">Match device</ToggleGroupItem>
+            <ToggleGroupItem value="light">Light</ToggleGroupItem>
+            <ToggleGroupItem value="dark">Dark</ToggleGroupItem>
+          </ToggleGroup>
+        </Panel>
         {!inShell() && (
-          <Section title="Get the app">
-            <p className="text-muted m-0">Windows and Android installers, and an iPhone build for AltStore or SideStore. On iPhone you can also use Safari: Share, then Add to Home Screen.</p>
-            <div><Button onClick={() => openExternal(APP_DOWNLOADS)}>Download DevDash</Button></div>
-          </Section>
+          <Panel title="Apps" description="Windows and Android installers, and an iPhone build for AltStore or SideStore. On iPhone you can also open this site in Safari and use Share, then Add to Home Screen.">
+            <Button variant="outline" onClick={() => openExternal(APP_DOWNLOADS)}><Download />Download DevDash</Button>
+          </Panel>
         )}
-        <div><Button onClick={signOut} className="text-danger"><IconLogout size={18} />Sign out</Button></div>
-      </div>
+        <div><Button variant="destructive" onClick={() => void signOut()}><LogOut />Sign out</Button></div>
+      </PageBody>
     </>
   )
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="flex flex-col gap-3">
-      <h2 className="font-head text-[20px] m-0">{title}</h2>
-      {children}
-    </section>
-  )
-}
-
-function Saved({ children }: { children: ReactNode }) {
-  return <p role="status" className="flex items-center gap-1.5 text-[13px] text-success m-0"><IconCheck size={16} />{children}</p>
 }
 
 function PasswordForm() {
@@ -64,26 +69,31 @@ function PasswordForm() {
   const [next, setNext] = useState('')
   const change = useMutation({
     mutationFn: () => unwrap(api.api.auth.password.$post({ json: { current, next } })),
-    onSuccess: () => { setCurrent(''); setNext('') },
+    onSuccess: (r) => {
+      setCurrent('')
+      setNext('')
+      toast.success(r.signedOutSessions ? `Password changed. Signed out ${r.signedOutSessions} other ${r.signedOutSessions === 1 ? 'device' : 'devices'}.` : 'Password changed.')
+    },
   })
   const submit = (e: FormEvent) => {
     e.preventDefault()
     if (current && next) change.mutate()
   }
   return (
-    <form onSubmit={submit} className="flex flex-col gap-3">
-      <input type="hidden" autoComplete="username" />
-      <Field label="Current password" icon={<IconLock size={18} />} type="password" autoComplete="current-password" required
-        value={current} onChange={(e) => { setCurrent(e.target.value); change.reset() }} />
-      <Field label="New password" icon={<IconLock size={18} />} type="password" autoComplete="new-password" required
-        value={next} onChange={(e) => { setNext(e.target.value); change.reset() }} />
-      <ErrorText error={change.error} />
-      {change.isSuccess && (
-        <Saved>
-          Password changed.{change.data.signedOutSessions ? ` Signed out ${change.data.signedOutSessions} other ${change.data.signedOutSessions === 1 ? 'device' : 'devices'}.` : ''}
-        </Saved>
-      )}
-      <div><Button type="submit" variant="primary" disabled={!current || !next || change.isPending}>Change password</Button></div>
+    <form onSubmit={submit}>
+      <FieldGroup>
+        <input type="hidden" autoComplete="username" />
+        <Field>
+          <FieldLabel htmlFor="pw-current">Current password</FieldLabel>
+          <Input id="pw-current" type="password" autoComplete="current-password" required className="h-10" value={current} onChange={(e) => setCurrent(e.target.value)} />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="pw-next">New password</FieldLabel>
+          <Input id="pw-next" type="password" autoComplete="new-password" required className="h-10" value={next} onChange={(e) => setNext(e.target.value)} />
+        </Field>
+        <ErrorAlert error={change.error} />
+        <div><Button type="submit" disabled={!current || !next || change.isPending}>Change password</Button></div>
+      </FieldGroup>
     </form>
   )
 }
@@ -98,6 +108,7 @@ function EmailForm() {
       qc.setQueryData(meQuery.queryKey, r.user)
       setEmail('')
       setPassword('')
+      toast.success('Email changed.')
     },
   })
   const submit = (e: FormEvent) => {
@@ -105,34 +116,19 @@ function EmailForm() {
     if (email && password) change.mutate()
   }
   return (
-    <form onSubmit={submit} className="flex flex-col gap-3">
-      <Field label="New email" icon={<IconMail size={18} />} type="email" autoComplete="email" required
-        value={email} onChange={(e) => { setEmail(e.target.value); change.reset() }} />
-      <Field label="Current password" icon={<IconLock size={18} />} type="password" autoComplete="current-password" required
-        value={password} onChange={(e) => { setPassword(e.target.value); change.reset() }} />
-      <ErrorText error={change.error} />
-      {change.isSuccess && <Saved>Email changed.</Saved>}
-      <div><Button type="submit" variant="primary" disabled={!email || !password || change.isPending}>Change email</Button></div>
+    <form onSubmit={submit}>
+      <FieldGroup>
+        <Field>
+          <FieldLabel htmlFor="em-new">New email</FieldLabel>
+          <Input id="em-new" type="email" autoComplete="email" required className="h-10" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="em-pw">Current password</FieldLabel>
+          <Input id="em-pw" type="password" autoComplete="current-password" required className="h-10" value={password} onChange={(e) => setPassword(e.target.value)} />
+        </Field>
+        <ErrorAlert error={change.error} />
+        <div><Button type="submit" disabled={!email || !password || change.isPending}>Change email</Button></div>
+      </FieldGroup>
     </form>
-  )
-}
-
-const THEMES: { v: ThemePref; label: string }[] = [
-  { v: 'system', label: 'Match device' },
-  { v: 'light', label: 'Light' },
-  { v: 'dark', label: 'Dark' },
-]
-
-function ThemePicker() {
-  const [theme, set] = useState(getTheme)
-  return (
-    <div role="radiogroup" aria-label="Theme" className="flex bg-surface-2 rounded-xl p-1 self-start">
-      {THEMES.map((t) => (
-        <button key={t.v} role="radio" aria-checked={theme === t.v} onClick={() => { setTheme(t.v); set(t.v) }}
-          className={cx('px-3.5 h-9 rounded-[10px] text-[14px]', theme === t.v ? 'bg-surface text-text shadow-sm' : 'text-muted')}>
-          {t.label}
-        </button>
-      ))}
-    </div>
   )
 }

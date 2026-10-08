@@ -1,7 +1,10 @@
 import { useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { IconArrowUp, IconPaperclip, IconPlayerStopFilled, IconSlash, IconX } from '@tabler/icons-react'
-import { cx, ErrorText } from '../../ui'
+import { ArrowUp, Paperclip, Slash, Square, X } from 'lucide-react'
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from '@/components/ui/input-group'
+import { Kbd } from '@/components/ui/kbd'
+import { cn } from '@/lib/utils'
+import { ErrorAlert } from '../auth/LoginPage'
 import { commandsQuery } from './data'
 
 export type Img = { mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'; data: string }
@@ -88,6 +91,7 @@ export function Composer({ profile, working, disabledReason, onSend, onStop }: {
       if (e.key === 'ArrowDown') { e.preventDefault(); setSel((s) => (s + 1) % palette.length); return }
       if (e.key === 'ArrowUp') { e.preventDefault(); setSel((s) => (s - 1 + palette.length) % palette.length); return }
       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) { e.preventDefault(); pick(palette[Math.min(sel, palette.length - 1)]!.name); return }
+      if (e.key === 'Escape') { setText(''); return }
     }
     // Enter sends on a keyboard; on phones Enter adds a line and the button sends.
     if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer: coarse)').matches) {
@@ -103,52 +107,48 @@ export function Composer({ profile, working, disabledReason, onSend, onStop }: {
     }
   }
 
-  if (disabledReason) return <p className="text-muted text-[14px] text-center m-0 py-3">{disabledReason}</p>
+  if (disabledReason) return <p className="py-3 text-center text-sm text-muted-foreground">{disabledReason}</p>
 
   return (
     <div className="relative flex flex-col gap-2">
       {palette.length > 0 && (
-        <ul role="listbox" aria-label="Commands" className="absolute bottom-full mb-2 inset-x-0 m-0 p-1.5 list-none bg-surface border border-line rounded-2xl shadow-lg max-h-72 overflow-auto">
+        <div role="listbox" aria-label="Commands" className="absolute inset-x-0 bottom-full z-10 mb-2 max-h-72 overflow-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-md">
           {palette.map((c, i) => (
-            <li key={c.name} role="option" aria-selected={i === sel}>
-              <button onMouseDown={(e) => e.preventDefault()} onClick={() => pick(c.name)}
-                className={cx('w-full flex items-baseline gap-3 px-2.5 py-2 rounded-lg text-left', i === sel && 'bg-accent-soft')}>
-                <span className="font-mono text-[13px] shrink-0">/{c.name}</span>
-                <span className="text-[13px] text-muted truncate">{c.description}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <ErrorText error={error} />
-      {images.length > 0 && (
-        <div className="flex gap-2 flex-wrap">
-          {images.map((img, i) => (
-            <div key={i} className="relative">
-              <img src={`data:${img.mediaType};base64,${img.data}`} alt="" className="size-16 object-cover rounded-lg" />
-              <button aria-label="Remove image" onClick={() => setImages((x) => x.filter((_, j) => j !== i))}
-                className="absolute -top-1.5 -right-1.5 size-6 rounded-full bg-text text-bg flex items-center justify-center"><IconX size={13} /></button>
-            </div>
+            <button key={c.name} role="option" aria-selected={i === sel} onMouseDown={(e) => e.preventDefault()} onClick={() => pick(c.name)}
+              className={cn('flex w-full items-baseline gap-3 rounded-sm px-2 py-1.5 text-left text-sm', i === sel && 'bg-accent text-accent-foreground')}>
+              <span className="shrink-0 font-mono">/{c.name}</span>
+              <span className="truncate text-muted-foreground">{c.description}</span>
+            </button>
           ))}
         </div>
       )}
-      <div className="rounded-2xl bg-surface-2 px-3 pt-2.5 pb-2 focus-within:ring-2 focus-within:ring-accent">
-        <textarea ref={area} value={text} rows={1} onKeyDown={onKey} onPaste={onPaste} aria-label="Message Claude"
+      <ErrorAlert error={error} />
+      <InputGroup className="rounded-xl bg-background">
+        {images.length > 0 && (
+          <InputGroupAddon align="block-start" className="flex flex-wrap gap-2">
+            {images.map((img, i) => (
+              <div key={i} className="relative">
+                <img src={`data:${img.mediaType};base64,${img.data}`} alt="" className="size-14 rounded-md border object-cover" />
+                <button aria-label="Remove image" onClick={() => setImages((x) => x.filter((_, j) => j !== i))}
+                  className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-foreground text-background"><X className="size-3" /></button>
+              </div>
+            ))}
+          </InputGroupAddon>
+        )}
+        <InputGroupTextarea ref={area} value={text} rows={1} onKeyDown={onKey} onPaste={onPaste} aria-label="Message Claude"
           onChange={(e) => { setText(e.target.value); setSel(0) }}
-          placeholder={working ? 'Queue a message…' : 'Message Claude…'}
-          className="w-full bg-transparent outline-none resize-none text-[15px] leading-normal max-h-[40vh] [field-sizing:content] min-h-6" />
-        <div className="flex items-center gap-1 mt-1">
-          <button className="size-9 rounded-lg flex items-center justify-center text-muted hover:text-text" aria-label="Commands" onClick={() => { setText('/'); area.current?.focus() }}><IconSlash size={18} /></button>
-          <button className="size-9 rounded-lg flex items-center justify-center text-muted hover:text-text" aria-label="Attach images" onClick={() => file.current?.click()}><IconPaperclip size={18} /></button>
+          placeholder={working ? 'Queue a message for when Claude is ready…' : 'Message Claude…'}
+          className="max-h-[40vh] min-h-11 text-base [field-sizing:content] md:text-sm" />
+        <InputGroupAddon align="block-end" className="gap-1">
+          <InputGroupButton size="icon-sm" variant="ghost" aria-label="Commands" onClick={() => { setText('/'); area.current?.focus() }}><Slash /></InputGroupButton>
+          <InputGroupButton size="icon-sm" variant="ghost" aria-label="Attach images" onClick={() => file.current?.click()}><Paperclip /></InputGroupButton>
           <input ref={file} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden onChange={(e) => { if (e.target.files) void add(e.target.files); e.target.value = '' }} />
+          <span className="ml-1 hidden text-xs text-muted-foreground md:inline"><Kbd>Enter</Kbd> to send, <Kbd>Shift</Kbd>+<Kbd>Enter</Kbd> for a new line</span>
           <span className="flex-1" />
-          {working && (
-            <button onClick={onStop} aria-label="Stop Claude" className="size-9 rounded-lg bg-text text-bg flex items-center justify-center"><IconPlayerStopFilled size={16} /></button>
-          )}
-          <button onClick={() => void submit()} aria-label="Send" disabled={sending || (!text.trim() && !images.length)}
-            className="size-9 rounded-lg bg-accent text-on-accent flex items-center justify-center disabled:opacity-40"><IconArrowUp size={18} /></button>
-        </div>
-      </div>
+          {working && <InputGroupButton size="icon-sm" variant="secondary" aria-label="Stop Claude" onClick={onStop}><Square className="fill-current" /></InputGroupButton>}
+          <InputGroupButton size="icon-sm" variant="default" aria-label="Send" disabled={sending || (!text.trim() && !images.length)} onClick={() => void submit()}><ArrowUp /></InputGroupButton>
+        </InputGroupAddon>
+      </InputGroup>
     </div>
   )
 }

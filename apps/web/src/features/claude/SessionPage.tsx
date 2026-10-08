@@ -1,18 +1,37 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { IconAdjustmentsHorizontal, IconArrowLeft, IconDots, IconTerminal2 } from '@tabler/icons-react'
-import { api, meQuery, unwrap } from '../../lib/api'
-import { useTopic } from '../../lib/live'
-import { Button, Chip, Dialog, ErrorText, Field, Light, Toggle, cx } from '../../ui'
+import { Archive, ChevronDown, Ellipsis, MessageSquare, Pencil, Share2, SquareTerminal } from 'lucide-react'
+import { toast } from 'sonner'
+import { StatusLight } from '@/components/app/brand'
+import { PageHeader } from '@/components/app/page'
+import { ResponsiveDialog } from '@/components/app/responsive-dialog'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem,
+  DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { api, meQuery, unwrap } from '@/lib/api'
+import { ErrorAlert } from '../auth/LoginPage'
 import { TerminalView, type Status as TermStatus } from '../terminal/TerminalView'
 import { Blocks, Prose } from './Blocks'
 import { Composer, type Img } from './Composer'
-import { EFFORTS, FALLBACK_MODELS, PERMISSION_MODES, commandsQuery, modeLabel, profilesQuery, sessionQuery, shortPath, STATUS_LABEL, type Effort, type PendingRequest, type PermissionMode, type Session } from './data'
+import {
+  EFFORTS, FALLBACK_MODELS, PERMISSION_MODES, commandsQuery, modeLabel, profilesQuery, sessionQuery, shortPath, STATUS_LABEL,
+  type Effort, type PendingRequest, type PermissionMode, type Session,
+} from './data'
 import { Requests } from './Requests'
 import { buildTranscript, mergeRaw, type Raw } from './transcript'
+import { useTopic } from '@/lib/live'
 
 const light = (s: Session['status']) => (s === 'working' ? 'live' : s === 'waiting' ? 'waiting' : s === 'error' ? 'error' : 'idle')
+const termSize = () => ({ cols: Math.max(40, Math.min(220, Math.floor(innerWidth / 8.2))), rows: Math.max(15, Math.min(80, Math.floor(innerHeight / 19))) })
 
 export function SessionPage() {
   const { id } = useParams({ from: '/app/claude/$id' })
@@ -27,7 +46,7 @@ export function SessionPage() {
   const [raw, setRaw] = useState<Raw[]>([])
   const [liveText, setLiveText] = useState('')
   const [pending, setPending] = useState<PendingRequest[]>([])
-  const [sheet, setSheet] = useState<'model' | 'settings' | null>(null)
+  const [settings, setSettings] = useState(false)
   const scroller = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
 
@@ -58,7 +77,6 @@ export function SessionPage() {
 
   useEffect(() => { if (history.data) setRaw((live) => mergeRaw(history.data.messages as Raw[], live)) }, [history.data])
   useEffect(() => { if (info.data) setPending(info.data.pending as PendingRequest[]) }, [info.data])
-
   const blocks = useMemo(() => buildTranscript(raw), [raw])
   useEffect(() => {
     const el = scroller.current
@@ -75,88 +93,89 @@ export function SessionPage() {
   }
   const interrupt = useMutation({ mutationFn: () => unwrap(api.api.claude.sessions[':id'].interrupt.$post({ param: { id } })) })
   const switchMode = useMutation({
-    mutationFn: (mode: 'chat' | 'cli') => unwrap(api.api.claude.sessions[':id'].mode.$post({
-      param: { id }, json: { mode, cols: Math.max(40, Math.min(220, Math.floor(innerWidth / 8.2))), rows: Math.max(15, Math.min(80, Math.floor(innerHeight / 19))) },
-    })),
+    mutationFn: (mode: 'chat' | 'cli') => unwrap(api.api.claude.sessions[':id'].mode.$post({ param: { id }, json: { mode, ...termSize() } })),
     onSuccess: (r) => setSession(r.session),
+    onError: (e) => toast.error(e.message),
+  })
+  const update = useMutation({
+    mutationFn: (json: { model?: string | null; effort?: Effort | null; permissionMode?: PermissionMode; shared?: boolean; sharedCanSend?: boolean; archived?: boolean; title?: string }) =>
+      unwrap(api.api.claude.sessions[':id'].$patch({ param: { id }, json })),
+    onSuccess: (r) => setSession(r.session),
+    onError: (e) => toast.error(e.message),
   })
   const defaults = useQuery(profilesQuery).data?.defaults
-  const afterPlanApproved = () =>
-    unwrap(api.api.claude.sessions[':id'].$patch({ param: { id }, json: { permissionMode: defaults && defaults.permission_mode !== 'plan' ? defaults.permission_mode as PermissionMode : 'acceptEdits' } }))
+  const afterPlanApproved = () => unwrap(api.api.claude.sessions[':id'].$patch({
+    param: { id }, json: { permissionMode: defaults && defaults.permission_mode !== 'plan' ? defaults.permission_mode as PermissionMode : 'acceptEdits' },
+  }))
 
-  if (info.error) return <div className="p-6"><ErrorText error={info.error} /><Link to="/claude" className="text-accent">Back to sessions</Link></div>
-  if (!s) return <p className="p-6 text-muted">Loading…</p>
+  if (info.error) {
+    return (
+      <>
+        <PageHeader title="Session" back="/claude" />
+        <div className="p-4"><ErrorAlert error={info.error} /></div>
+      </>
+    )
+  }
+  if (!s) return <><PageHeader title="Session" back="/claude" /><div className="flex flex-col gap-3 p-4">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-16" />)}</div></>
 
-  const isCli = s.mode === 'cli'
   const canSend = info.data!.canSend
+  const isOwner = info.data!.isOwner
   const working = s.status === 'working'
 
   return (
-    <div className="h-full flex flex-col">
-      <header className="flex items-center gap-2 px-2 lg:px-6 pt-[max(8px,env(safe-area-inset-top))] pb-2 border-b border-line">
-        <Link to="/claude" aria-label="Back to sessions" className="size-10 flex items-center justify-center rounded-lg text-muted hover:text-text"><IconArrowLeft size={20} /></Link>
-        <div className="flex-1 min-w-0">
-          <h1 className="font-head text-[17px] leading-tight m-0 truncate">{s.title}</h1>
-          <p className="m-0 text-[12.5px] text-muted flex items-center gap-1.5 min-w-0">
-            <Light state={light(s.status)} />
-            <span className="shrink-0">{STATUS_LABEL[s.status]}</span>
+    <div className="flex h-full flex-col">
+      <PageHeader back="/claude"
+        title={s.title}
+        description={
+          <span className="flex items-center gap-1.5">
+            <StatusLight state={light(s.status)} />{STATUS_LABEL[s.status]}
             <span className="truncate font-mono">{shortPath(s.cwd, s.owner.username)}</span>
-          </p>
-        </div>
-        <div role="radiogroup" aria-label="View" className="flex bg-surface-2 rounded-[10px] p-0.5 shrink-0">
-          {(['chat', 'cli'] as const).map((m) => (
-            <button key={m} role="radio" aria-checked={s.mode === m} disabled={!canSend || switchMode.isPending}
-              onClick={() => s.mode !== m && switchMode.mutate(m)}
-              className={cx('px-3 h-8 rounded-lg text-[13px]', s.mode === m ? 'bg-surface text-text shadow-sm' : 'text-muted')}>
-              {m === 'chat' ? 'Chat' : 'CLI'}
-            </button>
-          ))}
-        </div>
-        <button aria-label="Session settings" onClick={() => setSheet('settings')} className="size-10 flex items-center justify-center rounded-lg text-muted hover:text-text"><IconDots size={20} /></button>
-      </header>
+          </span>
+        }
+        actions={<>
+          <Tabs value={s.mode} onValueChange={(v) => v !== s.mode && switchMode.mutate(v as 'chat' | 'cli')}>
+            <TabsList>
+              <TabsTrigger value="chat" disabled={!canSend || switchMode.isPending}><MessageSquare /><span className="hidden sm:inline">Chat</span></TabsTrigger>
+              <TabsTrigger value="cli" disabled={!canSend || switchMode.isPending}><SquareTerminal /><span className="hidden sm:inline">CLI</span></TabsTrigger>
+            </TabsList>
+          </Tabs>
+          <SessionMenu s={s} isOwner={isOwner} canSend={canSend} onUpdate={(v) => update.mutate(v)} onRename={() => setSettings(true)} />
+        </>} />
 
-      <div className="flex items-center gap-1.5 px-3 lg:px-6 py-2 overflow-x-auto">
-        <button onClick={() => setSheet('model')} disabled={!canSend} className="flex items-center gap-1.5 shrink-0">
-          <Chip>{s.model ?? 'Default model'}</Chip>
-          <Chip tone={s.permissionMode === 'bypassPermissions' ? 'warn' : s.permissionMode === 'plan' ? 'accent' : 'default'}>{modeLabel(s.permissionMode)}</Chip>
-          {s.effort && <Chip>Effort {s.effort}</Chip>}
-          {canSend && <IconAdjustmentsHorizontal size={16} className="text-muted" />}
-        </button>
-        {s.owner.id !== me.id && <Chip tone="accent">{s.owner.name}'s session</Chip>}
-        {s.shared && s.owner.id === me.id && <Chip tone="accent">Shared</Chip>}
+      <div className="flex items-center gap-1.5 overflow-x-auto border-b px-3 py-2 md:px-4">
+        <ModelMenu s={s} disabled={!canSend} onUpdate={(v) => update.mutate(v)} />
+        {s.owner.id !== me.id && <Badge variant="secondary">{s.owner.name}'s session</Badge>}
+        {s.shared && s.owner.id === me.id && <Badge variant="secondary"><Share2 />Shared{s.sharedCanSend ? ', others can type' : ''}</Badge>}
       </div>
-      <ErrorText error={switchMode.error} />
 
-      {isCli ? (
-        <div className="flex-1 min-h-0 m-2 lg:mx-6 rounded-xl overflow-hidden bg-term-bg p-2.5 relative">
+      {s.mode === 'cli' ? (
+        <div className="relative m-2 min-h-0 flex-1 overflow-hidden rounded-lg bg-term-bg p-2 md:m-4">
           <CliView id={id} onEnded={() => void info.refetch()} />
         </div>
       ) : (
         <>
           <div ref={scroller} onScroll={(e) => { const el = e.currentTarget; stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80 }}
-            className="flex-1 min-h-0 overflow-y-auto px-4 lg:px-6 py-3">
-            <div className="max-w-3xl mx-auto flex flex-col gap-3.5">
-              {history.isPending && s.started && <p className="text-muted text-center">Loading conversation…</p>}
-              <ErrorText error={history.error} />
-              {!s.started && !raw.length && <p className="text-muted text-center py-10">Say what Claude should work on.</p>}
+            className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6">
+            <div className="mx-auto flex max-w-3xl flex-col gap-4">
+              {history.isPending && s.started && [0, 1].map((i) => <Skeleton key={i} className="h-20" />)}
+              <ErrorAlert error={history.error} />
+              {!s.started && !raw.length && <p className="py-10 text-center text-muted-foreground">Tell Claude what to work on.</p>}
               <Blocks blocks={blocks} senders={history.data?.senders} />
               {liveText && <Prose text={liveText} />}
-              {working && !liveText && <p className="flex items-center gap-2 text-[13px] text-muted m-0"><Light state="live" />Claude is working…</p>}
-              {s.status === 'error' && s.statusDetail && <ErrorText error={s.statusDetail} />}
+              {working && !liveText && <p className="flex items-center gap-2 text-sm text-muted-foreground"><StatusLight state="live" />Claude is working…</p>}
+              {s.status === 'error' && s.statusDetail && <ErrorAlert error={s.statusDetail} />}
               <Requests sessionId={id} requests={pending} canAnswer={canSend} afterPlanApproved={afterPlanApproved} />
             </div>
           </div>
-          <div className="px-3 lg:px-6 pb-[max(10px,env(safe-area-inset-bottom))] pt-2">
-            <div className="max-w-3xl mx-auto">
+          <div className="border-t bg-background px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:px-6">
+            <div className="mx-auto max-w-3xl">
               <Composer profile={s.profile} working={working || s.status === 'waiting'} onSend={send} onStop={() => interrupt.mutate()}
                 disabledReason={canSend ? undefined : `${s.owner.name} shared this session to watch. Only they can send messages.`} />
             </div>
           </div>
         </>
       )}
-
-      <ModelSheet open={sheet === 'model'} onClose={() => setSheet(null)} session={s} onChange={setSession} />
-      <SettingsSheet open={sheet === 'settings'} onClose={() => setSheet(null)} session={s} isOwner={info.data!.isOwner} onChange={setSession} />
+      {isOwner && <RenameDialog open={settings} onOpenChange={setSettings} s={s} onSave={(title) => update.mutate({ title })} />}
     </div>
   )
 }
@@ -168,99 +187,119 @@ function CliView({ id, onEnded }: { id: string; onEnded: () => void }) {
     <>
       <TerminalView path={`/api/claude/sessions/${id}/cli`} onStatus={setStatus} />
       {status === 'ended' && (
-        <div className="absolute inset-0 bg-term-bg/90 flex flex-col items-center justify-center gap-2 text-term-fg text-center px-6">
-          <IconTerminal2 size={22} />
-          <p className="m-0">Claude CLI exited. The conversation continues in Chat.</p>
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-term-bg/95 px-6 text-center text-term-fg">
+          <SquareTerminal className="size-5" />
+          <p>Claude CLI exited. The conversation continues in Chat.</p>
         </div>
       )}
     </>
   )
 }
 
-function ModelSheet({ open, onClose, session: s, onChange }: { open: boolean; onClose: () => void; session: Session; onChange: (s: Session) => void }) {
-  const models = (useQuery({ ...commandsQuery(s.profile), enabled: open }).data?.models as { value: string; displayName: string; description?: string }[] | undefined)
+type Updater = (v: { model?: string | null; effort?: Effort | null; permissionMode?: PermissionMode; shared?: boolean; sharedCanSend?: boolean; archived?: boolean }) => void
+
+/** Model, effort and permissions, changed in place from the chip row. */
+function ModelMenu({ s, disabled, onUpdate }: { s: Session; disabled: boolean; onUpdate: Updater }) {
+  const models = useQuery({ ...commandsQuery(s.profile), enabled: !disabled }).data?.models as { value: string; displayName: string }[] | undefined
   const list = models?.length ? models : FALLBACK_MODELS
-  const update = useMutation({
-    mutationFn: (json: { model?: string | null; effort?: Effort | null; permissionMode?: PermissionMode }) =>
-      unwrap(api.api.claude.sessions[':id'].$patch({ param: { id: s.id }, json })),
-    onSuccess: (r) => onChange(r.session),
-  })
   return (
-    <Dialog open={open} onClose={onClose} title="Model and mode">
-      <div className="flex flex-col gap-4">
-        <fieldset className="border-0 p-0 m-0 flex flex-col gap-1.5">
-          <legend className="text-[13px] text-muted mb-1.5">Model</legend>
-          {list.map((m) => (
-            <label key={m.value || 'default'} className={cx('flex items-center gap-2.5 rounded-xl px-3 py-2 cursor-pointer', (s.model ?? '') === m.value ? 'bg-accent-soft' : 'bg-surface-2')}>
-              <input type="radio" name="model" checked={(s.model ?? '') === m.value} onChange={() => update.mutate({ model: m.value || null })} className="accent-[var(--accent)]" />
-              <span className="flex-1"><span className="block text-[14px] font-medium">{m.displayName}</span>{m.description && <span className="block text-[12px] text-muted">{m.description}</span>}</span>
-            </label>
-          ))}
-        </fieldset>
-        <fieldset className="border-0 p-0 m-0">
-          <legend className="text-[13px] text-muted mb-1.5">Effort (applies from the next message)</legend>
-          <div className="flex bg-surface-2 rounded-xl p-1">
-            {[null, ...EFFORTS].map((e) => (
-              <button key={e ?? 'auto'} onClick={() => update.mutate({ effort: e })}
-                className={cx('flex-1 h-8 rounded-lg text-[13px]', s.effort === e ? 'bg-surface shadow-sm' : 'text-muted')}>{e ?? 'Auto'}</button>
-            ))}
-          </div>
-        </fieldset>
-        <fieldset className="border-0 p-0 m-0 flex flex-col gap-1.5">
-          <legend className="text-[13px] text-muted mb-1.5">Permissions</legend>
-          {PERMISSION_MODES.map((p) => (
-            <label key={p.value} className={cx('flex items-center gap-2.5 rounded-xl px-3 py-2 cursor-pointer', s.permissionMode === p.value ? 'bg-accent-soft' : 'bg-surface-2')}>
-              <input type="radio" name="perm" checked={s.permissionMode === p.value} onChange={() => update.mutate({ permissionMode: p.value })} className="accent-[var(--accent)]" />
-              <span><span className="block text-[14px] font-medium">{p.label}</span><span className="block text-[12px] text-muted">{p.hint}</span></span>
-            </label>
-          ))}
-        </fieldset>
-        <ErrorText error={update.error} />
-        <Button onClick={onClose}>Done</Button>
-      </div>
-    </Dialog>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild disabled={disabled}>
+        <Button variant="outline" size="sm" className="shrink-0">
+          {list.find((m) => m.value === (s.model ?? ''))?.displayName ?? s.model ?? 'Default model'}
+          <span className="text-muted-foreground">{modeLabel(s.permissionMode)}{s.effort ? `, ${s.effort}` : ''}</span>
+          <ChevronDown />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-64">
+        <DropdownMenuLabel>Model</DropdownMenuLabel>
+        <DropdownMenuRadioGroup value={s.model ?? ''} onValueChange={(v) => onUpdate({ model: v || null })}>
+          {list.map((m) => <DropdownMenuRadioItem key={m.value || 'default'} value={m.value}>{m.displayName}</DropdownMenuRadioItem>)}
+        </DropdownMenuRadioGroup>
+        <DropdownMenuSeparator />
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>Permissions: {modeLabel(s.permissionMode)}</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent className="w-72">
+            <DropdownMenuRadioGroup value={s.permissionMode} onValueChange={(v) => onUpdate({ permissionMode: v as PermissionMode })}>
+              {PERMISSION_MODES.map((p) => (
+                <DropdownMenuRadioItem key={p.value} value={p.value} className="items-start">
+                  <span className="flex flex-col"><span>{p.label}</span><span className="text-xs text-muted-foreground">{p.hint}</span></span>
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>Effort: {s.effort ?? 'auto'}</DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            <DropdownMenuRadioGroup value={s.effort ?? ''} onValueChange={(v) => onUpdate({ effort: (v || null) as Effort | null })}>
+              <DropdownMenuRadioItem value="">Auto</DropdownMenuRadioItem>
+              {EFFORTS.map((e) => <DropdownMenuRadioItem key={e} value={e} className="capitalize">{e}</DropdownMenuRadioItem>)}
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+            <p className="px-2 py-1.5 text-xs text-muted-foreground">Applies from the next message.</p>
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
-function SettingsSheet({ open, onClose, session: s, isOwner, onChange }: { open: boolean; onClose: () => void; session: Session; isOwner: boolean; onChange: (s: Session) => void }) {
+function SessionMenu({ s, isOwner, canSend, onUpdate, onRename }: { s: Session; isOwner: boolean; canSend: boolean; onUpdate: Updater; onRename: () => void }) {
   const navigate = useNavigate()
-  const [title, setTitle] = useState(s.title)
-  useEffect(() => setTitle(s.title), [s.title])
-  const update = useMutation({
-    mutationFn: (json: { title?: string; shared?: boolean; sharedCanSend?: boolean; archived?: boolean }) =>
-      unwrap(api.api.claude.sessions[':id'].$patch({ param: { id: s.id }, json })),
-    onSuccess: (r) => {
-      onChange(r.session)
-      if (r.session.archived) navigate({ to: '/claude' })
-    },
-  })
   return (
-    <Dialog open={open} onClose={onClose} title="Session">
-      {isOwner ? (
-        <div className="flex flex-col gap-3">
-          <form onSubmit={(e) => { e.preventDefault(); update.mutate({ title }) }} className="flex gap-2 items-end">
-            <Field label="Title" className="flex-1" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={120} />
-            <Button type="submit" disabled={title.trim() === s.title || !title.trim()}>Rename</Button>
-          </form>
-          <Toggle label="Share with the team" checked={s.shared} onChange={(v) => update.mutate({ shared: v })} />
-          {s.shared && <Toggle label="Others can send messages" checked={s.sharedCanSend} onChange={(v) => update.mutate({ sharedCanSend: v })} />}
-          <p className="text-[13px] text-muted m-0">
-            {s.shared
-              ? s.sharedCanSend ? 'Everyone can watch and type. Claude still runs as you, with your account and permissions.' : 'Everyone can watch. Only you can type.'
-              : 'Only you can see this session.'}
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="ghost" size="icon" aria-label="Session options"><Ellipsis /></Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-64">
+        {isOwner ? (
+          <>
+            <DropdownMenuItem onSelect={onRename}><Pencil />Rename</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <div className="flex items-center justify-between gap-3 px-2 py-1.5 text-sm">
+              <span>Share with the team</span>
+              <Switch checked={s.shared} onCheckedChange={(v) => onUpdate({ shared: v })} />
+            </div>
+            {s.shared && (
+              <div className="flex items-center justify-between gap-3 px-2 py-1.5 text-sm">
+                <span>Others can send messages</span>
+                <Switch checked={s.sharedCanSend} onCheckedChange={(v) => onUpdate({ sharedCanSend: v })} />
+              </div>
+            )}
+            <p className="px-2 pb-1.5 text-xs text-muted-foreground">
+              {s.shared ? 'Claude still runs as you, with your account and permissions.' : 'Only you can see this session.'}
+            </p>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem variant="destructive" onSelect={() => { onUpdate({ archived: true }); navigate({ to: '/claude' }) }}><Archive />Archive</DropdownMenuItem>
+          </>
+        ) : (
+          <p className="px-2 py-1.5 text-sm text-muted-foreground">
+            {s.owner.name} shared this session. Claude runs as {s.owner.name}{canSend ? '; you can send messages.' : '.'}
           </p>
-          <ErrorText error={update.error} />
-          <div className="flex gap-2 justify-end">
-            <Button className="text-danger" onClick={() => update.mutate({ archived: true })}>Archive</Button>
-            <Button variant="primary" onClick={onClose}>Done</Button>
-          </div>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3">
-          <p className="m-0">{s.owner.name} shared this session. Claude runs as {s.owner.name}.</p>
-          <Button onClick={onClose}>Done</Button>
-        </div>
-      )}
-    </Dialog>
+        )}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild><Link to="/claude/setup">Claude setup</Link></DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function RenameDialog({ open, onOpenChange, s, onSave }: { open: boolean; onOpenChange: (v: boolean) => void; s: Session; onSave: (t: string) => void }) {
+  const [title, setTitle] = useState(s.title)
+  useEffect(() => setTitle(s.title), [s.title, open])
+  return (
+    <ResponsiveDialog open={open} onOpenChange={onOpenChange} title="Rename session">
+      <form onSubmit={(e) => { e.preventDefault(); onSave(title); onOpenChange(false) }}>
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="title">Title</FieldLabel>
+            <Input id="title" className="h-10" value={title} maxLength={120} onChange={(e) => setTitle(e.target.value)} autoFocus />
+            <FieldDescription>Shown in the session list and on Home.</FieldDescription>
+          </Field>
+          <Button type="submit" className="h-10" disabled={!title.trim() || title.trim() === s.title}>Save title</Button>
+        </FieldGroup>
+      </form>
+    </ResponsiveDialog>
   )
 }

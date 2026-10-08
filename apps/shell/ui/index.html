@@ -8,9 +8,9 @@
 </head>
 <body>
   <main>
-    <svg class="logo" width="52" height="52" viewBox="0 0 64 64" aria-hidden="true">
-      <rect width="64" height="64" rx="16" fill="var(--logo-bg)"/>
-      <g fill="#EEF4F0">
+    <svg class="logo" width="44" height="44" viewBox="0 0 64 64" aria-hidden="true">
+      <rect width="64" height="64" rx="15" fill="var(--logo-bg)"/>
+      <g fill="#F5F5F5">
         <rect x="31" y="7.5" width="11" height="11" rx="1.6"/><rect x="44" y="7.5" width="11" height="11" rx="1.6"/>
         <rect x="44" y="20.5" width="11" height="11" rx="1.6"/><rect x="44" y="33.5" width="11" height="11" rx="1.6"/>
         <rect x="5" y="46.5" width="11" height="11" rx="1.6"/><rect x="18" y="46.5" width="11" height="11" rx="1.6"/>
@@ -20,22 +20,26 @@
     </svg>
 
     <section id="opening" hidden>
-      <h1>Opening <span id="opening-name"></span></h1>
-      <p class="muted" id="opening-host"></p>
+      <div class="head">
+        <h1>Opening <span id="opening-name"></span></h1>
+        <p class="muted" id="opening-host"></p>
+      </div>
       <button type="button" class="secondary" id="cancel">Use a different space</button>
     </section>
 
     <form id="connect" hidden novalidate>
-      <div>
+      <div class="head">
         <h1>Connect to your space</h1>
         <p class="muted">Enter the address your team uses, for example dev.example.com.</p>
       </div>
+      <div class="card">
       <div class="field">
         <label for="host">Space address</label>
         <input id="host" name="host" inputmode="url" autocapitalize="none" autocomplete="url" spellcheck="false" placeholder="dev.example.com" required>
       </div>
       <p id="error" role="alert" hidden></p>
       <button type="submit" id="submit">Connect</button>
+      </div>
       <div id="recent-wrap" hidden>
         <h2>Recent</h2>
         <ul id="recent"></ul>

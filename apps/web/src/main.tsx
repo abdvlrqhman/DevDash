@@ -2,11 +2,12 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createRootRouteWithContext, createRoute, createRouter, lazyRouteComponent, Outlet, redirect, RouterProvider } from '@tanstack/react-router'
-import { AppShell } from './app/AppShell'
+import { AppShell } from './components/app/shell'
 import { InvitePage } from './features/auth/InvitePage'
 import { LoginPage } from './features/auth/LoginPage'
 import { HomePage } from './features/home/HomePage'
 import { MembersPage } from './features/members/MembersPage'
+import { MorePage } from './features/more/MorePage'
 import { AccountPage } from './features/account/AccountPage'
 import { SessionsPage } from './features/claude/SessionsPage'
 import { SetupPage } from './features/claude/SetupPage'
@@ -54,6 +55,7 @@ const terminal = createRoute({
   validateSearch: (s: Record<string, unknown>): { open?: string } => (typeof s.open === 'string' ? { open: s.open } : {}),
 })
 const account = createRoute({ getParentRoute: () => app, path: '/account', component: AccountPage })
+const more = createRoute({ getParentRoute: () => app, path: '/more', component: MorePage })
 const claudeList = createRoute({ getParentRoute: () => app, path: '/claude', component: SessionsPage })
 const claudeSetup = createRoute({ getParentRoute: () => app, path: '/claude/setup', component: SetupPage })
 const claudeSession = createRoute({
@@ -63,7 +65,7 @@ const claudeSession = createRoute({
 })
 
 const router = createRouter({
-  routeTree: root.addChildren([login, invite, app.addChildren([home, claudeList, claudeSetup, claudeSession, terminal, members, account])]),
+  routeTree: root.addChildren([login, invite, app.addChildren([home, claudeList, claudeSetup, claudeSession, terminal, members, account, more])]),
   context: { queryClient },
   defaultPreload: 'intent',
 })

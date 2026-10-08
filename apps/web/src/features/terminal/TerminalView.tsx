@@ -11,7 +11,12 @@ export type Status = 'connecting' | 'live' | 'reconnecting' | 'ended'
 export type Mods = { ctrl: boolean; alt: boolean }
 export type TerminalHandle = { send: (data: string) => void; paste: (text: string) => void; focus: () => void; toggle: (mod: keyof Mods) => void }
 
-const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+/** Theme colour as hex: the theme uses oklch(), which a canvas normalizes for xterm. */
+function css(name: string) {
+  const ctx = document.createElement('canvas').getContext('2d')!
+  ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return ctx.fillStyle
+}
 
 /**
  * One xterm bound to one tmux-backed terminal on the server. Reconnects after network drops (tmux keeps the state).
@@ -37,13 +42,13 @@ export function TerminalView({ path, onStatus, onMods, ref }: {
 
   useEffect(() => {
     const term = new Terminal({
-      fontFamily: '"JetBrains Mono Variable", ui-monospace, monospace',
+      fontFamily: '"Geist Mono Variable", ui-monospace, monospace',
       fontSize: matchMedia('(pointer: coarse)').matches ? 12 : 13,
       lineHeight: 1.15,
       cursorBlink: true,
       scrollback: 10_000,
       macOptionIsMeta: true,
-      theme: { background: css('--term-bg'), foreground: css('--term-fg'), cursor: css('--accent'), selectionBackground: '#8a6a5266' },
+      theme: { background: css('--term-bg'), foreground: css('--term-fg'), cursor: css('--attention'), selectionBackground: '#ffffff40' },
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
