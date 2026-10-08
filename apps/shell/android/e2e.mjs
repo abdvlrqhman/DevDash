@@ -28,7 +28,7 @@ async function until(fn, ms, label) {
 const api = (path, init = {}) => fetch(ORIGIN + path, { ...init, headers: { cookie: `__Host-devdash=${TOKEN}`, origin: ORIGIN, 'content-type': 'application/json', ...init.headers } })
 
 /** A DevTools page session: in the app's WebView (over adb) or in a desktop Chrome. */
-async function session(wsUrl) {
+async function session(wsUrl, touch = false) {
   const ws = new WebSocket(wsUrl)
   await new Promise((r, j) => { ws.addEventListener('open', r); ws.addEventListener('error', j) })
   let id = 0
@@ -50,12 +50,17 @@ async function session(wsUrl) {
       if (!ok) throw new Error(`no "${label}"`)
       await sleep(500)
     },
-    // Radix menus open on pointer events.
+    // A press at the button's centre: a finger in the app's WebView (it ignores synthetic mice), a mouse elsewhere.
     press: async (label) => {
       const box = await evaluate(`(() => { const el = [...document.querySelectorAll('button')].find(e => e.textContent.trim().startsWith(${JSON.stringify(label)})); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })()`)
       if (!box) throw new Error(`no menu "${label}"`)
-      for (const type of ['mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', { type, x: box.x, y: box.y, button: 'left', clickCount: 1 })
-      await sleep(500)
+      if (touch) {
+        await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: box.x, y: box.y }] })
+        await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+      } else {
+        for (const type of ['mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', { type, x: box.x, y: box.y, button: 'left', clickCount: 1 })
+      }
+      await sleep(700)
     },
     close: () => ws.close(),
   }
@@ -72,7 +77,7 @@ async function app() {
   adb('forward', '--remove-all')
   adb('forward', 'tcp:9222', `localabstract:${socket}`)
   const page = await until(async () => (await (await fetch('http://127.0.0.1:9222/json')).json()).find((t) => t.type === 'page'), 30000, 'WebView page')
-  return session(page.webSocketDebuggerUrl)
+  return session(page.webSocketDebuggerUrl, true)
 }
 
 /** Bounds of the first UI element whose text matches, from a uiautomator dump: [x, y] of its centre. */
