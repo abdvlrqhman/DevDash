@@ -45,6 +45,12 @@ export function notificationsService({ db, hub, dataDir, origin }: { db: Db; hub
     prune: db.prepare(`delete from notifications where created_at < unixepoch() - 30 * 86400`),
   }
 
+  /** Native apps holding a stream open (the Android app while it's closed): they get what Web Push would get. */
+  type Event = { id: number; kind: string; title: string; body: string; url: string; tag: string }
+  const streams = new Map<number, Set<(e: Event) => void>>()
+  // What went out (or would have) in the last 15 minutes, for a stream that reconnects. Not what showed inside the app.
+  const recent = new Map<number, (Event & { at: number })[]>()
+
   function prefs(userId: number): Prefs {
     const r = s.prefs.get(userId) as Record<NotificationKind, number> | undefined
     return Object.fromEntries(KINDS.map((k) => [k, r ? r[k] === 1 : k !== 'shared'])) as Prefs
@@ -76,7 +82,24 @@ export function notificationsService({ db, hub, dataDir, origin }: { db: Db; hub
       const event = { id, kind, title: n.title, body: n.body ?? '', url: n.url ?? '/', tag: n.tag ?? `${kind}:${id}` }
       hub.publish('notifications', { type: 'notification', notification: event }, (u) => u.id === userId)
       if (!force && hub.isActive(userId)) return
+      const kept = (recent.get(userId) ?? []).filter((e) => e.at > Date.now() - 900_000).slice(-19)
+      recent.set(userId, [...kept, { ...event, at: Date.now() }])
+      for (const send of streams.get(userId) ?? []) send(event)
       await push(userId, event)
+    },
+
+    /** Subscribes a stream; returns what it missed since `since` (a notification id) and how to unsubscribe. */
+    listen(userId: number, since: number, send: (e: Event) => void) {
+      const set = streams.get(userId) ?? new Set()
+      streams.set(userId, set)
+      set.add(send)
+      const missed = since > 0
+        ? (recent.get(userId) ?? []).filter((e) => e.id > since && e.at > Date.now() - 900_000).map(({ at: _, ...e }) => e)
+        : []
+      return {
+        missed,
+        stop: () => { set.delete(send); if (!set.size) streams.delete(userId) },
+      }
     },
 
     prefs,

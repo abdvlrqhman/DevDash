@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch'
 import { api, unwrap } from '@/lib/api'
 import { looking, useTopic } from '@/lib/live'
 import { disablePush, enablePush, needsHomeScreen, pushEnabled, pushSupported } from '@/lib/push'
-import { inShell } from '@/lib/shell'
+import { inIosShell, inShell, setBackgroundNotifications, syncBackgroundNotifications } from '@/lib/shell'
 import { ErrorAlert } from '../auth/LoginPage'
 
 type Event = { notification: { title: string; body: string; url: string } }
@@ -18,12 +18,14 @@ type Event = { notification: { title: string; body: string; url: string } }
 /** Shows notifications as they happen: a toast while you're looking, a system notification from the native app otherwise. */
 export function useNotificationEvents() {
   const navigate = useNavigate()
+  useEffect(() => void syncBackgroundNotifications(), [])
   useTopic('notifications', (e) => {
     const n = (e as unknown as Event).notification
     if (looking()) {
       if (location.pathname === n.url) return // already on it
       toast(n.title, { description: n.body || undefined, action: { label: 'Open', onClick: () => void navigate({ to: n.url }) } })
-    } else if (window.devdashShell?.notify) window.devdashShell.notify(n.title, n.body)
+    } else if (window.DevDashAndroid?.backgroundNotifications()) return // the app's background connection shows it
+    else if (window.devdashShell?.notify) window.devdashShell.notify(n.title, n.body)
     // A browser that isn't being looked at gets Web Push from the server; the toast waits for whoever comes back.
     else toast(n.title, { description: n.body || undefined, duration: Infinity, closeButton: true, action: { label: 'Open', onClick: () => void navigate({ to: n.url }) } })
   })
@@ -75,12 +77,14 @@ export function NotificationsPanel() {
 function ThisDevice({ publicKey }: { publicKey?: string }) {
   const shell = inShell()
   const native = shell && !!window.devdashShell?.notificationPermission
+  const android = !!window.DevDashAndroid
   const [on, setOn] = useState<boolean | null>(null)
   const [error, setError] = useState<Error | null>(null)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    if (native) void window.devdashShell!.notificationPermission!(false).then((s) => setOn(s === 'granted'))
+    if (android) void window.devdashShell!.notificationPermission!(false).then((s) => setOn(s === 'granted' && window.DevDashAndroid!.backgroundNotifications()))
+    else if (native) void window.devdashShell!.notificationPermission!(false).then((s) => setOn(s === 'granted'))
     else if (pushSupported()) void pushEnabled().then(setOn, () => setOn(false))
   }, [native])
 
@@ -93,6 +97,7 @@ function ThisDevice({ publicKey }: { publicKey?: string }) {
     if (native) {
       const s = await window.devdashShell!.notificationPermission!(true)
       if (s !== 'granted') throw new Error('Notifications are off for DevDash. Turn them on in your phone’s settings, then come back.')
+      setBackgroundNotifications(true)
       setOn(true)
       window.devdashShell!.notify!('DevDash', 'Notifications are on for this device.') // the real system path, not a toast
     } else {
@@ -100,7 +105,11 @@ function ThisDevice({ publicKey }: { publicKey?: string }) {
       setOn(true)
     }
   })
-  const disable = () => run(async () => { await disablePush(); setOn(false) })
+  const disable = () => run(async () => {
+    if (android) setBackgroundNotifications(false)
+    else await disablePush()
+    setOn(false)
+  })
 
   let body
   if (shell && !native) body = <FieldDescription>Update the DevDash app to get notifications on this device.</FieldDescription>
@@ -111,10 +120,12 @@ function ThisDevice({ publicKey }: { publicKey?: string }) {
       <FieldContent>
         <FieldLabel htmlFor="n-device">Notifications on this device</FieldLabel>
         <FieldDescription>
-          {native ? 'Arrive while the app is open or in the background.' : 'Arrive even when DevDash is closed.'} You won't get them twice: while you're using DevDash somewhere, they show inside it.
+          {android ? 'Arrive even when the app is closed. Android keeps a quiet “DevDash is connected” notification for that.'
+            : inIosShell() ? 'Arrive while the app is open. For notifications when it’s closed, open this site in Safari, tap Share, then Add to Home Screen, and turn them on there.'
+            : native ? 'Arrive while the app is open or in the background.' : 'Arrive even when DevDash is closed.'} You won't get them twice: while you're using DevDash somewhere, they show inside it.
         </FieldDescription>
       </FieldContent>
-      <Switch id="n-device" disabled={on === null || busy || (native && on)} checked={!!on}
+      <Switch id="n-device" disabled={on === null || busy || (native && !android && on)} checked={!!on}
         onCheckedChange={(v) => void (v ? enable() : disable())} />
     </Field>
   )

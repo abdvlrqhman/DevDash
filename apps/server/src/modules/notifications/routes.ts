@@ -1,4 +1,5 @@
 import { Hono } from 'hono'
+import { streamSSE } from 'hono/streaming'
 import { z } from 'zod'
 import { json } from '../../core/http.ts'
 import type { AuthEnv, authMiddleware } from '../auth/routes.ts'
@@ -14,6 +15,29 @@ export function notificationsRoutes(n: NotificationsService, mw: ReturnType<type
   return new Hono<AuthEnv>()
     .use(mw.requireUser)
     .get('/', (c) => c.json(n.list(c.get('user').id)))
+    // For native apps while they're closed (Android): server-sent events, a comment every 25 s to keep it open.
+    .get('/stream', (c) => {
+      const since = Number(c.req.query('since')) || 0
+      c.header('cache-control', 'no-store')
+      c.header('x-accel-buffering', 'no')
+      return streamSSE(c, async (stream) => {
+        const queue: string[] = []
+        let wake: (() => void) | null = null
+        const sub = n.listen(c.get('user').id, since, (e) => { queue.push(JSON.stringify(e)); wake?.() })
+        for (const e of sub.missed) queue.push(JSON.stringify(e))
+        stream.onAbort(() => { sub.stop(); wake?.() })
+        try {
+          while (!stream.aborted) {
+            while (queue.length) await stream.writeSSE({ data: queue.shift()! })
+            await new Promise<void>((r) => { wake = r; setTimeout(r, 25_000) })
+            wake = null
+            if (!queue.length && !stream.aborted) await stream.write(': ping\n\n')
+          }
+        } finally {
+          sub.stop()
+        }
+      })
+    })
     .post('/read', (c) => {
       n.readAll(c.get('user').id)
       return c.json({ ok: true })
