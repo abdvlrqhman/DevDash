@@ -30,6 +30,9 @@
 	handle /browser/* {
 		forward_auth 127.0.0.1:8787 {
 			uri /api/browser/check
+			# The check is a plain request even when the original is a WebSocket upgrade (neko's stream).
+			header_up -Connection
+			header_up -Upgrade
 		}
 		header {
 			X-Frame-Options "SAMEORIGIN"
