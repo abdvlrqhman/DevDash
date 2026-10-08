@@ -19,11 +19,11 @@ export function InvitePage() {
   return (
     <main className="min-h-full bg-bg flex justify-center px-6 pt-[max(40px,env(safe-area-inset-top))] pb-[max(24px,env(safe-area-inset-bottom))]">
       <div className="w-full max-w-sm flex flex-col gap-3.5">
-        <Logo />
+        <Logo size={52} />
         {invite.isPending && <p className="text-muted">Checking your invite…</p>}
         {invite.isError && (
           <>
-            <h1 className="font-head font-medium text-[28px] m-0">Invite unavailable</h1>
+            <h1 className="font-head text-[28px] m-0">Invite unavailable</h1>
             <ErrorText error={invite.error} />
           </>
         )}
@@ -62,15 +62,15 @@ function AcceptForm({ token, invite, onDone }: { token: string; invite: Invite; 
   return (
     <form onSubmit={submit} className="flex flex-col gap-3.5">
       <div>
-        <h1 className="font-head font-medium text-[30px] leading-tight m-0">Join {invite.spaceName}</h1>
-        <p className="text-muted m-0">{invite.email} · <span className="font-mono">@{invite.username}</span> {invite.role === 'admin' && <Chip tone="accent">admin</Chip>}</p>
+        <h1 className="font-head text-[30px] leading-tight m-0">Join {invite.spaceName}</h1>
+        <p className="text-muted m-0 mt-1">You'll sign in as <span className="text-text">{invite.username}</span> or {invite.email}. {invite.role === 'admin' && <Chip tone="accent">Admin</Chip>}</p>
       </div>
       <Field label="Your name" icon={<IconUser size={18} />} autoComplete="name" required value={name} onChange={(e) => setName(e.target.value)} />
       <Field label="Password" icon={<IconLock size={18} />} type="password" autoComplete="new-password" required
         value={password} onChange={(e) => setPassword(e.target.value)} />
       <input type="hidden" autoComplete="username" value={invite.email} readOnly />
       <Card>
-        <p className="font-semibold m-0">Set up two-step sign-in</p>
+        <p className="font-medium m-0">Set up two-step sign-in</p>
         <p className="text-muted text-[12px] mt-0 mb-3">Add this space to an authenticator app (Google Authenticator, 1Password, Aegis…), then enter the code it shows.</p>
         <a href={invite.totpUri} className="lg:hidden flex items-center justify-center gap-1.5 h-11 rounded-xl border border-accent text-accent font-medium text-[14px] mb-3">
           <IconExternalLink size={16} />Add to authenticator app
@@ -114,7 +114,7 @@ function BackupCodes({ codes, space }: { codes: string[]; space: string }) {
   return (
     <div className="flex flex-col gap-3.5">
       <div>
-        <h1 className="font-head font-medium text-[30px] leading-tight m-0">Save your backup codes</h1>
+        <h1 className="font-head text-[30px] leading-tight m-0">Save your backup codes</h1>
         <p className="text-muted m-0">If you lose your phone, each code signs you in once. They won't be shown again.</p>
       </div>
       <Card>

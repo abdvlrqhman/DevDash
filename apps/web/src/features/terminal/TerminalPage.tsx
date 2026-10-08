@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { IconClipboard, IconPlus, IconShieldLock, IconX } from '@tabler/icons-react'
 import { PageHeader } from '../../app/AppShell'
 import { api, meQuery, unwrap } from '../../lib/api'
-import { Button, Dialog, ErrorText, OtpInput, cx } from '../../ui'
+import { Button, Dialog, ErrorText, Light, OtpInput, cx } from '../../ui'
 import { TerminalView, type Mods, type Status, type TerminalHandle } from './TerminalView'
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}$/
@@ -53,8 +53,8 @@ export function TerminalPage() {
   return (
     <div className="h-full flex flex-col">
       <PageHeader title="Terminal" sub={<span className="font-mono">{me.username}@server</span>}>
-        <span className="flex items-center gap-1.5 text-[12px] text-muted" role="status">
-          <span className={cx('size-2 rounded-full', status === 'live' ? 'bg-success' : status === 'ended' ? 'bg-muted' : 'bg-warning animate-pulse')} />
+        <span className="flex items-center gap-1.5 text-[13px] text-muted" role="status">
+          <Light state={status === 'live' ? 'live' : status === 'ended' ? 'idle' : 'waiting'} />
           {STATUS_TEXT[status]}
         </span>
       </PageHeader>
@@ -62,35 +62,36 @@ export function TerminalPage() {
       {isAdmin ? (
         <div className="mx-2 lg:mx-8 mb-2 flex items-center gap-2 rounded-xl bg-danger text-white px-3 py-2">
           <IconShieldLock size={18} />
-          <div className="flex-1 min-w-0 text-[13px] leading-tight">
+          <div className="flex-1 min-w-0 text-[13px] leading-snug">
             <div className="font-semibold">Admin shell</div>
             <div className="opacity-85">Root on the whole server. Closes after 15 minutes without typing.</div>
           </div>
           <Button size="sm" variant="ghost" className="text-white" onClick={() => open('main')}>Leave</Button>
         </div>
       ) : (
-        <nav aria-label="Terminals" className="flex items-center gap-1.5 px-2 lg:px-8 pb-2 overflow-x-auto">
+        <nav aria-label="Terminals" className="flex items-center gap-4 px-4 lg:px-8 border-b border-line overflow-x-auto">
           {names.map((n) => (
-            <span key={n} className={cx('flex items-center rounded-full text-[13px] font-medium shrink-0', n === active ? 'bg-accent-soft text-accent' : 'bg-surface-2 text-text')}>
-              <button className="pl-3 pr-2 h-8 font-mono" aria-current={n === active} onClick={() => open(n)}>{n}</button>
+            <span key={n} className={cx('flex items-center gap-1 font-mono text-[13px] shrink-0 h-10', n === active ? 'text-text shadow-[inset_0_-2px_0_var(--accent)]' : 'text-muted')}>
+              <button className="h-full" aria-current={n === active} onClick={() => open(n)}>{n}</button>
               {n === active && (
-                <button className="pr-2 h-8 flex items-center" aria-label={`Close ${n}`} onClick={() => setClosing(n)}><IconX size={14} /></button>
+                <button className="h-full flex items-center text-muted" aria-label={`Close ${n}`} onClick={() => setClosing(n)}><IconX size={14} /></button>
               )}
             </span>
           ))}
           {adding
             ? <NewTabInput taken={names} onCancel={() => setAdding(false)} onCreate={(n) => { setOpened((o) => [...o, n]); setAdding(false); open(n) }} />
-            : <button className="size-8 shrink-0 rounded-full bg-surface-2 flex items-center justify-center" aria-label="New terminal" onClick={() => setAdding(true)}><IconPlus size={16} /></button>}
+            : <button className="h-10 shrink-0 flex items-center text-muted" aria-label="New terminal" onClick={() => setAdding(true)}><IconPlus size={17} /></button>}
           <span className="flex-1" />
           {me.role === 'admin' && (
-            <button className="h-8 px-3 rounded-full bg-danger-soft text-danger text-[13px] font-medium flex items-center gap-1 shrink-0" onClick={() => setUnlocking(true)}>
+            <button className="h-10 text-danger text-[13px] font-medium flex items-center gap-1 shrink-0" onClick={() => setUnlocking(true)}>
               <IconShieldLock size={15} />Admin
             </button>
           )}
         </nav>
       )}
 
-      <div className={cx('relative flex-1 min-h-0 mx-2 lg:mx-8 rounded-xl overflow-hidden bg-term-bg p-2', isAdmin && 'ring-2 ring-danger')}>
+      {list.error && <div className="mx-2 lg:mx-8 mt-2"><ErrorText error={list.error} /></div>}
+      <div className={cx('relative flex-1 min-h-0 m-2 lg:mx-8 lg:my-3 rounded-xl overflow-hidden bg-term-bg p-2.5', isAdmin && 'ring-2 ring-danger')}>
         <TerminalView key={`${active}:${epoch}`} ref={term} name={active} onStatus={onStatus} onMods={setMods} />
         {status === 'ended' && (
           <div className="absolute inset-0 bg-term-bg/90 flex flex-col items-center justify-center gap-3 text-term-fg text-center px-6">
@@ -131,7 +132,7 @@ function NewTabInput({ taken, onCreate, onCancel }: { taken: string[]; onCreate:
     <form onSubmit={submit} className="flex items-center shrink-0">
       <input autoFocus aria-label="New terminal name" value={value} onBlur={onCancel} onKeyDown={(e) => e.key === 'Escape' && onCancel()}
         onChange={(e) => setValue(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'))}
-        className={cx('h-8 w-32 rounded-full border bg-surface px-3 font-mono text-[13px] outline-none', valid ? 'border-accent' : 'border-danger')} />
+        className={cx('h-8 w-32 rounded-md bg-surface-2 px-2.5 font-mono text-[13px] outline-none ring-2 ring-inset', valid ? 'ring-accent' : 'ring-danger')} />
     </form>
   )
 }
@@ -165,15 +166,15 @@ const KEYS: { label: string; seq?: string; mod?: 'ctrl' | 'alt'; aria?: string }
 function KeyBar({ term, mods }: { term: React.RefObject<TerminalHandle | null>; mods: Mods }) {
   const keep = (e: React.PointerEvent) => e.preventDefault()
   return (
-    <div className="hidden [@media(pointer:coarse)]:flex gap-1.5 px-2 pt-2 pb-1 overflow-x-auto">
+    <div className="hidden [@media(pointer:coarse)]:flex gap-1.5 px-2 pb-1.5 overflow-x-auto">
       {KEYS.map((k) => (
         <button key={k.label} onPointerDown={keep} aria-label={k.aria} aria-pressed={k.mod ? mods[k.mod] : undefined}
           onClick={() => (k.mod ? term.current?.toggle(k.mod) : term.current?.send(k.seq!))}
-          className={cx('h-9 min-w-10 px-2.5 rounded-[10px] font-mono text-[13px] shrink-0', k.mod && mods[k.mod] ? 'bg-accent text-on-accent' : 'bg-surface-2 text-text')}>
+          className={cx('h-9 min-w-10 px-2.5 rounded-[9px] font-mono text-[13px] shrink-0 border', k.mod && mods[k.mod] ? 'bg-brass border-brass text-[#120D03]' : 'bg-surface border-line text-text')}>
           {k.label}
         </button>
       ))}
-      <button onPointerDown={keep} aria-label="Paste" className="h-9 min-w-10 px-2.5 rounded-[10px] bg-surface-2 shrink-0 flex items-center justify-center"
+      <button onPointerDown={keep} aria-label="Paste" className="h-9 min-w-10 px-2.5 rounded-[9px] bg-surface border border-line shrink-0 flex items-center justify-center"
         onClick={() => void navigator.clipboard.readText().then((t) => term.current?.send(t))}>
         <IconClipboard size={16} />
       </button>

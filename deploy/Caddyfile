@@ -24,6 +24,7 @@
 	}
 	handle {
 		root * /opt/devdash/current/apps/web/dist
+		templates /index.html # fills in {{.Host}} for link-preview tags
 		@assets path /assets/*
 		header @assets Cache-Control "public, max-age=31536000, immutable"
 		try_files {path} /index.html

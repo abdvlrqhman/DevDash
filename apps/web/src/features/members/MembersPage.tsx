@@ -24,12 +24,12 @@ export function MembersPage() {
               <Avatar name={u.name} seed={u.id} />
               <div className="flex-1 min-w-0">
                 <div className="truncate">{u.name}{u.id === me.id && <span className="text-muted"> (you)</span>}</div>
-                <div className="text-muted text-[12px] truncate"><span className="font-mono">@{u.username}</span> · {u.email}</div>
+                <div className="text-muted text-[13px] truncate">{u.username}, {u.email}</div>
               </div>
               {me.role === 'admin' && !u.provisioned_at && (
                 <span title={u.provision_error ?? undefined}><Chip tone={u.provision_error ? 'bad' : 'warn'}>{u.provision_error ? 'Server account failed' : 'Setting up'}</Chip></span>
               )}
-              {u.role === 'admin' && <Chip tone="accent">admin</Chip>}
+              {u.role === 'admin' && <Chip tone="accent">Admin</Chip>}
             </li>
           ))}
         </ul>
@@ -41,7 +41,7 @@ export function MembersPage() {
                 <li key={i.id} className="flex items-center gap-2.5 px-3.5 py-2.5 border-t border-line first:border-t-0">
                   <div className="flex-1 min-w-0">
                     <div className="truncate">{i.email}</div>
-                    <div className="text-muted text-[12px] font-mono">@{i.username}</div>
+                    <div className="text-muted text-[13px]">{i.username}</div>
                   </div>
                   <Chip tone="warn">{daysLeft(i.expires_at)}d left</Chip>
                 </li>
@@ -79,8 +79,8 @@ function InviteCard() {
 
   if (invite.data) {
     return (
-      <Card accent>
-        <p className="font-semibold m-0">Invite link for {email}</p>
+      <Card tone="accent">
+        <p className="font-medium m-0">Invite link for {email}</p>
         <p className="text-muted text-[12px] mt-0 mb-2.5">Send it privately. Single use, valid for 7 days.</p>
         <code className="block break-all font-mono text-[12px] bg-surface-2 rounded-lg px-2.5 py-2">{invite.data.link}</code>
         <div className="flex gap-2 mt-2.5">
@@ -96,7 +96,7 @@ function InviteCard() {
   return (
     <Card>
       <form onSubmit={submit} className="flex flex-col gap-2.5">
-        <p className="font-semibold m-0">Invite a member</p>
+        <p className="font-medium m-0">Invite a member</p>
         <Field label="Email" icon={<IconMail size={18} />} type="email" required value={email} onChange={(e) => onEmail(e.target.value)} />
         <Field label="Username" icon={<IconAt size={18} />} required pattern="[a-z][a-z0-9\-]{1,30}" hint="Also their Linux user on the server. Lowercase, can't be changed later."
           value={username} onChange={(e) => { setTouchedUsername(true); setUsername(e.target.value.toLowerCase()) }} />

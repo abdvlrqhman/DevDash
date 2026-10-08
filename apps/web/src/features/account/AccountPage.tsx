@@ -42,7 +42,7 @@ export function AccountPage() {
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="font-head font-medium text-[20px] m-0">{title}</h2>
+      <h2 className="font-head text-[20px] m-0">{title}</h2>
       {children}
     </section>
   )

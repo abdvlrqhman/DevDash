@@ -30,10 +30,11 @@ export function AppShell() {
   return (
     <div className="flex bg-bg h-[var(--app-h,100dvh)]">
       <aside className="hidden lg:flex w-[230px] shrink-0 flex-col gap-0.5 bg-surface border-r border-line px-3 py-4">
-        <div className="flex items-center gap-2.5 px-2 pb-3.5">
+        <div className="flex items-center gap-2.5 px-2 pb-4">
           <Logo size={34} />
           <div className="min-w-0">
-            <div className="font-head text-[18px] truncate">{space.data?.name ?? 'DevDash'}</div>
+            <div className="font-head text-[18px] leading-tight truncate">{space.data?.name ?? 'DevDash'}</div>
+            <div className="text-[12px] text-muted truncate">{location.host}</div>
           </div>
         </div>
         {NAV.map((n) => (
@@ -66,7 +67,7 @@ export function PageHeader({ title, sub, children }: { title: string; sub?: Reac
     <header className="flex items-center gap-2.5 px-4 lg:px-8 pt-[max(12px,env(safe-area-inset-top))] pb-2.5">
       <div className="flex-1 min-w-0">
         {sub && <div className="text-[13px] text-muted truncate">{sub}</div>}
-        <h1 className="font-head font-medium text-[24px] lg:text-[28px] m-0 truncate">{title}</h1>
+        <h1 className="font-head text-[26px] lg:text-[30px] leading-tight m-0 truncate">{title}</h1>
       </div>
       {children}
       <div className="lg:hidden"><AccountMenu /></div>

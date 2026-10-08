@@ -22,12 +22,12 @@ export function HomePage() {
         <Link to="/members" className="block">
           <Card className="flex items-center gap-3">
             <div className="flex -space-x-2">
-              {members.data?.users.slice(0, 5).map((u) => <span key={u.id} className="ring-2 ring-surface rounded-full"><Avatar name={u.name} seed={u.id} /></span>)}
+              {members.data?.users.slice(0, 5).map((u) => <span key={u.id} className="ring-2 ring-surface rounded-lg"><Avatar name={u.name} seed={u.id} /></span>)}
             </div>
             <div className="flex-1 min-w-0">
-              <div className="font-semibold">Members</div>
+              <div className="font-medium">Members</div>
               <div className="text-muted text-[12px]">
-                {members.data ? `${members.data.users.length} in this space${members.data.invites.length ? ` · ${members.data.invites.length} invited` : ''}` : 'Loading…'}
+                {members.data ? `${members.data.users.length} in this space${members.data.invites.length ? `, ${members.data.invites.length} invited` : ''}` : 'Loading…'}
               </div>
             </div>
             {me.role === 'admin' && <IconUserPlus size={20} className="text-accent" aria-label="Invite" />}
