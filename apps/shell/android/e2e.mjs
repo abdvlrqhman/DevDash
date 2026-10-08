@@ -95,9 +95,14 @@ async function run() {
   adb('shell', 'pm', 'grant', PKG, 'android.permission.POST_NOTIFICATIONS')
   adb('shell', 'cmd', 'uimode', 'night', 'yes')
   adb('logcat', '-c')
-  adb('shell', 'am', 'start', '-W', '-n', `${PKG}/.MainActivity`)
+  writeFileSync(join(out, 'launch.txt'), adb('shell', 'am', 'start', '-W', '-n', `${PKG}/.MainActivity`))
   await sleep(8000)
   screenshot('0-launch.png')
+  if (!adb('shell', 'pidof', PKG).trim()) {
+    writeFileSync(join(out, 'crash.txt'), adb('logcat', '-d', '-b', 'crash'))
+    const nl = String.fromCharCode(10)
+    writeFileSync(join(out, 'app-log.txt'), adb('logcat', '-d', '-v', 'time').split(nl).filter((l) => /abdvlrqhman|AndroidRuntime|libc|DEBUG|tauri|Tauri|RustStdout|chromium|WebView/.test(l)).join(nl))
+  }
 
   // Sign-in: the connect screen takes the space; the session cookie is the test member's.
   let w = await app()
