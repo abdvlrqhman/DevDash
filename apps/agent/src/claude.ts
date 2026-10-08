@@ -356,15 +356,20 @@ export async function commandsAndModels(profile: string) {
 const cliLaunches = new Map<string, Launch>()
 const titles = new Map<string, string>()
 function refreshTitle(l: Launch) {
-  void loadSdk()
-    .then((sdk) => withProfile(l.profile, () => sdk.getSessionInfo(l.id, { dir: l.cwd })))
-    .then((info) => {
-      const title = info?.summary?.trim().split('\n')[0]?.slice(0, 120)
-      if (title && titles.get(l.id) !== title) {
-        titles.set(l.id, title)
-        emit({ ev: 'claude.title', id: l.id, title })
-      }
-    }, () => {})
+  void title(l).then(({ title: t }) => {
+    if (t && titles.get(l.id) !== t) {
+      titles.set(l.id, t)
+      emit({ ev: 'claude.title', id: l.id, title: t })
+    }
+  }, () => {})
+}
+
+/** The title Claude Code keeps for a session, or null before it has one. */
+export async function title(l: Launch) {
+  validate(l)
+  const sdk = await loadSdk()
+  const info = await withProfile(l.profile, () => sdk.getSessionInfo(l.id, { dir: l.cwd }))
+  return { title: info?.summary?.trim().split('\n')[0]?.slice(0, 120) || null }
 }
 
 /** A title set in DevDash goes to Claude Code too (as if typed with /rename), so both show the same name. */

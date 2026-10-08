@@ -97,7 +97,10 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
 
   // Agent events. An agent only speaks for its own member, so events about anyone else's session are dropped.
   agents.onEvent((username, ev) => {
-    if (ev.ev === 'snapshot') return reconcile(username, ev.sessions as { id: string; mode: string; status?: SessionStatus; pending?: unknown[] }[])
+    if (ev.ev === 'snapshot') {
+      void backfillTitles(username)
+      return reconcile(username, ev.sessions as { id: string; mode: string; status?: SessionStatus; pending?: unknown[] }[])
+    }
     const s = typeof ev.id === 'string' ? repo.byId(ev.id) : undefined
     if (!s || s.owner_username !== username) return
     const viewers = (u: User) => canView(u, s)
@@ -142,6 +145,24 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
       }
     }
   })
+
+  /**
+   * Sessions started before titles came from Claude Code (or whose last turn ended while the server was down) take
+   * Claude Code's title once per server start. Titles the owner set in DevDash stay.
+   */
+  const titled = new Set<string>()
+  async function backfillTitles(username: string) {
+    if (titled.has(username)) return
+    titled.add(username)
+    const rows = db.prepare(`select s.* from claude_sessions s join users u on u.id = s.owner_id
+      where u.username = ? and s.started = 1 and s.title_custom = 0 and s.archived = 0`).all(username) as unknown as SessionRow[]
+    for (const s of rows) {
+      const r = await agents.request<{ title: string | null }>(username, { op: 'claude.title', launch: launch(s) }, 10_000).catch(() => null)
+      if (!r) return void titled.delete(username) // an agent still on older code, or busy: try again when it reconnects
+      const t = r.title?.trim().slice(0, 120)
+      if (t && t !== s.title) { repo.patch(s.id, { title: t }); publish(s.id) }
+    }
+  }
 
   /** After (re)connecting to an agent: trust what is actually running over what the database remembers. */
   // A session that was working when its process went away (server reboot, agent crash) carries on by itself:

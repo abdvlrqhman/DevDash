@@ -76,6 +76,7 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
   'claude.pending': (r) => ({ pending: claude.pendingFor(str(r.id, 'id')) }),
   'claude.history': async (r) => ({ messages: await claude.history(r.launch as claude.Launch) }),
   'claude.commands': (r) => claude.commandsAndModels(str(r.profile, 'profile')),
+  'claude.title': (r) => claude.title(r.launch as claude.Launch),
   'claude.rename': async (r) => (await claude.rename(r.launch as claude.Launch, str(r.title, 'title')), { ok: true }),
   'claude.profiles': async () => ({ profiles: await claude.profiles() }),
   'claude.usage': async (r) => ({ usage: await claude.usage(str(r.profile, 'profile')) }),
