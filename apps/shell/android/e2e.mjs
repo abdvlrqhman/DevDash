@@ -55,8 +55,10 @@ async function session(wsUrl, touch = false) {
       const box = await evaluate(`(() => { const el = [...document.querySelectorAll('button')].find(e => e.textContent.trim().startsWith(${JSON.stringify(label)})); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })()`)
       if (!box) throw new Error(`no menu "${label}"`)
       if (touch) {
-        await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: box.x, y: box.y }] })
-        await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })
+        // A real tap through Android, at the button's place on screen.
+        const dpr = await evaluate('devicePixelRatio')
+        const wv = webviewBox()
+        adb('shell', 'input', 'tap', String(Math.round(wv.x + box.x * dpr)), String(Math.round(wv.y + box.y * dpr)))
       } else {
         for (const type of ['mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', { type, x: box.x, y: box.y, button: 'left', clickCount: 1 })
       }
@@ -127,6 +129,7 @@ async function run() {
 
   // Dark mode: the page and the native picker.
   await w.go('/claude')
+  await sleep(1500)
   await w.press('New')
   const model = await until(() => w.evaluate(`(() => { const t = document.querySelector('#ns-model')?.textContent ?? ''; return /Default/.test(t) && t })()`), 60000, 'model picker')
   check(true, `the model picker shows what Default is: "${model}"`)
