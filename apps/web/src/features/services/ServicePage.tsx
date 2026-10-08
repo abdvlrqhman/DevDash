@@ -70,7 +70,7 @@ export function ServicePage() {
         <dt className="text-muted-foreground">Owner</dt><dd>{s.owner.name}</dd>
         {s.session && <><dt className="text-muted-foreground">Started by</dt><dd><Link to="/claude/$id" params={{ id: s.session.id }} className="underline underline-offset-4">Claude in {s.session.title}</Link></dd></>}
         <dt className="text-muted-foreground">Options</dt>
-        <dd>{[s.autostart ? 'starts with the server' : 'manual start', s.restart ? 'restarts on crash' : 'no restart on crash', s.env ? `${s.env.split('\n').filter((l) => l.trim() && !l.trim().startsWith('#')).length} environment variables` : null].filter(Boolean).join(', ')}</dd>
+        <dd>{[s.autostart ? 'starts with the server' : 'manual start', s.restart ? 'restarts on crash' : 'no restart on crash', envCount(s.env) ? `${envCount(s.env)} environment variable${envCount(s.env) === 1 ? '' : 's'}` : null].filter(Boolean).join(', ')}</dd>
         {s.error && <><dt className="text-muted-foreground">Problem</dt><dd className="text-destructive">{s.error}</dd></>}
         {s.state === 'crashed' && <><dt className="text-muted-foreground">Exit code</dt><dd className="font-mono">{s.exitCode ?? 'unknown'}</dd></>}
       </dl>
@@ -133,3 +133,6 @@ function EditService({ s, onClose }: { s: Service; onClose: () => void }) {
     </ResponsiveDialog>
   )
 }
+
+const envCount = (env: string | null) => (env ?? '').split('
+').filter((l) => l.trim() && !l.trim().startsWith('#')).length
