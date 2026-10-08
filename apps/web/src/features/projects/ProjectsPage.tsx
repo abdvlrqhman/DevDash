@@ -30,7 +30,7 @@ export function ProjectsPage() {
         <ErrorAlert error={list.error} />
         {list.isPending && <div className="flex flex-col gap-2">{[0, 1].map((i) => <Skeleton key={i} className="h-16" />)}</div>}
         {list.isSuccess && !projects.length && (
-          <Empty className="border">
+          <Empty>
             <EmptyHeader>
               <EmptyMedia variant="icon"><FolderGit2 /></EmptyMedia>
               <EmptyTitle>No projects yet</EmptyTitle>
@@ -48,7 +48,7 @@ export function ProjectsPage() {
                   <ItemContent className="min-w-0">
                     <ItemTitle>{p.name}</ItemTitle>
                     <ItemDescription className="flex items-center gap-1.5 truncate">
-                      {p.fetchError && <TriangleAlert className="size-3.5 shrink-0 text-destructive" />}
+                      {p.fetchError && <span className="flex shrink-0 items-center gap-1 font-sans text-destructive" title={p.fetchError}><TriangleAlert className="size-3.5" />Can't fetch</span>}
                       <span className="truncate font-mono">{repoLabel(p.repoUrl)}</span>
                       <span className="flex shrink-0 items-center gap-1"><GitBranch className="size-3.5" />{p.defaultBranch}</span>
                     </ItemDescription>

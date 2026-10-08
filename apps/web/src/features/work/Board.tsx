@@ -69,7 +69,7 @@ export function Board({ tasks, project, showProject }: { tasks: Task[]; project?
         <div className="flex flex-col gap-2">
           {cols[column].map((t) => <TaskCard key={`${t.project.slug}#${t.number}`} t={t} showProject={showProject} />)}
           {!cols[column].length && <p className="py-6 text-center text-sm text-muted-foreground">Nothing here.</p>}
-          <Button variant="ghost" className="justify-start text-muted-foreground" onClick={() => setAdding(column)}><Plus />Add a task</Button>
+          <Button variant="ghost" className={cn('text-muted-foreground', cols[column].length ? 'justify-start' : 'self-center')} onClick={() => setAdding(column)}><Plus />Add a task</Button>
         </div>
         <NewTask open={adding !== null} onClose={() => setAdding(null)} project={project} status={adding ?? undefined} />
       </div>

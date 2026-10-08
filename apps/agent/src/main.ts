@@ -75,7 +75,8 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
   'claude.cli.close': async (r) => (await claude.closeCli(str(r.id, 'id')), { ok: true }),
   'claude.pending': (r) => ({ pending: claude.pendingFor(str(r.id, 'id')) }),
   'claude.history': async (r) => ({ messages: await claude.history(r.launch as claude.Launch) }),
-  'claude.commands': (r) => ({ commands: claude.commands(str(r.profile, 'profile')), models: claude.models(str(r.profile, 'profile')) }),
+  'claude.commands': (r) => claude.commandsAndModels(str(r.profile, 'profile')),
+  'claude.rename': async (r) => (await claude.rename(r.launch as claude.Launch, str(r.title, 'title')), { ok: true }),
   'claude.profiles': async () => ({ profiles: await claude.profiles() }),
   'claude.usage': async (r) => ({ usage: await claude.usage(str(r.profile, 'profile')) }),
   'claude.profile.create': (r) => (claude.createProfile(str(r.name, 'name')), { ok: true }),
@@ -86,6 +87,7 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
   'fs.rename': (r) => files.ops.rename(r),
   'fs.remove': (r) => files.ops.remove(r),
   'fs.exists': (r) => files.ops.exists(r),
+  'fs.mkdirp': (r) => files.ops.mkdirp(r),
   'fs.write': (r) => files.ops.write(r),
   'gh.api': (r) => gh.ops.api(r),
   'gh.status': async () => {

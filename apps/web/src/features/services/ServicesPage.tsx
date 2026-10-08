@@ -44,7 +44,7 @@ export function ServicesPage() {
         <ErrorAlert error={list.error} />
         {list.isPending && <div className="flex flex-col gap-2">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-16" />)}</div>}
         {list.isSuccess && !all.length && (
-          <Empty className="border">
+          <Empty>
             <EmptyHeader>
               <EmptyMedia variant="icon"><Server /></EmptyMedia>
               <EmptyTitle>No services yet</EmptyTitle>

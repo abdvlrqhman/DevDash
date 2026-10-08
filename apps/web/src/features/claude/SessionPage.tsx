@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { Archive, ArchiveRestore, Check, ChevronDown, Circle, Ellipsis, FileCode, Gauge, LoaderCircle, MessageSquare, Pencil, Share2, SquareTerminal } from 'lucide-react'
+import { Archive, ArchiveRestore, Check, ChevronDown, Circle, Ellipsis, FileCode, Gauge, LoaderCircle, MessageSquare, Pencil, Share2, SquareTerminal, Shield, ShieldOff } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
 import { PageHeader } from '@/components/app/page'
@@ -144,6 +144,15 @@ function SessionView({ id }: { id: string }) {
   const isOwner = info.data!.isOwner
   const working = s.status === 'working'
 
+  // Model, permissions and who it belongs to: next to the composer in Chat, a row under the header in the CLI.
+  const chips = (
+    <div className="flex items-center gap-1.5 overflow-x-auto">
+      <ModelMenu s={s} disabled={!canSend} onUpdate={(v) => update.mutate(v)} />
+      {s.owner.id !== me.id && <Badge variant="secondary">{s.owner.name}'s session</Badge>}
+      {s.shared && s.owner.id === me.id && <Badge variant="secondary"><Share2 />Shared{s.sharedCanSend ? ', others can type' : ''}</Badge>}
+    </div>
+  )
+
   return (
     <div className="flex h-full flex-col">
       <PageHeader back="/claude" backOnSmall
@@ -156,7 +165,7 @@ function SessionView({ id }: { id: string }) {
         }
         actions={<>
           <Tabs value={s.mode} onValueChange={(v) => v !== s.mode && switchMode.mutate(v as 'chat' | 'cli')}>
-            <TabsList>
+            <TabsList className="pointer-coarse:h-10!">
               <TabsTrigger value="chat" disabled={!canSend || switchMode.isPending}><MessageSquare /><span className="hidden sm:inline">Chat</span></TabsTrigger>
               <TabsTrigger value="cli" disabled={!canSend || switchMode.isPending}><SquareTerminal /><span className="hidden sm:inline">CLI</span></TabsTrigger>
             </TabsList>
@@ -164,11 +173,7 @@ function SessionView({ id }: { id: string }) {
           <SessionMenu s={s} isOwner={isOwner} canSend={canSend} onUpdate={(v) => update.mutate(v)} onRename={() => setSettings(true)} onUsage={() => setUsage(true)} />
         </>} />
 
-      <div className="flex items-center gap-1.5 overflow-x-auto border-b px-3 py-2 md:px-4">
-        <ModelMenu s={s} disabled={!canSend} onUpdate={(v) => update.mutate(v)} />
-        {s.owner.id !== me.id && <Badge variant="secondary">{s.owner.name}'s session</Badge>}
-        {s.shared && s.owner.id === me.id && <Badge variant="secondary"><Share2 />Shared{s.sharedCanSend ? ', others can type' : ''}</Badge>}
-      </div>
+      {s.mode === 'cli' && <div className="border-b px-3 py-2 md:px-4">{chips}</div>}
 
       {s.mode === 'cli' ? (
         <CliView id={id} onEnded={() => void info.refetch()} />
@@ -188,7 +193,8 @@ function SessionView({ id }: { id: string }) {
             </div>
           </div>
           <div className="border-t bg-background px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-6 md:pt-3 md:pb-3">
-            <div className="mx-auto max-w-4xl">
+            <div className="mx-auto flex max-w-4xl flex-col gap-2">
+              {chips}
               <Composer profile={s.profile} working={working || s.status === 'waiting'} onSend={send} onStop={() => interrupt.mutate()}
                 disabledReason={canSend ? undefined : `${s.owner.name} shared this session to watch. Only they can send messages.`} />
             </div>
@@ -320,7 +326,9 @@ function ModelMenu({ s, disabled, onUpdate }: { s: Session; disabled: boolean; o
       <DropdownMenuTrigger asChild disabled={disabled}>
         <Button variant="outline" size="sm" className="shrink-0">
           {list.find((m) => m.value === (s.model ?? ''))?.displayName ?? s.model ?? 'Default model'}
-          <span className="text-muted-foreground">{modeLabel(s.permissionMode)}{s.effort ? `, ${s.effort}` : ''}</span>
+          <span className="flex items-center gap-1 border-l pl-2 text-foreground/80">
+            {s.permissionMode === 'bypassPermissions' ? <ShieldOff /> : <Shield />}{modeLabel(s.permissionMode)}{s.effort ? `, ${s.effort}` : ''}
+          </span>
           <ChevronDown />
         </Button>
       </DropdownMenuTrigger>

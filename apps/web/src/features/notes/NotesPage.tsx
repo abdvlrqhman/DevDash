@@ -58,7 +58,7 @@ export function NotesPage() {
         <ErrorAlert error={notes.error} />
         {notes.isPending && <div className="grid gap-3 sm:grid-cols-2">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-28" />)}</div>}
         {notes.isSuccess && !list.length && !project ? (
-          <Empty className="border">
+          <Empty>
             <EmptyHeader>
               <EmptyMedia variant="icon"><StickyNote /></EmptyMedia>
               <EmptyTitle>No notes yet</EmptyTitle>

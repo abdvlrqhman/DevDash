@@ -8,6 +8,7 @@ export type SessionRow = {
   owner_name: string
   profile: string
   title: string
+  title_custom: number
   cwd: string
   mode: 'chat' | 'cli'
   status: SessionStatus
@@ -32,7 +33,7 @@ const SELECT = `select s.*, u.username as owner_username, u.name as owner_name, 
   from claude_sessions s join users u on u.id = s.owner_id left join projects p on p.id = s.project_id`
 
 // Columns a PATCH may touch; anything else is ignored.
-const PATCHABLE = ['title', 'shared', 'shared_can_send', 'archived', 'model', 'effort', 'permission_mode', 'mode', 'started'] as const
+const PATCHABLE = ['title', 'title_custom', 'shared', 'shared_can_send', 'archived', 'model', 'effort', 'permission_mode', 'mode', 'started'] as const
 export type Patch = Partial<Pick<SessionRow, (typeof PATCHABLE)[number]>>
 
 export function claudeRepo(db: Db) {

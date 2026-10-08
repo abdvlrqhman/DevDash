@@ -1,12 +1,13 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Copy, UserPlus } from 'lucide-react'
+import { Check, Copy, UserPlus, Ellipsis, UserMinus } from 'lucide-react'
 import { toast } from 'sonner'
 import { initials } from '@/components/app/brand'
 import { PageBody, PageHeader, Section } from '@/components/app/page'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -38,7 +39,7 @@ export function MembersPage() {
                 <ItemMedia><Avatar className="size-9"><AvatarFallback>{initials(u.name)}</AvatarFallback></Avatar></ItemMedia>
                 <ItemContent>
                   <ItemTitle>{u.name}{u.id === me.id && <span className="font-normal text-muted-foreground">(you)</span>}</ItemTitle>
-                  <ItemDescription>{u.username}, {u.email}</ItemDescription>
+                  <ItemDescription className="truncate">{u.username}, {u.email}</ItemDescription>
                 </ItemContent>
                 <ItemActions className="gap-1.5">
                   {me.role === 'admin' && !u.provisioned_at && (
@@ -51,8 +52,14 @@ export function MembersPage() {
                   )}
                   {u.role === 'admin' && <Badge variant="outline">Admin</Badge>}
                   {me.role === 'admin' && u.id !== me.id && (
-                    <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => setRemoving({ id: u.id, name: u.name })}>Remove</Button>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild><Button size="icon-sm" variant="ghost" aria-label={`Options for ${u.name}`}><Ellipsis /></Button></DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem variant="destructive" onSelect={() => setRemoving({ id: u.id, name: u.name })}><UserMinus />Remove from the team</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   )}
+                  {me.role === 'admin' && u.id === me.id && <span aria-hidden className="size-7 shrink-0 pointer-coarse:size-9" />}
                 </ItemActions>
               </Item>
             ))}

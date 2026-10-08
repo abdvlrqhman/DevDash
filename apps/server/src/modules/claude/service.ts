@@ -132,6 +132,14 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
         }, viewers)
       case 'claude.permission_done':
         return hub.publish(`session:${s.id}`, { type: 'permission_done', requestId: ev.requestId }, viewers)
+      case 'claude.title': {
+        const title = typeof ev.title === 'string' ? ev.title.trim().slice(0, 120) : ''
+        if (!title || title === s.title) return
+        // Renamed here before Claude Code had a session file: hand it the owner's title now.
+        if (s.title_custom) return void agents.request(username, { op: 'claude.rename', launch: launch(s), title: s.title }).catch(() => {})
+        repo.patch(s.id, { title })
+        return publish(s.id)
+      }
     }
   })
 
@@ -206,6 +214,8 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
       const cwd = wt?.path ?? (input.project ? projects.path(projects.bySlug(input.project).slug)
         : input.cwd.trim() === '' || input.cwd.trim() === '~' ? home : input.cwd.trim().replace(/^~(?=\/)/, home))
       if (!cwd.startsWith('/')) throw new AppError(400, 'bad_cwd', 'Use a full folder path, like ~/projects/app.')
+      // Outside a project the session gets its own folder (the dialog suggests ~/sessions/<name>); make it if it's new.
+      if (!input.project) await agents.request(user.username, { op: 'fs.mkdirp', path: cwd })
       const project = input.project ? projects.bySlug(input.project) : projects.forPath(cwd)
       const firstLine = input.prompt.trim().split('\n')[0]!.slice(0, 80)
       const id = randomUUID()
@@ -263,6 +273,10 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
         shared_can_send: p.sharedCanSend === undefined ? undefined : p.sharedCanSend ? 1 : 0,
         archived: p.archived === undefined ? undefined : p.archived ? 1 : 0,
         model: p.model, effort: p.effort, permission_mode: p.permissionMode,
+      }
+      if (patch.title) {
+        patch.title_custom = 1
+        if (s.started) await agents.request(s.owner_username, { op: 'claude.rename', launch: launch(s), title: patch.title }).catch(() => {})
       }
       repo.patch(id, patch)
       for (const [key, value] of [['model', p.model], ['effort', p.effort], ['permissionMode', p.permissionMode]] as const) {

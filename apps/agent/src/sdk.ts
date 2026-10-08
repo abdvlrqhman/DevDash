@@ -38,6 +38,9 @@ export type Query = AsyncGenerator<SDKMessage, void> & {
 type Sdk = {
   query(p: { prompt: AsyncIterable<SDKUserMessage>; options: Record<string, unknown> }): Query
   getSessionMessages(id: string, o?: { dir?: string; limit?: number; offset?: number }): Promise<unknown[]>
+  /** summary = the /rename title, else Claude Code's own generated title, else the first prompt. */
+  getSessionInfo(id: string, o?: { dir?: string }): Promise<{ summary: string; customTitle?: string } | undefined>
+  renameSession(id: string, title: string, o?: { dir?: string }): Promise<void>
 }
 
 let sdk: Promise<Sdk> | undefined

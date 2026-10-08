@@ -53,7 +53,7 @@ export function TasksPage() {
         {tasks.isPending ? (
           <div className="flex gap-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-64 w-72" />)}</div>
         ) : !projects.length ? (
-          <Empty className="border">
+          <Empty>
             <EmptyHeader>
               <EmptyMedia variant="icon"><ListTodo /></EmptyMedia>
               <EmptyTitle>No projects yet</EmptyTitle>

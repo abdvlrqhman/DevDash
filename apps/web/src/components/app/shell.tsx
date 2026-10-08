@@ -109,7 +109,7 @@ export function AppShell() {
           <MobileTabs waiting={waiting} />
         </SidebarInset>
       </SidebarProvider>
-      <Toaster position="top-center" />
+      <Toaster position="bottom-right" mobileOffset={{ bottom: 'calc(4rem + env(safe-area-inset-bottom))' }} />
       <SearchDialog />
     </TooltipProvider>
   )

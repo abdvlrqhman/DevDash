@@ -70,6 +70,17 @@ export const ops = {
     return { ok: true, path }
   },
 
+  /** Creates a folder and any missing parents, inside the member's folders (a new session's own folder). */
+  async mkdirp(r: Record<string, unknown>) {
+    if (typeof r.path !== 'string' || !r.path.startsWith('/')) throw new Error('Use a full path.')
+    const target = resolve(r.path)
+    let base = target
+    while (!(await lstat(base).catch(() => null))) base = dirname(base)
+    if (!inside(await realpath(base))) throw new Error('That is outside the folders DevDash can show.')
+    await mkdir(target, { recursive: true })
+    return { path: target }
+  },
+
   /** Whether a shared file is still there (share links stop working once their file is gone). */
   async exists(r: Record<string, unknown>) {
     if (typeof r.path !== 'string' || !r.path.startsWith('/')) throw new Error('Use a full path.')

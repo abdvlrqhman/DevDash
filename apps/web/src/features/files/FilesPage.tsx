@@ -121,10 +121,13 @@ export function FilesPage() {
                     return (
                       <li key={e.name} className="group flex items-center gap-3 border-b px-3 py-2 text-sm last:border-b-0 hover:bg-accent/40">
                         {e.dir ? <Folder className="size-4 shrink-0 text-muted-foreground" /> : <File className="size-4 shrink-0 text-muted-foreground" />}
-                        {e.dir
-                          ? <button className="min-w-0 flex-1 truncate text-left" onClick={() => go(p)}>{e.name}</button>
-                          : <a className="min-w-0 flex-1 truncate" href={`/api/files/download?${new URLSearchParams({ path: p })}`} download={e.name}>{e.name}</a>}
-                        <span className="hidden w-20 shrink-0 text-right text-xs text-muted-foreground tabular-nums sm:block">{e.dir ? '' : bytes(e.size)}</span>
+                        <div className="flex min-w-0 flex-1 flex-col">
+                          {e.dir
+                            ? <button className="truncate text-left" onClick={() => go(p)}>{e.name}</button>
+                            : <a className="truncate" href={`/api/files/download?${new URLSearchParams({ path: p })}`} download={e.name}>{e.name}</a>}
+                          <span className="text-xs text-muted-foreground md:hidden">{e.dir ? '' : `${bytes(e.size)}, `}{relativeTime(e.mtime)}</span>
+                        </div>
+                        <span className="hidden w-20 shrink-0 text-right text-xs text-muted-foreground tabular-nums md:block">{e.dir ? '' : bytes(e.size)}</span>
                         <span className="hidden w-24 shrink-0 text-right text-xs text-muted-foreground md:block">{relativeTime(e.mtime)}</span>
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild><Button size="icon-sm" variant="ghost" aria-label={`Actions for ${e.name}`}><Ellipsis /></Button></DropdownMenuTrigger>

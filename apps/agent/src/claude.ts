@@ -178,6 +178,7 @@ async function pump(c: Chat) {
         setStatus(c, id, s === 'running' ? 'working' : s === 'requires_action' ? 'waiting' : 'idle')
       } else if (msg.type === 'result' && !c.pending.size) {
         setStatus(c, id, 'idle')
+        refreshTitle(c.launch)
       } else if (msg.type === 'system' && msg.subtype === 'background_tasks_changed') {
         c.bg = (msg.tasks as { ambient?: boolean }[]).filter((t) => !t.ambient).length
       } else if (msg.type === 'system' && msg.subtype === 'init') {
@@ -259,6 +260,7 @@ async function openCliNow(l: Launch, cols: number, rows: number) {
   const c = chats.get(l.id)
   if (c) await stopChat(c)
   if (await hasSession(cliName(l.id))) return
+  cliLaunches.set(l.id, l)
   const args = [CLAUDE_BIN, ...(l.started ? ['--resume', l.id] : ['--session-id', l.id]), '--plugin-dir', PLUGIN_DIR, '--append-system-prompt', RULES]
   if (l.model) args.push('--model', l.model)
   if (l.effort) args.push('--effort', l.effort)
@@ -315,8 +317,63 @@ export async function history(l: Launch) {
   return withProfile(l.profile, () => sdk.getSessionMessages(l.id, { dir: l.cwd }))
 }
 
-export const commands = (profile: string) => commandCache.get(profile) ?? []
-export const models = (profile: string) => modelCache.get(profile) ?? []
+/**
+ * Slash commands and models for a profile. Known once a session has run; before that, a short-lived Claude Code
+ * process is asked (no model call is made), so the New session dialog can offer the real model list.
+ */
+const lists = new Map<string, Promise<void>>()
+export async function commandsAndModels(profile: string) {
+  if (!PROFILE_RE.test(profile)) throw new Error('invalid profile')
+  if (!modelCache.has(profile)) {
+    const running = [...chats.values()].find((c) => c.launch.profile === profile)?.q
+    let job = lists.get(profile)
+    if (!job) {
+      job = (async () => {
+        const temp = running ? undefined : new Inbox()
+        const q = running ?? (await loadSdk()).query({
+          prompt: temp!,
+          options: { cwd: homedir(), env: { ...process.env, ...profileEnv(profile) }, pathToClaudeCodeExecutable: CLAUDE_BIN, persistSession: false },
+        })
+        try {
+          const [cmds, mods] = await Promise.all([q.supportedCommands(), q.supportedModels()])
+          commandCache.set(profile, cmds)
+          modelCache.set(profile, mods)
+        } finally {
+          if (temp) { temp.close(); q.close() }
+        }
+      })().finally(() => lists.delete(profile))
+      lists.set(profile, job)
+    }
+    await Promise.race([job.catch(() => {}), new Promise((r) => setTimeout(r, 15_000))])
+  }
+  return { commands: commandCache.get(profile) ?? [], models: modelCache.get(profile) ?? [] }
+}
+
+/**
+ * Session titles come from Claude Code itself: after each turn the agent reads the title Claude Code keeps for the
+ * session (its own generated one, or one set with /rename) and reports it when it changes.
+ */
+const cliLaunches = new Map<string, Launch>()
+const titles = new Map<string, string>()
+function refreshTitle(l: Launch) {
+  void loadSdk()
+    .then((sdk) => withProfile(l.profile, () => sdk.getSessionInfo(l.id, { dir: l.cwd })))
+    .then((info) => {
+      const title = info?.summary?.trim().split('\n')[0]?.slice(0, 120)
+      if (title && titles.get(l.id) !== title) {
+        titles.set(l.id, title)
+        emit({ ev: 'claude.title', id: l.id, title })
+      }
+    }, () => {})
+}
+
+/** A title set in DevDash goes to Claude Code too (as if typed with /rename), so both show the same name. */
+export async function rename(l: Launch, title: string) {
+  validate(l)
+  const sdk = await loadSdk()
+  await withProfile(l.profile, () => sdk.renameSession(l.id, title.slice(0, 120), { dir: l.cwd }))
+  titles.set(l.id, title.slice(0, 120))
+}
 
 async function authStatus(name: string) {
   try {
@@ -388,6 +445,8 @@ export function hook(p: { session_id?: string; hook_event_name?: string }) {
     UserPromptSubmit: 'working', PreToolUse: 'working', Notification: 'waiting', Stop: 'idle', SessionEnd: 'stopped',
   } as Record<string, Status>)[p.hook_event_name ?? '']
   if (status) emit({ ev: 'claude.status', id, status })
+  const l = cliLaunches.get(id)
+  if (l && (status === 'idle' || status === 'stopped')) refreshTitle(l)
 }
 
 /** Login runs in a terminal tab, because Claude's own login flow is interactive. */

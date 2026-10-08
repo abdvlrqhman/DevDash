@@ -90,11 +90,11 @@ export function TerminalPage() {
           ))}
           {adding
             ? <NewTabInput taken={names} onCancel={() => setAdding(false)} onCreate={(n) => { setOpened((o) => [...o, n]); setAdding(false); open(n) }} />
-            : <Button size="icon-sm" variant="ghost" aria-label="New terminal" onClick={() => setAdding(true)}><Plus /></Button>}
+            : <Button size="icon-sm" variant="outline" aria-label="New terminal" title="New terminal" onClick={() => setAdding(true)}><Plus /></Button>}
           <span className="flex-1" />
           {me.role === 'admin' && (
-            <Button size="sm" variant="ghost" className="shrink-0 text-destructive hover:text-destructive" onClick={() => setUnlocking(true)}>
-              <ShieldAlert />Admin
+            <Button size="sm" variant="outline" className="shrink-0" onClick={() => setUnlocking(true)}>
+              <ShieldAlert />Admin shell
             </Button>
           )}
         </div>
@@ -112,8 +112,8 @@ export function TerminalPage() {
             {names.map((n) => {
               const running = list.data?.terminals.some((t) => t.name === n)
               return (
-                <Button key={n} variant={n === 'main' ? 'default' : 'outline'} className="font-mono" onClick={() => open(n)}>
-                  {running && <StatusLight state="live" />}{n}
+                <Button key={n} variant={n === 'main' ? 'default' : 'outline'} onClick={() => open(n)}>
+                  {running && <StatusLight state="live" />}Open <span className="font-mono">{n}</span>
                 </Button>
               )
             })}

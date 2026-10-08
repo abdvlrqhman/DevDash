@@ -24,7 +24,7 @@ import { NativeSelect } from '@/components/app/native-select'
 import { Switch } from '@/components/ui/switch'
 import { projectsQuery } from '../work/data'
 import { useArchiveSession } from './ArchiveSession'
-import { byFolder, FALLBACK_MODELS, PERMISSION_MODES, profilesQuery, relativeTime, sessionsQuery, shortPath, type PermissionMode, type Session } from './data'
+import { byFolder, commandsQuery, FALLBACK_MODELS, PERMISSION_MODES, profilesQuery, relativeTime, sessionsQuery, shortPath, type PermissionMode, type Session } from './data'
 
 export function SessionsPage() {
   const me = useQuery(meQuery).data!
@@ -58,7 +58,7 @@ export function SessionsPage() {
           <SessionList key={g.cwd} title={<span className="font-mono">{shortPath(g.cwd, me.username)}</span>} sessions={g.sessions} me={me.id} onArchive={archived ? undefined : archive.ask} />
         ))}
         {list.isSuccess && !sessions.length && (
-          <Empty className="border">
+          <Empty>
             <EmptyHeader>
               <EmptyMedia variant="icon">{archived ? <Archive /> : <Sparkles />}</EmptyMedia>
               <EmptyTitle>{archived ? 'Nothing archived' : 'No sessions yet'}</EmptyTitle>
@@ -131,6 +131,13 @@ function Choice({ id, label, value, options, onChange, description }: {
   )
 }
 
+/** A folder name for a session that isn't in a project: two words, easy to recognise in Files. */
+const WORDS = [['quiet', 'amber', 'swift', 'bright', 'calm', 'bold', 'lucky', 'misty', 'brave', 'cosmic', 'gentle', 'rapid'],
+  ['river', 'falcon', 'maple', 'harbor', 'comet', 'meadow', 'otter', 'canyon', 'cedar', 'lantern', 'summit', 'willow']]
+const pick = (a: string[]) => a[Math.floor(Math.random() * a.length)]!
+export const sessionFolder = () => `~/sessions/${pick(WORDS[0]!)}-${pick(WORDS[1]!)}`
+const OTHER_MODEL = '__other'
+
 export function NewSession({ open, onClose, initialPrompt = '', initialCwd, initialProject }: {
   open: boolean; onClose: () => void; initialPrompt?: string; initialCwd?: string; initialProject?: string
 }) {
@@ -139,7 +146,8 @@ export function NewSession({ open, onClose, initialPrompt = '', initialCwd, init
   const setup = useQuery({ ...profilesQuery, enabled: open })
   const d = setup.data?.defaults
   const [prompt, setPrompt] = useState(initialPrompt)
-  const [cwd, setCwd] = useState(initialCwd ?? '~')
+  const [cwd, setCwd] = useState(initialCwd ?? sessionFolder)
+  const [customModel, setCustomModel] = useState(false)
   const [profile, setProfile] = useState('default')
   const [model, setModel] = useState('')
   const [perm, setPerm] = useState<PermissionMode>('bypassPermissions')
@@ -154,14 +162,18 @@ export function NewSession({ open, onClose, initialPrompt = '', initialCwd, init
     setPerm(d.permission_mode as PermissionMode)
     setOpenIn(d.open_in)
   }, [d])
-  useEffect(() => { if (open) { setPrompt(initialPrompt); if (initialCwd) setCwd(initialCwd); setProject(initialProject ?? '') } }, [open, initialPrompt, initialCwd, initialProject])
+  useEffect(() => { if (open) { setPrompt(initialPrompt); setCwd(initialCwd ?? sessionFolder()); setProject(initialProject ?? '') } }, [open, initialPrompt, initialCwd, initialProject])
 
   const profiles = (setup.data?.profiles as { name: string; loggedIn: boolean }[] | undefined) ?? []
   const chosen = profiles.find((p) => p.name === profile)
+  // The models this Claude Code offers (with their versions in the description); a fixed list until it answers.
+  const offered = useQuery({ ...commandsQuery(profile), enabled: open }).data?.models as { value: string; displayName: string; description?: string }[] | undefined
+  const models = offered?.length ? offered : FALLBACK_MODELS
+  const modelValue = customModel ? OTHER_MODEL : models.some((m) => m.value === model) ? model : model === '' && models.some((m) => m.value === 'default') ? 'default' : model
   const create = useMutation({
     mutationFn: () => unwrap(api.api.claude.sessions.$post({
       json: {
-        prompt, images: [], cwd, profile, model: model || null, effort: null, permissionMode: perm, mode: openIn,
+        prompt, images: [], cwd, profile, model: model && model !== 'default' ? model.trim() : null, effort: null, permissionMode: perm, mode: openIn,
         project: project || undefined, worktree: project ? worktree : undefined,
         cols: Math.max(40, Math.min(220, Math.floor(innerWidth / 8.2))), rows: Math.max(15, Math.min(80, Math.floor(innerHeight / 19))),
       },
@@ -174,24 +186,25 @@ export function NewSession({ open, onClose, initialPrompt = '', initialCwd, init
   })
   const submit = (e: FormEvent) => {
     e.preventDefault()
-    if (!create.isPending && (openIn === 'cli' || prompt.trim())) create.mutate()
+    if (!create.isPending) create.mutate()
   }
 
   return (
     <ResponsiveDialog open={open} onOpenChange={(v) => !v && onClose()} title="New session" description="Claude works in this folder as you, and keeps going when you close the app.">
       <form onSubmit={submit}>
         <FieldGroup className="gap-5">
-          {openIn === 'chat' && (
+          {/* Only when started from something to hand over (a task); otherwise you write to Claude in the session. */}
+          {openIn === 'chat' && initialPrompt && (
             <Field>
-              <FieldLabel htmlFor="ns-prompt">What should Claude work on?</FieldLabel>
-              <Textarea id="ns-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} required autoFocus className="min-h-24 text-base md:text-sm" />
+              <FieldLabel htmlFor="ns-prompt">First message</FieldLabel>
+              <Textarea id="ns-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={4} className="min-h-24 text-base md:text-sm" />
             </Field>
           )}
           {projects.length > 0 && (
             <Field>
               <FieldLabel htmlFor="ns-project">Project</FieldLabel>
               <NativeSelect id="ns-project" value={project} onChange={(e) => setProject(e.target.value)}>
-                <option value="">None, pick a folder</option>
+                <option value="">None, its own folder</option>
                 {projects.map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}
               </NativeSelect>
             </Field>
@@ -208,7 +221,7 @@ export function NewSession({ open, onClose, initialPrompt = '', initialCwd, init
             <Field>
               <FieldLabel htmlFor="ns-cwd">Folder</FieldLabel>
               <Input id="ns-cwd" className="h-10 font-mono" value={cwd} onChange={(e) => setCwd(e.target.value)} spellCheck={false} autoCapitalize="none" />
-              <FieldDescription>~ is your home folder on the server.</FieldDescription>
+              <FieldDescription>A new folder of its own, made for this session. Change it to work somewhere else, like ~/projects/app (~ is your home folder).</FieldDescription>
             </Field>
           )}
           {profiles.length > 1 && (
@@ -219,7 +232,22 @@ export function NewSession({ open, onClose, initialPrompt = '', initialCwd, init
               <AlertDescription>This profile isn't signed in to Claude. <Link to="/claude/setup" className="underline" onClick={onClose}>Sign in first</Link>.</AlertDescription>
             </Alert>
           )}
-          <Choice id="ns-model" label="Model" value={model} onChange={setModel} options={FALLBACK_MODELS.map((m) => ({ value: m.value, label: m.displayName }))} />
+          <Field>
+            <FieldLabel htmlFor="ns-model">Model</FieldLabel>
+            <NativeSelect id="ns-model" value={modelValue}
+              onChange={(e) => { const v = e.target.value; setCustomModel(v === OTHER_MODEL); setModel(v === OTHER_MODEL ? '' : v) }}>
+              {models.map((m) => <option key={m.value || 'default'} value={m.value}>{m.displayName}</option>)}
+              {!customModel && model && !models.some((m) => m.value === model) && <option value={model}>{model}</option>}
+              <option value={OTHER_MODEL}>Another model (enter its ID)</option>
+            </NativeSelect>
+            {customModel && (
+              <Input aria-label="Model ID" className="h-10 font-mono" placeholder="claude-opus-4-1" value={model} onChange={(e) => setModel(e.target.value)}
+                spellCheck={false} autoCapitalize="none" autoFocus />
+            )}
+            <FieldDescription>
+              {customModel ? 'Any model ID Claude Code accepts, for a specific version.' : models.find((m) => m.value === modelValue)?.description ?? 'Change it any time in the session.'}
+            </FieldDescription>
+          </Field>
           <Choice id="ns-perm" label="Permissions" value={perm} onChange={(v) => setPerm(v as PermissionMode)}
             options={PERMISSION_MODES.slice(0, 4).map((p) => ({ value: p.value, label: p.label }))}
             description={PERMISSION_MODES.find((p) => p.value === perm)?.hint} />
@@ -227,7 +255,7 @@ export function NewSession({ open, onClose, initialPrompt = '', initialCwd, init
             options={[{ value: 'chat', label: 'Chat' }, { value: 'cli', label: 'CLI' }]}
             description={openIn === 'cli' ? 'The real Claude Code terminal. You can switch to Chat any time.' : 'A chat view of Claude Code. You can switch to the CLI any time.'} />
           <ErrorAlert error={create.error} />
-          <Button type="submit" size="lg" className="h-10" disabled={create.isPending || (openIn === 'chat' && !prompt.trim())}>
+          <Button type="submit" size="lg" className="h-10" disabled={create.isPending || (customModel && !model.trim())}>
             {create.isPending && <Spinner />}Start session
           </Button>
         </FieldGroup>

@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { CalendarClock, Circle, CircleCheck, CircleDashed, CircleDot, CircleEllipsis, SignalHigh, SignalLow, SignalMedium, TriangleAlert } from 'lucide-react'
+import { CalendarClock, Circle, CircleCheck, CircleDashed, CircleDot, CircleEllipsis, TriangleAlert } from 'lucide-react'
 import { initials } from '@/components/app/brand'
 import { NativeSelect } from '@/components/app/native-select'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
@@ -27,14 +27,14 @@ export function StatusIcon({ status, className }: { status: string; className?: 
 }
 
 export function PriorityIcon({ priority, className }: { priority: string; className?: string }) {
-  const c = cn('size-4 shrink-0 text-muted-foreground', className)
-  switch (priority) {
-    case 'urgent': return <TriangleAlert className={cn(c, 'text-destructive')} aria-label="Urgent" />
-    case 'high': return <SignalHigh className={c} aria-label="High priority" />
-    case 'medium': return <SignalMedium className={c} aria-label="Medium priority" />
-    case 'low': return <SignalLow className={c} aria-label="Low priority" />
-    default: return null
-  }
+  if (priority === 'urgent') return <TriangleAlert className={cn('size-4 shrink-0 text-destructive', className)} aria-label="Urgent" />
+  const level = ({ high: 3, medium: 2, low: 1 } as Record<string, number>)[priority]
+  if (!level) return null
+  return (
+    <svg viewBox="0 0 16 16" role="img" aria-label={`${priority[0]!.toUpperCase()}${priority.slice(1)} priority`} className={cn('size-4 shrink-0 text-foreground/75', className)}>
+      {[0, 1, 2].map((i) => <rect key={i} x={2 + i * 4.5} y={11 - i * 3.5} width="3" height={3 + i * 3.5} rx="0.75" fill="currentColor" opacity={i < level ? 1 : 0.2} />)}
+    </svg>
+  )
 }
 
 export function Due({ due, done }: { due: string | null; done?: boolean }) {
