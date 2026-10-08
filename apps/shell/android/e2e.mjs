@@ -55,10 +55,12 @@ async function session(wsUrl, touch = false) {
       const box = await evaluate(`(() => { const el = [...document.querySelectorAll('button')].find(e => e.textContent.trim().startsWith(${JSON.stringify(label)})); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 } })()`)
       if (!box) throw new Error(`no menu "${label}"`)
       if (touch) {
-        // A real tap through Android, at the button's place on screen.
-        const dpr = await evaluate('devicePixelRatio')
-        const wv = webviewBox()
-        adb('shell', 'input', 'tap', String(Math.round(wv.x + box.x * dpr)), String(Math.round(wv.y + box.y * dpr)))
+        // In the app's WebView: the events a press makes, sent to the button itself (Radix menus open on pointerdown,
+        // plain buttons on click). Protocol-level input isn't delivered reliably to an Android WebView.
+        await evaluate(`(() => { const el = [...document.querySelectorAll('button')].find(e => e.textContent.trim().startsWith(${JSON.stringify(label)}));
+          el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' }))
+          el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, button: 0, pointerType: 'mouse' }))
+          el.click() })()`)
       } else {
         for (const type of ['mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', { type, x: box.x, y: box.y, button: 'left', clickCount: 1 })
       }
@@ -133,6 +135,9 @@ async function run() {
   await w.go('/claude')
   await sleep(1500)
   await w.press('New')
+  await sleep(1500)
+  screenshot('2a-new-session.png')
+  console.log('dialog open:', await w.evaluate(`!!document.querySelector('[role=dialog]')`), 'model button:', await w.evaluate(`document.querySelector('#ns-model')?.textContent ?? null`))
   const model = await until(() => w.evaluate(`(() => { const t = document.querySelector('#ns-model')?.textContent ?? ''; return /Default/.test(t) && t })()`), 60000, 'model picker')
   check(true, `the model picker shows what Default is: "${model}"`)
   const scheme = await w.evaluate(`getComputedStyle(document.documentElement).colorScheme`)
