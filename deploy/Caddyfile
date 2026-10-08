@@ -8,11 +8,15 @@
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options "nosniff"
-		X-Frame-Options "DENY"
 		Referrer-Policy "no-referrer"
+		-Server
+	}
+	# DevDash's own pages: strict. The remote browser (/browser/) runs neko's UI and gets its own rules below.
+	@app not path /browser/*
+	header @app {
+		X-Frame-Options "DENY"
 		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
 		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
-		-Server
 	}
 
 	handle /api/* {
@@ -27,8 +31,10 @@
 		forward_auth 127.0.0.1:8787 {
 			uri /api/browser/check
 		}
-		header -X-Frame-Options
-		header Content-Security-Policy "frame-ancestors 'self'"
+		header {
+			X-Frame-Options "SAMEORIGIN"
+			Content-Security-Policy "frame-ancestors 'self'"
+		}
 		reverse_proxy 127.0.0.1:8090
 	}
 	# Public share links: a download page and the file, nothing else.
