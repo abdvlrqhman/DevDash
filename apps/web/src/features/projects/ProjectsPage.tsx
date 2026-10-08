@@ -52,8 +52,9 @@ export function ProjectsPage() {
                       <span className="truncate font-mono">{repoLabel(p.repoUrl)}</span>
                       <span className="flex shrink-0 items-center gap-1"><GitBranch className="size-3.5" />{p.defaultBranch}</span>
                     </ItemDescription>
+                    <ItemDescription className="text-xs tabular-nums sm:hidden">{p.openTasks} open {p.openTasks === 1 ? 'task' : 'tasks'}</ItemDescription>
                   </ItemContent>
-                  <ItemActions className="text-xs text-muted-foreground tabular-nums">
+                  <ItemActions className="hidden text-xs text-muted-foreground tabular-nums sm:flex">
                     {p.openTasks} open {p.openTasks === 1 ? 'task' : 'tasks'}
                   </ItemActions>
                 </Link>

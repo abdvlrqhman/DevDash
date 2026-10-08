@@ -153,8 +153,11 @@ export function FilesPage() {
       <NameDialog open={!!renaming} title={`Rename ${renaming?.name ?? ''}`} action="Rename" initial={renaming?.name ?? ''} onClose={() => setRenaming(null)}
         onSave={(name) => unwrap(api.api.files.rename.$post({ json: { from: join(dir, renaming!.name), to: join(dir, name) } })).then(refresh)} />
       <ResponsiveDialog open={!!deleting} onOpenChange={(v) => !v && setDeleting(null)} title={`Delete ${deleting?.name ?? ''}?`}
-        description={deleting?.dir ? 'The folder and everything in it are deleted from the server. This cannot be undone.' : 'It is deleted from the server. This cannot be undone.'}>
-        <DeleteActions onCancel={() => setDeleting(null)} onDelete={() => unwrap(api.api.files.delete.$post({ json: { path: join(dir, deleting!.name) } })).then(() => { setDeleting(null); refresh() })} />
+        description={deleting?.dir ? 'The folder and everything in it are deleted from the server, and their share links stop working. This cannot be undone.' : 'It is deleted from the server, and its share links stop working. This cannot be undone.'}>
+        <DeleteActions onCancel={() => setDeleting(null)} onDelete={() => unwrap(api.api.files.delete.$post({ json: { path: join(dir, deleting!.name) } })).then((r) => {
+          setDeleting(null); refresh()
+          if (r.links) { void qc.invalidateQueries({ queryKey: ['shares'] }); toast(`${r.links === 1 ? 'Its share link was' : `${r.links} share links were`} turned off`) }
+        })} />
       </ResponsiveDialog>
     </>
   )

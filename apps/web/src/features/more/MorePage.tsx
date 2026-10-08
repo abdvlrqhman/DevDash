@@ -46,23 +46,23 @@ export function MorePage() {
         </Item>
         <ItemGroup className="rounded-xl border">
           {LINKS.map((l) => (
-            <Item key={l.to} asChild className="rounded-none border-0 border-b last:border-b-0">
+            <Item key={l.to} size="sm" asChild className="rounded-none border-0 border-b last:border-b-0">
               <Link to={l.to}>
                 <ItemMedia variant="icon"><l.icon /></ItemMedia>
-                <ItemContent><ItemTitle>{l.label}</ItemTitle><ItemDescription>{l.description}</ItemDescription></ItemContent>
+                <ItemContent><ItemTitle>{l.label}</ItemTitle><ItemDescription className="line-clamp-1">{l.description}</ItemDescription></ItemContent>
                 <ItemActions><ChevronRight className="size-4 text-muted-foreground" /></ItemActions>
               </Link>
             </Item>
           ))}
           {inShell() ? (
-            <Item asChild className="rounded-none border-0">
+            <Item size="sm" asChild className="rounded-none border-0">
               <button onClick={() => window.devdashShell!.switchSpace()}>
                 <ItemMedia variant="icon"><ArrowLeftRight /></ItemMedia>
                 <ItemContent><ItemTitle>Switch space</ItemTitle><ItemDescription>Connect to a different DevDash server</ItemDescription></ItemContent>
               </button>
             </Item>
           ) : (
-            <Item asChild className="rounded-none border-0">
+            <Item size="sm" asChild className="rounded-none border-0">
               <button onClick={() => openExternal(APP_DOWNLOADS)}>
                 <ItemMedia variant="icon"><Download /></ItemMedia>
                 <ItemContent><ItemTitle>Get the app</ItemTitle><ItemDescription>Windows, Android and iPhone</ItemDescription></ItemContent>

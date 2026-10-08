@@ -38,7 +38,13 @@ export function filesRoutes(agents: AgentsService, shares: SharesService, mw: Re
     })
     .post('/mkdir', json(z.object({ path: Path })), async (c) => c.json(await agents.request(as(c), { op: 'fs.mkdir', path: c.req.valid('json').path })))
     .post('/rename', json(z.object({ from: Path, to: Path })), async (c) => c.json(await agents.request(as(c), { op: 'fs.rename', ...c.req.valid('json') })))
-    .post('/delete', json(z.object({ path: Path })), async (c) => c.json(await agents.request(as(c), { op: 'fs.remove', path: c.req.valid('json').path }, 120_000)))
+    .post('/delete', json(z.object({ path: Path })), async (c) => {
+      const { path } = c.req.valid('json')
+      const done = await agents.request(as(c), { op: 'fs.remove', path }, 120_000) as { path?: string }
+      // Its share links go with it.
+      const links = await shares.revokeSource(c.get('user'), path) + (done.path && done.path !== path ? await shares.revokeSource(c.get('user'), done.path) : 0)
+      return c.json({ ok: true, links })
+    })
 
     .get('/shares', (c) => c.json({ shares: shares.list(c.get('user')) }))
     .post('/shares', json(ShareInput), async (c) => {
@@ -79,13 +85,13 @@ export function publicShareRoutes(shares: SharesService, ip: (c: import('hono').
     return c.html(markup, status)
   }
   return new Hono()
-    .get('/:token', (c) => {
-      const r = shares.lookup(c.req.param('token'))
+    .get('/:token', async (c) => {
+      const r = await shares.available(c.req.param('token'))
       return html(c, page(r), r ? 200 : 404)
     })
     .post('/:token', async (c) => {
       rateLimit(`share:${ip(c)}`, 30, 10 * 60_000)
-      const r = shares.lookup(c.req.param('token'))
+      const r = await shares.available(c.req.param('token'))
       if (!r) return html(c, page(null), 404)
       const form = await c.req.parseBody()
       if (!(await shares.checkPassword(r, typeof form.password === 'string' ? form.password : ''))) return html(c, page(r, 'That password is not right.'), 401)

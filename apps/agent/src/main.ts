@@ -85,6 +85,7 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
   'fs.mkdir': (r) => files.ops.mkdir(r),
   'fs.rename': (r) => files.ops.rename(r),
   'fs.remove': (r) => files.ops.remove(r),
+  'fs.exists': (r) => files.ops.exists(r),
   'fs.write': (r) => files.ops.write(r),
   'gh.api': (r) => gh.ops.api(r),
   'gh.status': async () => {

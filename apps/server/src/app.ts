@@ -46,7 +46,11 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   const terms = terminalsService({ agents })
   const notifications = notificationsService({ db, hub, dataDir: config.dataDir, origin: config.origin })
   hub.authorize('notifications', () => true)
-  const shares = sharesService({ db, dataDir: config.dataDir, masterKey: config.masterKey, origin: config.origin })
+  const shares = sharesService({
+    db, dataDir: config.dataDir, masterKey: config.masterKey, origin: config.origin,
+    exists: (username, path) => agents.request(username, { op: 'fs.exists', path }, 5_000)
+      .then((r) => (r as { exists?: unknown }).exists === false ? false : (r as { exists?: unknown }).exists === true ? true : null, () => null),
+  })
   const activity = activityService({ db, hub })
   const search = searchService({ db })
   const tasks = tasksService({ db, hub, activity, search })

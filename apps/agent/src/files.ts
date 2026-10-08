@@ -67,7 +67,14 @@ export const ops = {
     const path = await existing(r.path)
     if (roots().some((x) => x.path === path)) throw new Error('That folder cannot be deleted.')
     await rm(path, { recursive: true })
-    return { ok: true }
+    return { ok: true, path }
+  },
+
+  /** Whether a shared file is still there (share links stop working once their file is gone). */
+  async exists(r: Record<string, unknown>) {
+    if (typeof r.path !== 'string' || !r.path.startsWith('/')) throw new Error('Use a full path.')
+    const real = await realpath(r.path).catch(() => null)
+    return { exists: !!real && inside(real) }
   },
 
   /** One chunk of an upload. offset 0 starts the file over; chunks arrive in order. */
