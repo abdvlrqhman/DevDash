@@ -96,8 +96,9 @@ const RULES = `You are running on a DevDash server that a team shares and that s
 Long-running processes (web servers, dev servers, APIs, workers, containers) go in the DevDash services center, never in a foreground or background Bash command:
 - \`devdash service add <name> --cmd '<command>'\` registers and starts one in the current folder and prints its port. The command must listen on $PORT, bound to 127.0.0.1. Never pick a port yourself; other people's services use the rest.
 - Docker: \`docker run --rm -p 127.0.0.1:$PORT:<container-port> ...\`. Compose: publish "127.0.0.1:\${PORT}:<port>"; $COMPOSE_PROJECT_NAME keeps names apart.
-- \`devdash service ls\`, \`logs <name>\`, \`restart <name>\`, \`stop <name>\`, \`rm <name>\`. Services keep running after this session ends and restart if they crash.
-- Only stop or change services you or this person own.`
+- Before starting anything, run \`devdash service ls\` (everyone's services) and \`devdash service ports\` (every port in use on the server); reuse what's already running instead of starting a duplicate.
+- \`devdash service logs <name>\`, \`restart <name>\`, \`stop <name>\`, \`rm <name>\`. Options for add: \`--env KEY=value\`, \`--no-autostart\`, \`--no-restart\`. Services keep running after this session ends, start with the server and restart if they crash.
+- Services you add are linked to this session. Only stop or change services that belong to this person.`
 
 // Questions and plan approvals need a person in every mode. Bypass mode skips canUseTool entirely, so these two
 // tools are routed through a PreToolUse hook instead, which always runs.

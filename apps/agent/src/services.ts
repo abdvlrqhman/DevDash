@@ -35,7 +35,8 @@ export async function start(r: Record<string, unknown>) {
   const port = Number(r.port)
   if (typeof r.command !== 'string' || !r.command.trim()) throw new Error('missing command')
   if (!Number.isInteger(port) || port < 20000 || port > 20999) throw new Error('invalid port')
-  const env = ['-e', `PORT=${port}`, '-e', `COMPOSE_PROJECT_NAME=dd-${name}`, '-e', `DEVDASH_SERVICE=${name}`]
+  const extra = Array.isArray(r.env) ? (r.env as [string, string][]).filter(([k]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(k) && k !== 'PORT') : []
+  const env = [...extra.flatMap(([k, v]) => ['-e', `${k}=${v}`]), '-e', `PORT=${port}`, '-e', `COMPOSE_PROJECT_NAME=dd-${name}`, '-e', `DEVDASH_SERVICE=${name}`]
   const run = ['respawn-pane', '-k', '-t', target(name), '-c', cwd, ...env, 'bash', '-lc', r.command]
   if (await exists(name)) return void (await svcTmux(...run))
   // Create the session with a placeholder, keep panes after exit, then swap in the real command (no race with fast exits).
@@ -75,7 +76,7 @@ export async function logs(r: Record<string, unknown>) {
   const n = Math.min(5000, Math.max(1, Number(r.lines) || 200))
   if (!(await exists(name))) return ''
   const { stdout } = await svcTmux('capture-pane', '-p', '-J', '-S', `-${n}`, '-t', target(name))
-  return stdout.trimEnd()
+  return stdout.replace(/\n{3,}/g, '\n\n').trim() // the pane's empty rows aren't output
 }
 
 export const sessionName = (name: unknown) => session(check(name))

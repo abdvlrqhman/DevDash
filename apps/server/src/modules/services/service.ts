@@ -5,6 +5,7 @@ import { AppError } from '../../core/http.ts'
 import type { AgentsService } from '../agents/service.ts'
 import type { User } from '../auth/repo.ts'
 import type { NotificationsService } from '../notifications/service.ts'
+import { listeningPorts, parseEnv } from './ports.ts'
 
 export const NAME_RE = /^[a-z][a-z0-9-]{0,30}$/
 const PORTS = { from: 20000, to: 20999 }
@@ -12,11 +13,25 @@ const TICK_MS = 15_000
 const MAX_RESTARTS = 5 // within RESTART_WINDOW_MS, then it is marked crashed until someone starts it again
 const RESTART_WINDOW_MS = 10 * 60_000
 
-type Row = { id: number; name: string; owner_id: number; owner_username: string; owner_name: string; cwd: string; command: string; port: number; desired: 'running' | 'stopped'; created_at: number }
+type Row = {
+  id: number; name: string; owner_id: number; owner_username: string; owner_name: string; cwd: string; command: string; port: number
+  desired: 'running' | 'stopped'; created_at: number; session_id: string | null; session_title: string | null; autostart: number; restart: number; env: string
+}
+export type Options = { autostart?: boolean; restart?: boolean; env?: string }
 export type State = 'running' | 'starting' | 'stopped' | 'crashed' | 'unknown'
 type Runtime = { state: State; listening: boolean; exitCode: number | null; error: string | null; restarts: number[] }
 
-const SELECT = `select s.*, u.username as owner_username, u.name as owner_name from services s join users u on u.id = s.owner_id`
+function checkEnv(text: string) {
+  try {
+    parseEnv(text)
+  } catch (err) {
+    throw new AppError(400, 'invalid_env', (err as Error).message)
+  }
+  return text.trim()
+}
+
+const SELECT = `select s.*, u.username as owner_username, u.name as owner_name, c.title as session_title
+  from services s join users u on u.id = s.owner_id left join claude_sessions c on c.id = s.session_id`
 
 /**
  * The services center. The registry lives here; the processes run in each owner's agent (tmux, as the owner),
@@ -27,9 +42,10 @@ export function servicesService({ db, agents, hub, notify }: { db: Db; agents: A
     all: db.prepare(`${SELECT} order by s.name`),
     byName: db.prepare(`${SELECT} where s.name = ?`),
     ports: db.prepare('select port from services'),
-    insert: db.prepare('insert into services (name, owner_id, cwd, command, port) values (?, ?, ?, ?, ?)'),
+    insert: db.prepare('insert into services (name, owner_id, cwd, command, port, session_id, autostart, restart, env) values (?, ?, ?, ?, ?, ?, ?, ?, ?)'),
     desired: db.prepare('update services set desired = ? where id = ?'),
-    edit: db.prepare('update services set command = ?, cwd = ? where id = ?'),
+    edit: db.prepare('update services set command = ?, cwd = ?, autostart = ?, restart = ?, env = ? where id = ?'),
+    ownSession: db.prepare('select 1 from claude_sessions where id = ? and owner_id = ?'),
     remove: db.prepare('delete from services where id = ?'),
     user: db.prepare("select id, username, name, role from users where username = ? and disabled_at is null"),
   }
@@ -54,15 +70,19 @@ export function servicesService({ db, agents, hub, notify }: { db: Db; agents: A
   }
   const dto = (s: Row, u: Pick<User, 'id' | 'role'>) => {
     const r = rt(s.name)
+    const mine = canControl(u, s)
     return {
       name: s.name, cwd: s.cwd, command: s.command, port: s.port, desired: s.desired, createdAt: s.created_at,
       owner: { id: s.owner_id, username: s.owner_username, name: s.owner_name },
+      session: s.session_id ? { id: s.session_id, title: s.session_title ?? 'Claude session' } : null,
+      autostart: s.autostart === 1, restart: s.restart === 1,
+      env: mine ? s.env : null, // may hold secrets: only for whoever can change the service
       state: s.desired === 'stopped' && r.state !== 'running' ? 'stopped' as State : r.state,
       listening: r.listening, exitCode: r.exitCode, error: r.error, canControl: canControl(u, s),
     }
   }
 
-  const start = (s: Row) => agents.request(s.owner_username, { op: 'service.start', name: s.name, cwd: s.cwd, command: s.command, port: s.port })
+  const start = (s: Row) => agents.request(s.owner_username, { op: 'service.start', name: s.name, cwd: s.cwd, command: s.command, port: s.port, env: parseEnv(s.env) })
   const stop = (s: Row) => agents.request(s.owner_username, { op: 'service.stop', name: s.name }, 30_000)
 
   const probe = (port: number) => new Promise<boolean>((resolve) => {
@@ -98,6 +118,12 @@ export function servicesService({ db, agents, hub, notify }: { db: Db; agents: A
             r.listening = await probe(s.port)
           } else if (s.desired === 'stopped') {
             Object.assign(r, { state: 'stopped', listening: false })
+          } else if (!l && !s.autostart) {
+            // Gone without being stopped: the server restarted. This one waits for someone to start it.
+            q.desired.run('stopped', s.id)
+            Object.assign(r, { state: 'stopped', listening: false })
+          } else if (l?.dead && !s.restart) {
+            Object.assign(r, { state: 'crashed', listening: false, exitCode: l.code })
           } else {
             r.listening = false
             r.exitCode = l?.code ?? r.exitCode
@@ -130,7 +156,8 @@ export function servicesService({ db, agents, hub, notify }: { db: Db; agents: A
   const soon = () => { for (const ms of [1500, 5000]) setTimeout(() => void tick(), ms).unref() }
 
   function nextPort() {
-    const used = new Set((q.ports.all() as { port: number }[]).map((r) => r.port))
+    // Skip ports DevDash handed out and anything else already listening on the server (other tools, Docker).
+    const used = new Set([...(q.ports.all() as { port: number }[]).map((r) => r.port), ...listeningPorts().map((p) => p.port)])
     for (let p = PORTS.from; p <= PORTS.to; p++) if (!used.has(p)) return p
     throw new AppError(409, 'no_ports', 'All service ports are taken. Remove services you no longer need.')
   }
@@ -139,12 +166,14 @@ export function servicesService({ db, agents, hub, notify }: { db: Db; agents: A
     list: (u: Pick<User, 'id' | 'role'>) => (q.all.all() as Row[]).map((s) => dto(s, u)),
     get: (u: Pick<User, 'id' | 'role'>, name: string) => dto(get(name), u),
 
-    async create(u: Pick<User, 'id' | 'role' | 'username'>, input: { name: string; cwd: string; command: string }) {
+    async create(u: Pick<User, 'id' | 'role' | 'username'>, input: { name: string; cwd: string; command: string; sessionId?: string } & Options) {
       if (!NAME_RE.test(input.name)) throw new AppError(400, 'invalid_name', 'Use lowercase letters, digits and dashes, starting with a letter (up to 31).')
       if (q.byName.get(input.name)) throw new AppError(409, 'taken', `${input.name} already exists. Pick another name.`)
+      const env = checkEnv(input.env ?? '')
       // The owner's agent resolves ~ and checks the folder exists for them.
       const { path } = await agents.request<{ path: string }>(u.username, { op: 'fs.dir', path: input.cwd })
-      q.insert.run(input.name, u.id, path, input.command, nextPort())
+      const session = input.sessionId && q.ownSession.get(input.sessionId, u.id) ? input.sessionId : null
+      q.insert.run(input.name, u.id, path, input.command, nextPort(), session, input.autostart === false ? 0 : 1, input.restart === false ? 0 : 1, env)
       const s = get(input.name)
       rt(s.name).state = 'starting'
       try {
@@ -157,10 +186,11 @@ export function servicesService({ db, agents, hub, notify }: { db: Db; agents: A
       return dto(s, u)
     },
 
-    async edit(u: Pick<User, 'id' | 'role'>, name: string, input: { command?: string; cwd?: string }) {
+    async edit(u: Pick<User, 'id' | 'role'>, name: string, input: { command?: string; cwd?: string } & Options) {
       const s = control(u, name)
       const cwd = input.cwd === undefined ? s.cwd : (await agents.request<{ path: string }>(s.owner_username, { op: 'fs.dir', path: input.cwd })).path
-      q.edit.run(input.command ?? s.command, cwd, s.id)
+      const flag = (v: boolean | undefined, old: number) => (v === undefined ? old : v ? 1 : 0)
+      q.edit.run(input.command ?? s.command, cwd, flag(input.autostart, s.autostart), flag(input.restart, s.restart), input.env === undefined ? s.env : checkEnv(input.env), s.id)
       if (s.desired === 'running') await api.restart(u, name)
       else changed()
       return dto(get(name), u)
@@ -205,6 +235,12 @@ export function servicesService({ db, agents, hub, notify }: { db: Db; agents: A
       return (await agents.request<{ text: string }>(s.owner_username, { op: 'service.logs', name, lines })).text
     },
 
+    /** Every port in use on the server, and which service (if any) holds it. */
+    ports() {
+      const byPort = new Map((q.all.all() as Row[]).map((s) => [s.port, s.name]))
+      return listeningPorts().map((p) => ({ ...p, service: byPort.get(p.port) ?? null }))
+    },
+
     /** Who may open the live log view, and on whose agent it runs. */
     logsAccess: (_u: User, name: string) => get(name).owner_username,
   }
@@ -217,7 +253,11 @@ export function servicesService({ db, agents, hub, notify }: { db: Db; agents: A
   }
   const p = (v: unknown) => (v ?? {}) as Record<string, string>
   agents.onRpc('services.list', (username) => ({ services: api.list(asUser(username)) }))
-  agents.onRpc('services.add', (username, v) => api.create(asUser(username), { name: p(v).name!, cwd: p(v).cwd!, command: p(v).command! }))
+  agents.onRpc('services.add', (username, v) => {
+    const o = (v ?? {}) as { name: string; cwd: string; command: string; sessionId?: string; env?: string; autostart?: boolean; restart?: boolean }
+    return api.create(asUser(username), o)
+  })
+  agents.onRpc('services.ports', () => ({ ports: api.ports() }))
   agents.onRpc('services.start', (username, v) => api.start(asUser(username), p(v).name!))
   agents.onRpc('services.stop', (username, v) => api.stop(asUser(username), p(v).name!))
   agents.onRpc('services.restart', (username, v) => api.restart(asUser(username), p(v).name!))

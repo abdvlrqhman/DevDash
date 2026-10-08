@@ -1,17 +1,20 @@
-import { useState } from 'react'
+import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useParams } from '@tanstack/react-router'
-import { Play, RotateCw, Square, Trash2 } from 'lucide-react'
+import { Link, useNavigate, useParams } from '@tanstack/react-router'
+import { Pencil, Play, RotateCw, Square, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
 import { PageHeader } from '@/components/app/page'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
 import { Button } from '@/components/ui/button'
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api, unwrap } from '@/lib/api'
 import { ErrorAlert } from '../auth/LoginPage'
 import { TerminalView, type Status } from '../terminal/TerminalView'
-import { servicesQuery, stateOf, useLiveServices } from './data'
+import { servicesQuery, stateOf, useLiveServices, type Service } from './data'
+import { ServiceOptions } from './ServicesPage'
 
 export function ServicePage() {
   useLiveServices()
@@ -20,6 +23,7 @@ export function ServicePage() {
   const navigate = useNavigate()
   const list = useQuery(servicesQuery)
   const [removing, setRemoving] = useState(false)
+  const [editing, setEditing] = useState(false)
   const [, setLogStatus] = useState<Status>('connecting')
   const s = list.data?.services.find((x) => x.name === name)
 
@@ -54,6 +58,7 @@ export function ServicePage() {
                 <Button size="sm" variant="outline" disabled={act.isPending} onClick={() => act.mutate('restart')}><RotateCw /><span className="hidden sm:inline">Restart</span></Button>
                 <Button size="sm" variant="outline" disabled={act.isPending} onClick={() => act.mutate('stop')}><Square /><span className="hidden sm:inline">Stop</span></Button>
               </>}
+          <Button size="icon-sm" variant="ghost" aria-label="Edit service" onClick={() => setEditing(true)}><Pencil /></Button>
           <Button size="icon-sm" variant="ghost" aria-label="Remove service" onClick={() => setRemoving(true)}><Trash2 /></Button>
         </>} />
 
@@ -63,6 +68,9 @@ export function ServicePage() {
         <dt className="text-muted-foreground">Command</dt><dd className="font-mono break-all">{s.command}</dd>
         <dt className="text-muted-foreground">Folder</dt><dd className="font-mono break-all">{s.cwd}</dd>
         <dt className="text-muted-foreground">Owner</dt><dd>{s.owner.name}</dd>
+        {s.session && <><dt className="text-muted-foreground">Started by</dt><dd><Link to="/claude/$id" params={{ id: s.session.id }} className="underline underline-offset-4">Claude in {s.session.title}</Link></dd></>}
+        <dt className="text-muted-foreground">Options</dt>
+        <dd>{[s.autostart ? 'starts with the server' : 'manual start', s.restart ? 'restarts on crash' : 'no restart on crash', s.env ? `${s.env.split('\n').filter((l) => l.trim() && !l.trim().startsWith('#')).length} environment variables` : null].filter(Boolean).join(', ')}</dd>
         {s.error && <><dt className="text-muted-foreground">Problem</dt><dd className="text-destructive">{s.error}</dd></>}
         {s.state === 'crashed' && <><dt className="text-muted-foreground">Exit code</dt><dd className="font-mono">{s.exitCode ?? 'unknown'}</dd></>}
       </dl>
@@ -72,6 +80,8 @@ export function ServicePage() {
           ? <TerminalView key={`${s.name}:${s.state === 'crashed'}`} path={`/api/services/${s.name}/logs`} onStatus={setLogStatus} />
           : <p className="flex h-full items-center justify-center px-6 text-center text-sm text-term-fg/70">Stopped. Its output shows here while it runs.</p>}
       </div>
+
+      {editing && <EditService s={s} onClose={() => setEditing(false)} />}
 
       <ResponsiveDialog open={removing} onOpenChange={setRemoving} title={`Remove ${s.name}?`} description="It stops, and its port goes back to the pool. The folder and its files stay.">
         <div className="flex flex-col gap-3">
@@ -83,5 +93,43 @@ export function ServicePage() {
         </div>
       </ResponsiveDialog>
     </div>
+  )
+}
+
+function EditService({ s, onClose }: { s: Service; onClose: () => void }) {
+  const qc = useQueryClient()
+  const [f, setF] = useState({ command: s.command, cwd: s.cwd, autostart: s.autostart, restart: s.restart, env: s.env ?? '' })
+  const set = (v: Partial<typeof f>) => setF((o) => ({ ...o, ...v }))
+  const save = useMutation({
+    mutationFn: () => unwrap(api.api.services[':name'].$patch({ param: { name: s.name }, json: f })),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['services'] })
+      toast.success(s.desired === 'running' ? `Saved. ${s.name} restarted with the changes.` : 'Saved.')
+      onClose()
+    },
+  })
+  const submit = (e: FormEvent) => {
+    e.preventDefault()
+    save.mutate()
+  }
+  return (
+    <ResponsiveDialog open onOpenChange={(v) => !v && onClose()} title={`Edit ${s.name}`} description={s.desired === 'running' ? 'Saving restarts it.' : undefined}>
+      <form onSubmit={submit}>
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="svc-e-cmd">Command</FieldLabel>
+            <Input id="svc-e-cmd" required className="h-10 font-mono" value={f.command} onChange={(e) => set({ command: e.target.value })} />
+            <FieldDescription>Port {s.port} stays the same: <code className="font-mono">$PORT</code>.</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="svc-e-cwd">Folder</FieldLabel>
+            <Input id="svc-e-cwd" required className="h-10 font-mono" value={f.cwd} onChange={(e) => set({ cwd: e.target.value })} />
+          </Field>
+          <ServiceOptions autostart={f.autostart} restart={f.restart} env={f.env} onChange={set} />
+          <ErrorAlert error={save.error} />
+          <Button type="submit" className="h-10" disabled={!f.command || !f.cwd || save.isPending}>Save changes</Button>
+        </FieldGroup>
+      </form>
+    </ResponsiveDialog>
   )
 }

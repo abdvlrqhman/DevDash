@@ -29,6 +29,7 @@ import {
 } from './data'
 import { createLiveText, type LiveTextStore } from './live-text'
 import { Requests } from './Requests'
+import { servicesQuery, stateOf } from '../services/data'
 import { buildTranscript, mergeRaw, sessionFacts, type Raw } from './transcript'
 import { useTopic } from '@/lib/live'
 
@@ -205,9 +206,24 @@ const LiveText = memo(function LiveText({ store, working, onGrow }: { store: Liv
 /** Wide screens: what Claude is doing at a glance, beside the conversation. */
 function SessionAside({ s, blocks }: { s: Session; blocks: ReturnType<typeof buildTranscript> }) {
   const { todos, files } = useMemo(() => sessionFacts(blocks), [blocks])
+  const services = useQuery(servicesQuery).data?.services.filter((x) => x.session?.id === s.id) ?? []
   const done = todos.filter((t) => t.status === 'completed').length
   return (
     <aside aria-label="Session details" className="hidden w-72 shrink-0 flex-col gap-6 overflow-y-auto border-l p-4 text-sm xl:flex">
+      {services.length > 0 && (
+        <section className="flex flex-col gap-2">
+          <h2 className="font-medium">Services</h2>
+          <ul className="flex flex-col gap-1">
+            {services.map((x) => (
+              <li key={x.name}>
+                <Link to="/services/$name" params={{ name: x.name }} className="flex items-center gap-2 rounded-md py-0.5 hover:underline">
+                  <StatusLight state={stateOf(x).light} /><span className="font-mono">{x.name}</span><span className="ml-auto font-mono text-xs text-muted-foreground">:{x.port}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
       {todos.length > 0 && (
         <section className="flex flex-col gap-2">
           <h2 className="flex items-baseline justify-between font-medium">To-dos <span className="text-xs font-normal text-muted-foreground">{done} of {todos.length}</span></h2>
