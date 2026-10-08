@@ -15,7 +15,8 @@ const RESERVED = new Set([
   'uucp', 'proxy', 'www-data', 'backup', 'list', 'irc', 'gnats', 'nobody', 'sshd', 'syslog', 'messagebus',
   'ubuntu', 'docker', 'lxd', 'polkitd', 'tss', 'uuidd', 'tcpdump', 'landscape', 'dnsmasq', 'pollinate', 'neko',
 ])
-export const isAllowedUsername = (u: string) => USERNAME_RE.test(u) && !RESERVED.has(u) && !u.startsWith('systemd-')
+export const isAllowedUsername = (u: string) =>
+  USERNAME_RE.test(u) && !RESERVED.has(u) && !u.startsWith('systemd-') && !u.startsWith('devdash') // same rules as deploy/helper
 
 const DAY = 86_400
 const REMEMBER_TTL = 30 * DAY
@@ -133,6 +134,29 @@ export function authService(deps: { db: Db; masterKey: Buffer; spaceName: string
       })
       repo.audit(user.id, 'invite.accept', inv.email, meta.ip)
       return { token: createSession(user.id, false, meta), user, backupCodes }
+    },
+
+    /** Requires the current password; signs out every other device. Returns how many sessions were ended. */
+    async changePassword(userId: number, current: string, next: string, keepToken: string, ip: string) {
+      rateLimit(`password:${userId}`, 8, FIFTEEN_MIN)
+      const u = repo.userById(userId)
+      if (!u || !(await verifyPassword(current, u.password_hash))) {
+        repo.audit(userId, 'password.change_fail', null, ip)
+        throw new AppError(400, 'wrong_password', 'Your current password is not correct.')
+      }
+      repo.setPassword(userId, await hashPassword(next))
+      const ended = repo.deleteOtherSessions(userId, sha256(keepToken))
+      repo.audit(userId, 'password.change', null, ip, { endedSessions: ended })
+      return ended
+    },
+
+    /** Fresh 2FA check for sensitive actions (admin shell). Shares the replay guard with sign-in. */
+    verifyFreshTotp(userId: number, code: string): boolean {
+      rateLimit(`totp:${userId}`, 10, FIFTEEN_MIN)
+      const u = repo.userById(userId)
+      if (!u || !/^\d{6}$/.test(code)) return false
+      const step = verifyTotp(unseal(key, u.totp_secret, `totp:user:${u.id}`), code, u.totp_last_step)
+      return step !== null && repo.advanceTotpStep(u.id, step)
     },
 
     members() {

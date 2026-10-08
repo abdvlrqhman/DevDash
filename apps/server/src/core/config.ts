@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 export type Config = {
@@ -8,6 +8,8 @@ export type Config = {
   port: number
   masterKey: Buffer
   trustCfIp: boolean
+  /** Where systemd puts the root helper and agent sockets. Empty on a dev machine (no host integration). */
+  runDir: string
   version: string
 }
 
@@ -32,6 +34,7 @@ export function loadConfig(): Config {
     port: Number(process.env.DEVDASH_PORT || 8787),
     masterKey,
     trustCfIp: process.env.DEVDASH_TRUST_CF_IP === '1',
+    runDir: process.env.DEVDASH_RUN_DIR ?? (existsSync('/run/devdash') ? '/run/devdash' : ''),
     version: pkg.version,
   }
 }

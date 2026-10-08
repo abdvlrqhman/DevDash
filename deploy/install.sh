@@ -22,6 +22,7 @@ id devdash-build &>/dev/null || useradd --system --create-home --home-dir /var/c
 install -d -m 700 -o devdash -g devdash /var/lib/devdash
 install -d -m 750 -o root -g devdash /etc/devdash
 install -d -m 755 /opt/devdash/releases
+getent group devdash-users >/dev/null || groupadd devdash-users
 
 if [[ ! -f $ENV_FILE ]]; then
   [[ -n $DOMAIN ]] || { echo "first install: pass --domain <domain>" >&2; exit 2; }
@@ -39,7 +40,12 @@ EOF
 fi
 DOMAIN=$(sed -n 's|^DEVDASH_ORIGIN=https://||p' "$ENV_FILE")
 
-install -m 644 "$REL/deploy/systemd/devdash-server.service" /etc/systemd/system/devdash-server.service
+# The root helper runs from a root-owned copy, installed before any npm build step can touch the release dir.
+install -d -m 755 /usr/local/libexec
+install -m 755 -o root -g root "$REL/deploy/helper/devdash-helper.mjs" /usr/local/libexec/devdash-helper.mjs
+for unit in devdash-server.service devdash-helper.socket devdash-helper@.service devdash-agent@.socket devdash-agent@.service; do
+  install -m 644 "$REL/deploy/systemd/$unit" "/etc/systemd/system/$unit"
+done
 install -m 755 "$REL/deploy/devdash-cli" /usr/local/bin/devdash
 
 # Caddy: domain via env, TLS mode from what's on disk.
@@ -61,4 +67,5 @@ fi
 DEVDASH_DOMAIN=$DOMAIN caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
 
 systemctl daemon-reload
+systemctl enable -q --now devdash-helper.socket
 systemctl enable -q devdash-server caddy

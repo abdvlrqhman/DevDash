@@ -2,6 +2,8 @@
 # Builds this release, switches /opt/devdash/current to it, health-checks, rolls back on failure. Run as root.
 # Usage: activate.sh [install.sh args]
 set -euo pipefail
+# Everything runs inside main(): bash parses it fully first, so a build step can't alter what root executes next.
+main() {
 REL="$(cd "$(dirname "$0")/.." && pwd)"
 CURRENT=/opt/devdash/current
 
@@ -36,6 +38,11 @@ if ! healthy; then
   exit 1
 fi
 
+# Agents pick up new code; tmux (terminals, CLI sessions) survives because of KillMode=process.
+systemctl try-restart 'devdash-agent@*.service' || true
+
 # Keep the 5 newest releases.
 ls -1dt /opt/devdash/releases/*/ | tail -n +6 | xargs -r rm -rf
 echo "live: $(basename "$REL")"
+}
+main "$@"

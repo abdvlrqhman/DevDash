@@ -36,7 +36,9 @@ export function authRepo(db: Db) {
       values (?, ?, ?, ?, ?, '', ?)`),
     setTotpSecret: db.prepare('update users set totp_secret = ? where id = ?'),
     advanceTotpStep: db.prepare('update users set totp_last_step = ?1 where id = ?2 and totp_last_step < ?1'),
-    listUsers: db.prepare('select id, email, username, name, role, created_at, disabled_at from users order by created_at'),
+    listUsers: db.prepare('select id, email, username, name, role, created_at, disabled_at, provisioned_at, provision_error from users order by created_at'),
+    setPassword: db.prepare('update users set password_hash = ? where id = ?'),
+    deleteOtherSessions: db.prepare('delete from sessions where user_id = ? and token_hash != ?'),
     insertBackupCode: db.prepare('insert into backup_codes (user_id, code_hash) values (?, ?)'),
     useBackupCode: db.prepare('update backup_codes set used_at = unixepoch() where user_id = ? and code_hash = ? and used_at is null'),
     insertSession: db.prepare(`insert into sessions (token_hash, user_id, remember, expires_at, last_seen_at, ip, user_agent)
@@ -63,7 +65,9 @@ export function authRepo(db: Db) {
     setTotpSecret: (id: number, sealed: string) => void s.setTotpSecret.run(sealed, id),
     /** Atomic replay guard: false if this step (or a later one) was already used. */
     advanceTotpStep: (id: number, step: number) => s.advanceTotpStep.run(step, id).changes === 1,
-    listUsers: () => s.listUsers.all() as (User & { created_at: number; disabled_at: number | null })[],
+    listUsers: () => s.listUsers.all() as (User & { created_at: number; disabled_at: number | null; provisioned_at: number | null; provision_error: string | null })[],
+    setPassword: (id: number, hash: string) => void s.setPassword.run(hash, id),
+    deleteOtherSessions: (userId: number, keepHash: string) => Number(s.deleteOtherSessions.run(userId, keepHash).changes),
     insertBackupCodes: (userId: number, hashes: string[]) => hashes.forEach((h) => s.insertBackupCode.run(userId, h)),
     useBackupCode: (userId: number, hash: string) => s.useBackupCode.run(userId, hash).changes === 1,
     insertSession: (v: { tokenHash: string; userId: number; remember: boolean; expiresAt: number; ip: string; ua: string }) =>

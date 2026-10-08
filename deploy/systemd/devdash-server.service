@@ -1,6 +1,7 @@
 [Unit]
 Description=DevDash server
-After=network.target
+After=network.target devdash-helper.socket
+Wants=devdash-helper.socket
 
 [Service]
 User=devdash
@@ -12,11 +13,11 @@ Restart=on-failure
 RestartSec=2
 UMask=0077
 
-# Hardening. Phase 2 revisits NoNewPrivileges (the root helper runs through sudo).
+# Hardening. Root work goes through devdash-helper.socket, so the server never needs privileges.
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/var/lib/devdash
+ReadWritePaths=/var/lib/devdash /run/devdash
 PrivateTmp=yes
 PrivateDevices=yes
 ProtectKernelTunables=yes

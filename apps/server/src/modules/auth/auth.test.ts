@@ -9,7 +9,7 @@ const ORIGIN = 'https://space.test'
 
 function setup() {
   const db = openDb(':memory:')
-  const config = { origin: ORIGIN, spaceName: 'Test', dataDir: '', port: 0, masterKey: randomBytes(32), trustCfIp: false, version: '0.0.0' }
+  const config = { origin: ORIGIN, spaceName: 'Test', dataDir: '', port: 0, masterKey: randomBytes(32), trustCfIp: false, runDir: '', version: '0.0.0' }
   const { app, auth } = createApp({ db, config })
   let cookie = ''
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
@@ -35,7 +35,7 @@ test('invite → accept → me → logout → login with backup code', async () 
   const secret = base32Decode(inv.body.totpSecret)
 
   const bad = await call('POST', `/api/auth/invites/${token}`, { name: 'Ada', password: 'short', code: '000000' })
-  assert.equal(bad.status, 400)
+  assert.equal(bad.status, 400, 'wrong code')
 
   const acc = await call('POST', `/api/auth/invites/${token}`, { name: 'Ada', password: 'a long enough password', code: hotp(secret, totpStep()) })
   assert.equal(acc.status, 200, JSON.stringify(acc.body))
@@ -92,4 +92,24 @@ test('well-known endpoint is public and CORS-open', async () => {
   const { call } = setup()
   const r = await call('GET', '/.well-known/devdash.json', undefined, { origin: 'https://anything.test' })
   assert.deepEqual(r.body, { app: 'devdash', name: 'Test', version: '0.0.0', api: 1 })
+})
+
+test('change password: needs the current one, signs out other devices, short passwords allowed', async () => {
+  const { auth, call } = setup()
+  const { token } = auth.createInvite({ email: 'p@example.com', username: 'pat', role: 'member' }, null, null)
+  const secret = base32Decode((await call('GET', `/api/auth/invites/${token}`)).body.totpSecret)
+  const acc = await call('POST', `/api/auth/invites/${token}`, { name: 'Pat', password: 'old', code: hotp(secret, totpStep()) })
+  assert.equal(acc.status, 200, 'no minimum length')
+  // a second device
+  const other = await auth.login({ email: 'p@example.com', password: 'old', code: acc.body.backupCodes[0], remember: false }, { ip: 'x', ua: 'x' })
+  assert.ok(auth.sessionUser(other.token))
+
+  assert.equal((await call('POST', '/api/auth/password', { current: 'nope', next: 'new' })).status, 400)
+  const ok = await call('POST', '/api/auth/password', { current: 'old', next: 'new' })
+  assert.equal(ok.status, 200)
+  assert.equal(ok.body.signedOutSessions, 1)
+  assert.equal(auth.sessionUser(other.token), null, 'other device signed out')
+  assert.equal((await call('GET', '/api/auth/me')).status, 200, 'this device stays signed in')
+  await assert.rejects(auth.login({ email: 'p@example.com', password: 'old', code: acc.body.backupCodes[1], remember: false }, { ip: 'x', ua: 'x' }))
+  assert.ok(await auth.login({ email: 'p@example.com', password: 'new', code: acc.body.backupCodes[2], remember: false }, { ip: 'x', ua: 'x' }))
 })

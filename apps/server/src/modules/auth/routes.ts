@@ -5,7 +5,7 @@ import { AppError, json } from '../../core/http.ts'
 import type { User } from './repo.ts'
 import type { AuthService } from './service.ts'
 
-export type AuthEnv = { Variables: { user: User } }
+export type AuthEnv = { Variables: { user: User; sessionToken: string } }
 type Ip = (c: Context) => string
 
 const COOKIE = 'devdash' // sent as __Host-devdash: Secure, Path=/, no Domain
@@ -25,6 +25,7 @@ export function authMiddleware(auth: AuthService) {
     if (!s) throw new AppError(401, 'unauthenticated', 'Please sign in.')
     if (s.refreshCookie) setSessionCookie(c, token!, true)
     c.set('user', s.user)
+    c.set('sessionToken', token!)
     await next()
   }
   const requireAdmin: MiddlewareHandler<AuthEnv> = async (c, next) => {
@@ -43,11 +44,16 @@ const LoginInput = z.object({
 
 const AcceptInput = z.object({
   name: z.string().trim().min(1).max(80),
-  password: z.string().min(12, 'Use at least 12 characters').max(256),
+  password: z.string().min(1).max(256),
   code: z.string().regex(/^\d{6}$/, 'Enter the 6-digit code'),
 })
 
-export function authRoutes(auth: AuthService, mw: ReturnType<typeof authMiddleware>, ip: Ip) {
+const PasswordInput = z.object({
+  current: z.string().min(1).max(256),
+  next: z.string().min(1).max(256),
+})
+
+export function authRoutes(auth: AuthService, mw: ReturnType<typeof authMiddleware>, ip: Ip, onUserCreated: (u: User) => void) {
   const meta = (c: Context) => ({ ip: ip(c), ua: (c.req.header('user-agent') ?? '').slice(0, 300) })
   return new Hono<AuthEnv>()
     .post('/login', json(LoginInput), async (c) => {
@@ -61,9 +67,15 @@ export function authRoutes(auth: AuthService, mw: ReturnType<typeof authMiddlewa
       return c.json({ ok: true })
     })
     .get('/me', mw.requireUser, (c) => c.json({ user: c.get('user') }))
+    .post('/password', mw.requireUser, json(PasswordInput), async (c) => {
+      const { current, next } = c.req.valid('json')
+      const signedOut = await auth.changePassword(c.get('user').id, current, next, c.get('sessionToken'), meta(c).ip)
+      return c.json({ ok: true, signedOutSessions: signedOut })
+    })
     .get('/invites/:token', (c) => c.json(auth.getInvite(c.req.param('token'))))
     .post('/invites/:token', json(AcceptInput), async (c) => {
       const r = await auth.acceptInvite(c.req.param('token'), c.req.valid('json'), meta(c))
+      onUserCreated(r.user)
       setSessionCookie(c, r.token, false)
       return c.json({ user: r.user, backupCodes: r.backupCodes })
     })
