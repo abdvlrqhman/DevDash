@@ -124,10 +124,32 @@ export function claudeService({ db, agents, hub, notify }: { db: Db; agents: Age
   })
 
   /** After (re)connecting to an agent: trust what is actually running over what the database remembers. */
+  // A session that was working when its process went away (server reboot, agent crash) carries on by itself:
+  // nobody has to keep a device open. At most once per half hour per session, so a crash can't loop.
+  const RESUME_TEXT = 'Continue where you left off. (DevDash: the server restarted while you were working.)'
+  const resumed = new Map<string, number>()
+  async function resumeInterrupted(s: SessionRow) {
+    resumed.set(s.id, Date.now())
+    try {
+      const uuid = randomUUID()
+      repo.addSender(s.id, uuid, s.owner_id)
+      await agents.request(s.owner_username, { op: 'claude.send', launch: launch(s), content: content(RESUME_TEXT, []), uuid })
+      repo.setStatus(s.id, 'working', null, 'chat')
+    } catch (err) {
+      repo.setStatus(s.id, 'error', `Interrupted by a server restart and could not continue: ${(err as Error).message}`.slice(0, 500), 'chat')
+      alert(s, 'errors', `Claude was interrupted: ${s.title}`, 'Send a message to continue.')
+    }
+    publish(s.id)
+  }
+
   function reconcile(username: string, live: { id: string; mode: string; status?: SessionStatus }[]) {
     const byId = new Map(live.map((l) => [l.id, l]))
     for (const s of repo.ownedActive(username)) {
       const l = byId.get(s.id)
+      if (!l && s.status === 'working' && s.started && Date.now() - (resumed.get(s.id) ?? 0) > 30 * 60_000) {
+        void resumeInterrupted(s)
+        continue
+      }
       const mode = l?.mode === 'cli' ? 'cli' : 'chat'
       const status = l?.status && STATUSES.has(l.status) ? l.status : s.status === 'working' || s.status === 'waiting' ? 'idle' : s.status
       if (mode !== s.mode || status !== s.status) {

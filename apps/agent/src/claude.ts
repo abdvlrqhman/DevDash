@@ -15,6 +15,7 @@ import { hasSession, listSessions, tmux } from './tmux.ts'
 export const PLUGIN_DIR = fileURLToPath(new URL('../../../packages/claude-plugin', import.meta.url))
 export const PROFILE_RE = /^[a-z0-9][a-z0-9-]{0,20}$/
 const ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
+// An idle Chat process (no turn, no question, no background task) is closed to free memory; the next message resumes it.
 const IDLE_CLOSE_MS = 20 * 60_000 // ponytail: fixed; make per-member if RAM allows longer
 const run = promisify(execFile)
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -31,7 +32,8 @@ export type Launch = {
 }
 export type Status = 'working' | 'waiting' | 'idle' | 'stopped' | 'error'
 type Pending = { requestId: string; toolName: string; input: Record<string, unknown>; suggestions?: unknown[]; resolve: (r: PermissionResult) => void }
-type Chat = { launch: Launch; q: Query; inbox: Inbox; pending: Map<string, Pending>; status: Status; lastActive: number; done?: Promise<void> }
+/** `bg`: background shells, subagents and monitors still running; Claude picks their results up when they finish. */
+type Chat = { launch: Launch; q: Query; inbox: Inbox; pending: Map<string, Pending>; status: Status; lastActive: number; bg: number; done?: Promise<void> }
 
 let emit: (ev: Record<string, unknown>) => void = () => {}
 export const setEmitter = (fn: typeof emit) => { emit = fn }
@@ -147,7 +149,7 @@ async function startChat(l: Launch): Promise<Chat> {
       stderr: (d: string) => console.error(`[${l.id.slice(0, 8)}] ${d.trimEnd()}`),
     },
   })
-  chat = { launch: { ...l, started: true }, q, inbox, pending, status: 'idle', lastActive: Date.now() }
+  chat = { launch: { ...l, started: true }, q, inbox, pending, status: 'idle', lastActive: Date.now(), bg: 0 }
   chats.set(l.id, chat)
   chat.done = pump(chat)
   return chat
@@ -166,6 +168,8 @@ async function pump(c: Chat) {
         setStatus(c, id, s === 'running' ? 'working' : s === 'requires_action' ? 'waiting' : 'idle')
       } else if (msg.type === 'result' && !c.pending.size) {
         setStatus(c, id, 'idle')
+      } else if (msg.type === 'system' && msg.subtype === 'background_tasks_changed') {
+        c.bg = (msg.tasks as { ambient?: boolean }[]).filter((t) => !t.ambient).length
       } else if (msg.type === 'system' && msg.subtype === 'init') {
         void c.q.supportedCommands().then((v) => commandCache.set(c.launch.profile, v), () => {})
         void c.q.supportedModels().then((v) => modelCache.set(c.launch.profile, v), () => {})
@@ -351,10 +355,11 @@ export function loginCommand(profile: string) {
   return { env: profileEnv(profile), args: [CLAUDE_BIN, 'auth', 'login'] }
 }
 
-export const busy = () => [...chats.values()].some((c) => c.status === 'working' || c.status === 'waiting')
+/** Something would be cut off if this agent restarted now. */
+export const busy = () => [...chats.values()].some((c) => c.status === 'working' || c.status === 'waiting' || c.bg > 0)
 
 setInterval(() => {
   for (const c of chats.values()) {
-    if (c.status === 'idle' && !c.pending.size && Date.now() - c.lastActive > IDLE_CLOSE_MS) void stopChat(c)
+    if (c.status === 'idle' && !c.pending.size && !c.bg && Date.now() - c.lastActive > IDLE_CLOSE_MS) void stopChat(c)
   }
 }, 60_000).unref()
