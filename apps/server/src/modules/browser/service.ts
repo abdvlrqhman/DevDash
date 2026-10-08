@@ -34,8 +34,11 @@ export function browserService({ runDir }: { runDir: string }) {
     throw new AppError(409, 'browser', 'The browser is taking too long to start. Try again in a minute.')
   }
 
+  // A browser found running with no viewer on record (e.g. after a DevDash restart) starts its idle countdown now.
   setInterval(() => {
-    if (lastSeen && Date.now() - lastSeen > IDLE_MS) {
+    if (!lastSeen) {
+      void helper<{ running: boolean }>('browser-status').then((r) => { if (r.running && !lastSeen) lastSeen = Date.now() }, () => {})
+    } else if (Date.now() - lastSeen > IDLE_MS) {
       lastSeen = 0
       void helper('browser-stop').catch((err) => console.error('browser stop:', (err as Error).message))
     }
@@ -44,18 +47,17 @@ export function browserService({ runDir }: { runDir: string }) {
   return {
     status: async () => ({ running: (await helper<{ running: boolean }>('browser-status')).running }),
 
-    /** Starts it if needed and signs this member in; returns neko's session cookies for the browser to keep. */
+    /**
+     * Starts it if needed and returns the address that signs this member in (neko's client reads usr/pwd from the URL,
+     * then removes them). The password only reaches signed-in members: Caddy lets nobody else near /browser/.
+     */
     async open(user: User) {
       await helper('browser-start')
       lastSeen = Date.now()
       await ready()
       const p = passwords()
-      const res = await fetch(`${NEKO}/api/login`, {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ username: user.name, password: user.role === 'admin' ? p.NEKO_MEMBER_MULTIUSER_ADMIN_PASSWORD : p.NEKO_MEMBER_MULTIUSER_USER_PASSWORD }),
-      })
-      if (!res.ok) throw new AppError(409, 'browser', `The browser refused the sign-in (${res.status}).`)
-      return res.headers.getSetCookie()
+      const password = user.role === 'admin' ? p.NEKO_MEMBER_MULTIUSER_ADMIN_PASSWORD! : p.NEKO_MEMBER_MULTIUSER_USER_PASSWORD!
+      return `/browser/?${new URLSearchParams({ usr: user.name, pwd: password })}`
     },
 
     heartbeat: () => void (lastSeen = Date.now()),

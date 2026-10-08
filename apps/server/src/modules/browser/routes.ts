@@ -8,10 +8,7 @@ export function browserRoutes(browser: BrowserService, mw: ReturnType<typeof aut
     .get('/check', mw.requireUser, (c) => c.body(null, 204))
     .use(mw.requireUser)
     .get('/', async (c) => c.json(await browser.status()))
-    .post('/open', async (c) => {
-      for (const cookie of await browser.open(c.get('user'))) c.header('set-cookie', cookie, { append: true })
-      return c.json({ ok: true })
-    })
+    .post('/open', async (c) => c.json({ url: await browser.open(c.get('user')) }))
     .post('/heartbeat', (c) => {
       browser.heartbeat()
       return c.json({ ok: true })

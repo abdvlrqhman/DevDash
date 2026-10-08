@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import {
-  ArrowLeftRight, ChevronsUpDown, Download, Ellipsis, FolderGit2, HardDrive, House, KeyRound, ListTodo, LogOut, Monitor, Moon, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Sun, Users,
+  ArrowLeftRight, ChevronsUpDown, Download, Ellipsis, FolderGit2, Globe, HardDrive, House, KeyRound, ListTodo, LogOut, Monitor, Moon, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Sun, Users,
 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -34,6 +34,7 @@ const NAV = [
   { to: '/vault', label: 'Vault', icon: KeyRound },
   { to: '/terminal', label: 'Terminal', icon: SquareTerminal },
   { to: '/files', label: 'Files', icon: HardDrive },
+  { to: '/browser', label: 'Browser', icon: Globe },
   { to: '/services', label: 'Services', icon: Server },
   { to: '/members', label: 'Members', icon: Users },
 ] as const
@@ -243,7 +244,7 @@ function MobileTabs({ waiting }: { waiting: number }) {
   // Inside a Claude chat the tabs step aside, as in messaging apps: the back arrow leads out.
   const inChat = useRouterState({ select: (s) => /^\/claude\/[0-9a-f-]{36}$/.test(s.location.pathname) })
   if (inChat) return null
-  const moreActive = ['/more', '/members', '/account', '/notes', '/terminal', '/services', '/files', '/vault'].some((p) => active(p)) || active('/claude/setup')
+  const moreActive = ['/more', '/members', '/account', '/notes', '/terminal', '/services', '/files', '/vault', '/browser'].some((p) => active(p)) || active('/claude/setup')
   return (
     <nav aria-label="Sections" className="grid shrink-0 grid-cols-5 border-t bg-background pb-[env(safe-area-inset-bottom)] md:hidden [.keyboard-open_&]:hidden">
       {TABS.map((t) => {

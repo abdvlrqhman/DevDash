@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { ArrowLeftRight, ChevronRight, Download, HardDrive, KeyRound, LogOut, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Users } from 'lucide-react'
+import { ArrowLeftRight, ChevronRight, Download, Globe, HardDrive, KeyRound, LogOut, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Users } from 'lucide-react'
 import { initials } from '@/components/app/brand'
 import { PageBody, PageHeader, Section } from '@/components/app/page'
 import { useSignOut } from '@/components/app/shell'
@@ -16,6 +16,7 @@ const LINKS = [
   { to: '/vault', label: 'Vault', description: 'Passwords and 2FA codes, encrypted on your device', icon: KeyRound },
   { to: '/notes', label: 'Notes', description: 'Decisions, setup steps and links for the team', icon: StickyNote },
   { to: '/terminal', label: 'Terminal', description: 'Shells on the server that keep running', icon: SquareTerminal },
+  { to: '/browser', label: 'Browser', description: 'A shared browser on the server that stays signed in', icon: Globe },
   { to: '/files', label: 'Files', description: 'Browse, upload and share files on the server', icon: HardDrive },
   { to: '/services', label: 'Services', description: 'Websites, APIs and containers that stay up', icon: Server },
   { to: '/members', label: 'Members', description: 'Invite people and see who has access', icon: Users },
