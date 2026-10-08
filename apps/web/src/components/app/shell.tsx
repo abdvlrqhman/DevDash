@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import {
@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import {
   Sidebar, SidebarContent, SidebarFooter, SidebarGroup, SidebarHeader, SidebarInset, SidebarMenu, SidebarMenuBadge,
-  SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarRail,
+  SidebarMenuButton, SidebarMenuItem, SidebarProvider, SidebarRail, useSidebar,
 } from '@/components/ui/sidebar'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils'
 import { sessionsQuery, useLiveSessions } from '@/features/claude/data'
 import { useNotificationEvents } from '@/features/notifications/Notifications'
 import { initials, Logo } from './brand'
+import { useDragWidth, useStoredWidth } from './resize-handle'
 
 const NAV = [
   { to: '/', label: 'Home', icon: House, exact: true },
@@ -66,14 +67,26 @@ function useWaitingCount() {
   return useQuery(sessionsQuery(false)).data?.sessions.filter((s) => s.status === 'waiting').length ?? 0
 }
 
+const OPEN_KEY = 'devdash.sidebar-open'
+const storedOpen = () => {
+  try { return localStorage.getItem(OPEN_KEY) !== 'false' } catch { return true }
+}
+
 export function AppShell() {
   usePinToVisualViewport()
   useNotificationEvents()
   const waiting = useWaitingCount()
+  const pane = useStoredWidth('sidebar', 256, 200, 400)
+  const [open, setOpen] = useState(storedOpen)
+  const onOpenChange = (v: boolean) => {
+    setOpen(v)
+    try { localStorage.setItem(OPEN_KEY, String(v)) } catch { /* not remembered */ }
+  }
   return (
     <TooltipProvider>
-      <SidebarProvider className="fixed inset-x-0 top-0 h-[var(--app-h,100dvh)] min-h-0 translate-y-[var(--app-top,0px)] overflow-hidden">
-        <AppSidebar waiting={waiting} />
+      <SidebarProvider open={open} onOpenChange={onOpenChange} style={{ '--sidebar-width': `${pane.width}px` } as React.CSSProperties}
+        className="fixed inset-x-0 top-0 h-[var(--app-h,100dvh)] min-h-0 translate-y-[var(--app-top,0px)] overflow-hidden">
+        <AppSidebar waiting={waiting} pane={pane} />
         <SidebarInset className="min-h-0 min-w-0">
           <div className="min-h-0 flex-1 overflow-y-auto"><Outlet /></div>
           <MobileTabs waiting={waiting} />
@@ -84,7 +97,18 @@ export function AppShell() {
   )
 }
 
-function AppSidebar({ waiting }: { waiting: number }) {
+/** The sidebar's edge: drag to resize (remembered on this device), click to collapse to icons. */
+function AppRail({ pane }: { pane: ReturnType<typeof useStoredWidth> }) {
+  const { state, setOpen, toggleSidebar } = useSidebar()
+  const drag = useDragWidth(pane.width, (w) => (state === 'collapsed' ? w - pane.width > 24 && setOpen(true) : pane.setWidth(w)))
+  return (
+    <SidebarRail {...drag.handlers} title="Drag to resize, click to collapse" aria-label="Resize or collapse the sidebar"
+      className="group-data-[state=expanded]:cursor-col-resize! touch-none"
+      onClick={() => !drag.moved() && toggleSidebar()} />
+  )
+}
+
+function AppSidebar({ waiting, pane }: { waiting: number; pane: ReturnType<typeof useStoredWidth> }) {
   const space = useQuery(spaceQuery).data
   const active = useActive()
   return (
@@ -123,7 +147,7 @@ function AppSidebar({ waiting }: { waiting: number }) {
       <SidebarFooter>
         <UserMenu />
       </SidebarFooter>
-      <SidebarRail />
+      <AppRail pane={pane} />
     </Sidebar>
   )
 }

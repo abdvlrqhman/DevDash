@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Link, Outlet, useRouterState } from '@tanstack/react-router'
 import { ChevronRight, Folder, Plus, Search, Settings2, Sparkles } from 'lucide-react'
 import { initials, StatusLight } from '@/components/app/brand'
+import { ResizeHandle, useStoredWidth } from '@/components/app/resize-handle'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
@@ -21,11 +22,13 @@ import { NewSession, SessionsPage } from './SessionsPage'
 export function ClaudeLayout() {
   const path = useRouterState({ select: (s) => s.location.pathname })
   const withList = path !== '/claude/setup'
+  const pane = useStoredWidth('claude-sessions', 320, 240, 560)
   return (
     <div className="flex h-full min-h-0">
       {withList && (
-        <aside aria-label="Sessions" className="hidden h-full w-80 shrink-0 flex-col border-r lg:flex xl:w-[22rem]">
+        <aside aria-label="Sessions" style={{ width: pane.width }} className="relative hidden h-full shrink-0 flex-col border-r lg:flex">
           <SessionsPane active={path.split('/')[2]} />
+          <ResizeHandle label="Resize the session list" width={pane.width} min={240} max={560} onWidth={pane.setWidth} onReset={pane.reset} />
         </aside>
       )}
       <div className="h-full min-w-0 flex-1 overflow-y-auto"><Outlet /></div>

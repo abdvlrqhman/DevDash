@@ -19,7 +19,8 @@ class Live {
     ws.onopen = () => {
       const reconnected = this.retry > 0
       this.retry = 0
-      ws.send(JSON.stringify({ active: looking() }))
+      this.lastActive = null
+      this.reportActive()
       for (const t of this.topics.keys()) ws.send(JSON.stringify({ sub: t }))
       if (reconnected) for (const fn of this.onReconnect) fn() // refetch whatever may have changed while offline
     }
@@ -56,8 +57,12 @@ class Live {
     }
   }
 
+  private lastActive: boolean | null = null
   reportActive() {
-    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify({ active: looking() }))
+    const active = looking()
+    if (active === this.lastActive || this.ws?.readyState !== WebSocket.OPEN) return
+    this.lastActive = active
+    this.ws.send(JSON.stringify({ active }))
   }
 
   whenReconnected(fn: () => void) {
@@ -66,11 +71,18 @@ class Live {
   }
 }
 
-/** Someone is looking at this tab right now (visible and focused). */
-export const looking = () => document.visibilityState === 'visible' && document.hasFocus()
+// Someone is using this tab: visible, focused, and touched in the last two minutes. A PC left open on DevDash
+// shouldn't keep notifications from reaching the phone in your pocket.
+const IDLE_MS = 2 * 60_000
+let lastInput = Date.now()
+export const looking = () => document.visibilityState === 'visible' && document.hasFocus() && Date.now() - lastInput < IDLE_MS
 
 export const live = new Live()
+for (const ev of ['pointerdown', 'keydown', 'wheel', 'touchstart']) {
+  window.addEventListener(ev, () => { lastInput = Date.now(); live.reportActive() }, { passive: true, capture: true })
+}
 for (const ev of ['visibilitychange', 'focus', 'blur']) window.addEventListener(ev, () => live.reportActive())
+setInterval(() => live.reportActive(), 15_000)
 
 /** Subscribes while mounted. The handler can change between renders without resubscribing. */
 export function useTopic(topic: string | null, handler: Handler, onReconnect?: () => void) {

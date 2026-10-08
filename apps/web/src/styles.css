@@ -213,3 +213,10 @@
 .prose-dd table { border-collapse: collapse; display: block; overflow-x: auto; }
 .prose-dd th, .prose-dd td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
 .prose-dd hr { border: 0; border-top: 1px solid var(--border); margin: 1em 0; }
+
+/* While a pane edge is dragged: no width animations, resize cursor everywhere, no text selection. */
+[data-resizing], [data-resizing] * {
+  cursor: col-resize !important;
+  user-select: none !important;
+  transition: none !important;
+}
