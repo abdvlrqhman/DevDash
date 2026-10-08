@@ -21,7 +21,8 @@ import { cn } from '@/lib/utils'
 import { ErrorAlert } from '../auth/LoginPage'
 import { relativeTime } from '../claude/data'
 import * as vc from './crypto'
-import { copySecret, useVault, vault } from './session'
+import { copySecret, REMEMBER_OPTIONS, rememberMinutes, setRememberMinutes, useVault, vault } from './session'
+import { NativeSelect } from '@/components/app/native-select'
 
 type LoginItem = { type: 'login'; name: string; username?: string; password?: string; url?: string; totp?: string; notes?: string }
 type NoteItem = { type: 'note'; name: string; notes?: string }
@@ -37,9 +38,12 @@ export function VaultPage() {
   const qc = useQueryClient()
   // Decrypted items never outlive a lock.
   useEffect(() => { if (!session.unlocked) qc.removeQueries({ queryKey: ['vault-items'] }) }, [session.unlocked, qc])
+  // Still remembered on this device? Then no password needed.
+  const [restoring, setRestoring] = useState(!session.unlocked)
+  useEffect(() => { if (restoring) void vault.restore(user.id).finally(() => setRestoring(false)) }, [restoring, user.id])
 
   if (v.error) return <Shell><div className="p-4"><ErrorAlert error={v.error} /></div></Shell>
-  if (!v.data) return <Shell><div className="p-4"><Skeleton className="h-48" /></div></Shell>
+  if (!v.data || restoring) return <Shell><div className="p-4"><Skeleton className="h-48" /></div></Shell>
   if (!v.data.setup) return <Shell><Setup userId={user.id} /></Shell>
   if (!session.unlocked) return <Shell><Unlock userId={user.id} me={v.data} /></Shell>
   return <Unlocked userId={user.id} publicKey={v.data.publicKey} />
@@ -100,7 +104,7 @@ function Setup({ userId }: { userId: number }) {
       const id = await vc.newIdentity(pw, userId)
       await unwrap(api.api.vault.setup.$post({ json: id.body }))
       const { privateKey, pkcs8 } = await vc.unlockIdentity(pw, id.body, userId)
-      vault.unlock(privateKey, pkcs8)
+      vault.unlock(privateKey, pkcs8, userId)
       await openVaults(userId, id.publicKey)
     },
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['vault'] }),
@@ -142,7 +146,7 @@ function Unlock({ userId, me }: { userId: number; me: { salt: string; iterations
   const open = useMutation({
     mutationFn: async () => {
       const { privateKey, pkcs8 } = await vc.unlockIdentity(pw, me, userId)
-      vault.unlock(privateKey, pkcs8)
+      vault.unlock(privateKey, pkcs8, userId)
       await openVaults(userId, me.publicKey)
     },
     onError: () => setPw(''),
@@ -152,10 +156,11 @@ function Unlock({ userId, me }: { userId: number; me: { salt: string; iterations
       <div className="flex flex-col items-center gap-2 text-center">
         <span className="flex size-12 items-center justify-center rounded-full bg-muted"><Lock className="size-5" /></span>
         <h2 className="text-lg font-semibold">Unlock your vault</h2>
-        <p className="text-sm text-muted-foreground">It locks again after 10 minutes without use.</p>
+        <p className="text-sm text-muted-foreground">Once unlocked, this device remembers it for a while, so you don't type it every time.</p>
       </div>
       <form className="flex flex-col gap-3" onSubmit={(e) => { e.preventDefault(); if (pw) open.mutate() }}>
         <Input type="password" aria-label="Vault password" placeholder="Vault password" autoComplete="current-password" autoFocus className="h-10" value={pw} onChange={(e) => setPw(e.target.value)} />
+        <RememberFor />
         <ErrorAlert error={open.error} />
         <Button type="submit" className="h-10" disabled={!pw || open.isPending}>{open.isPending ? <Spinner /> : <LockOpen />}Unlock</Button>
       </form>
@@ -205,7 +210,11 @@ function Unlocked({ userId, publicKey }: { userId: number; publicKey: string }) 
       <Button size="sm" variant="outline" onClick={() => vault.lock()}><Lock /><span className="hidden sm:inline">Lock</span></Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild><Button size="icon-sm" variant="ghost" aria-label="Vault options"><Ellipsis /></Button></DropdownMenuTrigger>
-        <DropdownMenuContent align="end"><DropdownMenuItem onSelect={() => setChanging(true)}><KeyRound />Change vault password</DropdownMenuItem></DropdownMenuContent>
+        <DropdownMenuContent align="end" className="w-64">
+          <div className="px-2 py-1.5"><RememberFor /></div>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={() => setChanging(true)}><KeyRound />Change vault password</DropdownMenuItem>
+        </DropdownMenuContent>
       </DropdownMenu>
     </>
   )
@@ -410,5 +419,19 @@ function ChangePassword({ userId, onClose }: { userId: number; onClose: () => vo
         </FieldGroup>
       </form>
     </ResponsiveDialog>
+  )
+}
+
+/** How long this device keeps the vault open after the last use. */
+function RememberFor() {
+  const [m, setM] = useState(rememberMinutes)
+  return (
+    <label className="flex items-center justify-between gap-3 text-sm">
+      <span className="text-muted-foreground">Keep unlocked on this device for</span>
+      <NativeSelect aria-label="Keep unlocked for" className="w-32 [&_select]:h-8" value={m} onChange={(e) => { const v = Number(e.target.value); setM(v); setRememberMinutes(v) }}
+        onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+        {REMEMBER_OPTIONS.map((o) => <option key={o.minutes} value={o.minutes}>{o.label}</option>)}
+      </NativeSelect>
+    </label>
   )
 }
