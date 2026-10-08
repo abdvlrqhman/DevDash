@@ -19,7 +19,8 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { api, meQuery, unwrap } from '@/lib/api'
 import { ErrorAlert } from '../auth/LoginPage'
-import { TerminalView, type Status as TermStatus } from '../terminal/TerminalView'
+import { KeyBar } from '../terminal/KeyBar'
+import { TerminalView, type Mods, type Status as TermStatus, type TerminalHandle } from '../terminal/TerminalView'
 import { Blocks, Prose } from './Blocks'
 import { Composer, type Img } from './Composer'
 import {
@@ -151,9 +152,7 @@ export function SessionPage() {
       </div>
 
       {s.mode === 'cli' ? (
-        <div className="relative m-2 min-h-0 flex-1 overflow-hidden rounded-lg bg-term-bg p-2 md:m-4">
-          <CliView id={id} onEnded={() => void info.refetch()} />
-        </div>
+        <CliView id={id} onEnded={() => void info.refetch()} />
       ) : (
         <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
@@ -246,16 +245,21 @@ function SessionAside({ s, blocks }: { s: Session; blocks: ReturnType<typeof bui
 
 function CliView({ id, onEnded }: { id: string; onEnded: () => void }) {
   const [status, setStatus] = useState<TermStatus>('connecting')
+  const [mods, setMods] = useState<Mods>({ ctrl: false, alt: false })
+  const term = useRef<TerminalHandle>(null)
   useEffect(() => { if (status === 'ended') onEnded() }, [status, onEnded])
   return (
     <>
-      <TerminalView path={`/api/claude/sessions/${id}/cli`} onStatus={setStatus} />
-      {status === 'ended' && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-term-bg/95 px-6 text-center text-term-fg">
-          <SquareTerminal className="size-5" />
-          <p>Claude CLI exited. The conversation continues in Chat.</p>
-        </div>
-      )}
+      <div className="relative m-2 min-h-0 flex-1 overflow-hidden rounded-lg bg-term-bg p-2 md:m-4">
+        <TerminalView ref={term} path={`/api/claude/sessions/${id}/cli`} onStatus={setStatus} onMods={setMods} />
+        {status === 'ended' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-term-bg/95 px-6 text-center text-term-fg">
+            <SquareTerminal className="size-5" />
+            <p>Claude CLI exited. The conversation continues in Chat.</p>
+          </div>
+        )}
+      </div>
+      <KeyBar term={term} mods={mods} />
     </>
   )
 }

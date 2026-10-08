@@ -9,6 +9,8 @@ import { authService } from './modules/auth/service.ts'
 import { claudeRoutes } from './modules/claude/routes.ts'
 import { claudeService } from './modules/claude/service.ts'
 import { membersRoutes } from './modules/members/routes.ts'
+import { notificationsRoutes } from './modules/notifications/routes.ts'
+import { notificationsService } from './modules/notifications/service.ts'
 import { provisioningService } from './modules/provisioning/service.ts'
 import { terminalsRoutes } from './modules/terminals/routes.ts'
 import { terminalsService } from './modules/terminals/service.ts'
@@ -19,7 +21,9 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   const agents = agentsService({ runDir: config.runDir })
   const provisioning = provisioningService({ db, runDir: config.runDir, onReady: (username) => agents.watch(username) })
   const terms = terminalsService({ agents })
-  const claude = claudeService({ db, agents, hub })
+  const notifications = notificationsService({ db, hub, dataDir: config.dataDir, origin: config.origin })
+  hub.authorize('notifications', () => true)
+  const claude = claudeService({ db, agents, hub, notify: notifications.notify })
   const mw = authMiddleware(auth)
   const ip = (c: Context) => clientIp(c, config.trustCfIp)
 
@@ -35,6 +39,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     .route('/api/members', membersRoutes(auth, mw, ip, config.origin))
     .route('/api/terminals', terminalsRoutes(terms, auth, mw, provisioning, ip))
     .route('/api/claude', claudeRoutes(claude, mw))
+    .route('/api/notifications', notificationsRoutes(notifications, mw))
 
   app.notFound((c) => c.json({ error: { code: 'not_found', message: 'Not found' } }, 404))
   app.onError((err, c) => {

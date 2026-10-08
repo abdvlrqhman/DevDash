@@ -1,6 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomBytes } from 'node:crypto'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createApp } from '../../app.ts'
 import { openDb } from '../../core/db.ts'
 import { base32Decode, hotp, totpStep } from '../../core/crypto.ts'
@@ -9,7 +12,7 @@ const ORIGIN = 'https://space.test'
 
 function setup() {
   const db = openDb(':memory:')
-  const config = { origin: ORIGIN, spaceName: 'Test', dataDir: '', port: 0, masterKey: randomBytes(32), trustCfIp: false, runDir: '', version: '0.0.0' }
+  const config = { origin: ORIGIN, spaceName: 'Test', dataDir: mkdtempSync(join(tmpdir(), 'dd-')), port: 0, masterKey: randomBytes(32), trustCfIp: false, runDir: '', version: '0.0.0' }
   const { app, auth } = createApp({ db, config })
   let cookie = ''
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {

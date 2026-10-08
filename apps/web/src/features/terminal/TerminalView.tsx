@@ -1,4 +1,6 @@
-import { useEffect, useImperativeHandle, useRef, type Ref } from 'react'
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react'
+import { Copy } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
@@ -9,7 +11,7 @@ import { openExternal } from '../../lib/shell'
 
 export type Status = 'connecting' | 'live' | 'reconnecting' | 'ended'
 export type Mods = { ctrl: boolean; alt: boolean }
-export type TerminalHandle = { send: (data: string) => void; paste: (text: string) => void; focus: () => void; toggle: (mod: keyof Mods) => void }
+export type TerminalHandle = { send: (data: string) => void; paste: (text: string) => void; focus: () => void; toggle: (mod: keyof Mods) => void; select: () => void }
 
 /** Theme colour as hex: the theme uses oklch(), which a canvas normalizes for xterm. */
 function css(name: string) {
@@ -31,6 +33,7 @@ export function TerminalView({ path, onStatus, onMods, ref }: {
 }) {
   const host = useRef<HTMLDivElement>(null)
   const handle = useRef<TerminalHandle | null>(null)
+  const [selecting, setSelecting] = useState<string | null>(null)
   const cb = useRef({ onStatus, onMods })
   cb.current = { onStatus, onMods }
   useImperativeHandle(ref, () => ({
@@ -38,6 +41,7 @@ export function TerminalView({ path, onStatus, onMods, ref }: {
     paste: (t) => handle.current?.paste(t),
     focus: () => handle.current?.focus(),
     toggle: (mod) => handle.current?.toggle(mod),
+    select: () => handle.current?.select(),
   }), [])
 
   useEffect(() => {
@@ -96,6 +100,8 @@ export function TerminalView({ path, onStatus, onMods, ref }: {
         mods[mod] = !mods[mod]
         emitMods()
       },
+      // Touch screens can't drag-select in a canvas: show the scrollback as text the OS can select and copy.
+      select: () => setSelecting(bufferText(term)),
     }
 
     const connect = () => {
@@ -166,5 +172,43 @@ export function TerminalView({ path, onStatus, onMods, ref }: {
     }
   }, [path])
 
-  return <div ref={host} className="h-full w-full" />
+  return (
+    <div className="relative h-full w-full">
+      <div ref={host} className="h-full w-full" />
+      {selecting !== null && <SelectText text={selecting} onDone={() => { setSelecting(null); handle.current?.focus() }} />}
+    </div>
+  )
+}
+
+/** The last few thousand lines, with wrapped rows joined back into their original lines. */
+function bufferText(term: Terminal) {
+  const b = term.buffer.active
+  const lines: string[] = []
+  for (let i = Math.max(0, b.length - 3000); i < b.length; i++) {
+    const line = b.getLine(i)
+    if (!line) continue
+    const text = line.translateToString(true)
+    if (line.isWrapped && lines.length) lines[lines.length - 1] += text
+    else lines.push(text)
+  }
+  return lines.join('\n').trimEnd()
+}
+
+function SelectText({ text, onDone }: { text: string; onDone: () => void }) {
+  const pre = useRef<HTMLPreElement>(null)
+  useEffect(() => { pre.current?.scrollTo(0, pre.current.scrollHeight) }, [])
+  const copy = () => {
+    const sel = window.getSelection()?.toString()
+    void navigator.clipboard.writeText(sel || text).then(onDone, () => {})
+  }
+  return (
+    <div className="absolute inset-0 z-10 flex flex-col bg-term-bg">
+      <div className="flex shrink-0 items-center gap-2 border-b border-white/10 pb-2 text-term-fg">
+        <p className="min-w-0 flex-1 text-xs opacity-70">Long-press to select, then copy.</p>
+        <Button size="sm" variant="secondary" onClick={copy}><Copy />Copy</Button>
+        <Button size="sm" variant="ghost" className="text-term-fg" onClick={onDone}>Done</Button>
+      </div>
+      <pre ref={pre} data-selectable className="min-h-0 flex-1 overflow-auto pt-2 font-mono text-xs leading-snug whitespace-pre-wrap text-term-fg select-text">{text}</pre>
+    </div>
+  )
 }

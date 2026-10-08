@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent, type RefObject } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearch } from '@tanstack/react-router'
-import { Clipboard, Plus, ShieldAlert, X } from 'lucide-react'
+import { Plus, ShieldAlert, X } from 'lucide-react'
 import { StatusLight } from '@/components/app/brand'
 import { PageHeader } from '@/components/app/page'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
@@ -10,6 +10,7 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui
 import { api, meQuery, unwrap } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { CodeInput, ErrorAlert } from '../auth/LoginPage'
+import { KeyBar } from './KeyBar'
 import { TerminalView, type Mods, type Status, type TerminalHandle } from './TerminalView'
 
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,30}$/
@@ -165,31 +166,5 @@ function AdminUnlock({ open, onOpenChange, onUnlocked }: { open: boolean; onOpen
         </FieldGroup>
       </form>
     </ResponsiveDialog>
-  )
-}
-
-const KEYS: { label: string; seq?: string; mod?: keyof Mods; aria?: string }[] = [
-  { label: 'Esc', seq: '\x1b' }, { label: 'Tab', seq: '\t' }, { label: 'Ctrl', mod: 'ctrl' }, { label: 'Alt', mod: 'alt' },
-  { label: '↑', seq: '\x1b[A', aria: 'Up' }, { label: '↓', seq: '\x1b[B', aria: 'Down' }, { label: '←', seq: '\x1b[D', aria: 'Left' }, { label: '→', seq: '\x1b[C', aria: 'Right' },
-  { label: '|', seq: '|' }, { label: '~', seq: '~' }, { label: '/', seq: '/' }, { label: '-', seq: '-' },
-]
-
-/** Keys a phone keyboard lacks. Only on touch screens; buttons don't take focus, so the keyboard stays up. */
-function KeyBar({ term, mods }: { term: RefObject<TerminalHandle | null>; mods: Mods }) {
-  const keep = (e: React.PointerEvent) => e.preventDefault()
-  return (
-    <div className="hidden shrink-0 gap-1.5 overflow-x-auto px-2 pb-2 [@media(pointer:coarse)]:flex">
-      {KEYS.map((k) => (
-        <Button key={k.label} size="sm" variant={k.mod && mods[k.mod] ? 'default' : 'outline'} onPointerDown={keep}
-          aria-label={k.aria} aria-pressed={k.mod ? mods[k.mod] : undefined} className="h-9 min-w-10 font-mono"
-          onClick={() => (k.mod ? term.current?.toggle(k.mod) : term.current?.send(k.seq!))}>
-          {k.label}
-        </Button>
-      ))}
-      <Button size="sm" variant="outline" aria-label="Paste" onPointerDown={keep} className="h-9 min-w-10"
-        onClick={() => void navigator.clipboard.readText().then((t) => term.current?.paste(t))}>
-        <Clipboard />
-      </Button>
-    </div>
   )
 }

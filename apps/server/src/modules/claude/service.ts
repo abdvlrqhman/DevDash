@@ -3,6 +3,7 @@ import type { Db } from '../../core/db.ts'
 import type { Hub } from '../../core/hub.ts'
 import { AppError } from '../../core/http.ts'
 import type { AgentsService } from '../agents/service.ts'
+import type { NotificationKind } from '../notifications/service.ts'
 import type { User } from '../auth/repo.ts'
 import { claudeRepo, type Defaults, type Patch, type SessionRow, type SessionStatus } from './repo.ts'
 
@@ -42,8 +43,23 @@ function content(text: string, images: Image[]) {
   ]
 }
 
-export function claudeService({ db, agents, hub }: { db: Db; agents: AgentsService; hub: Hub }) {
+type Notify = (userId: number, kind: NotificationKind, n: { title: string; body?: string; url?: string; focusKey?: string }) => Promise<void>
+
+const clip = (t: string, n = 160) => (t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t)
+function describeRequest(toolName: string, input: Record<string, unknown>) {
+  if (toolName === 'AskUserQuestion') {
+    const q = (input.questions as { question?: string }[] | undefined)?.[0]?.question
+    return q ? `Asked: ${q}` : 'Claude has a question'
+  }
+  if (toolName === 'ExitPlanMode') return 'A plan is ready for your review'
+  const what = typeof input.command === 'string' ? input.command : typeof input.file_path === 'string' ? input.file_path : ''
+  return `Wants to use ${toolName}${what ? `: ${what}` : ''}`
+}
+
+export function claudeService({ db, agents, hub, notify }: { db: Db; agents: AgentsService; hub: Hub; notify: Notify }) {
   const repo = claudeRepo(db)
+  const alert = (s: SessionRow, kind: NotificationKind, title: string, body?: string) =>
+    void notify(s.owner_id, kind, { title, body, url: `/claude/${s.id}`, focusKey: `session:${s.id}` }).catch((err) => console.error('notify:', err))
 
   function find(user: User, id: string) {
     const s = repo.byId(id)
@@ -83,11 +99,22 @@ export function claudeService({ db, agents, hub }: { db: Db; agents: AgentsServi
         // CLI exited: back to Chat mode, ready to resume.
         const mode = st === 'stopped' ? 'chat' : ev.mode === 'cli' || ev.mode === 'chat' ? ev.mode : s.mode
         repo.setStatus(s.id, st === 'stopped' ? 'idle' : st, typeof ev.detail === 'string' ? ev.detail : null, mode)
+        // Chat mode notifies from the richer permission/result events below; the CLI only reports status.
+        if (st === 'error') alert(s, 'errors', `Claude stopped with an error: ${s.title}`, typeof ev.detail === 'string' ? clip(ev.detail) : undefined)
+        else if (s.mode === 'cli' && st === 'waiting' && s.status !== 'waiting') alert(s, 'needs_you', `Claude needs you: ${s.title}`, 'Waiting for you in the CLI')
+        else if (s.mode === 'cli' && st === 'idle' && s.status === 'working') alert(s, 'finished', `Claude finished: ${s.title}`)
         return publish(s.id)
       }
-      case 'claude.msg':
+      case 'claude.msg': {
+        const m = ev.msg as { type?: string; subtype?: string; result?: unknown; is_error?: boolean }
+        if (m.type === 'result') {
+          if (m.subtype === 'success' && !m.is_error) alert(s, 'finished', `Claude finished: ${s.title}`, typeof m.result === 'string' ? clip(m.result) : undefined)
+          else alert(s, 'errors', `Claude stopped with an error: ${s.title}`)
+        }
         return hub.publish(`session:${s.id}`, { type: 'msg', msg: ev.msg }, viewers)
+      }
       case 'claude.permission':
+        alert(s, 'needs_you', `Claude needs you: ${s.title}`, clip(describeRequest(String(ev.toolName), (ev.input as Record<string, unknown>) ?? {})))
         return hub.publish(`session:${s.id}`, {
           type: 'permission', request: { requestId: ev.requestId, toolName: ev.toolName, input: ev.input, suggestions: ev.suggestions },
         }, viewers)
@@ -200,6 +227,11 @@ export function claudeService({ db, agents, hub }: { db: Db; agents: AgentsServi
         if (value !== undefined && s.mode === 'chat') await agents.request(s.owner_username, { op: 'claude.set', id, key, value })
       }
       if (p.archived) await agents.request(s.owner_username, { op: 'claude.stop', id }).catch(() => {})
+      if (p.shared && !s.shared) {
+        for (const { id: uid } of db.prepare('select id from users where disabled_at is null and id != ?').all(s.owner_id) as { id: number }[]) {
+          void notify(uid, 'shared', { title: `${user.name} shared a Claude session`, body: s.title, url: `/claude/${id}` }).catch(() => {})
+        }
+      }
       publish(id)
       return toDto(repo.byId(id)!)
     },
