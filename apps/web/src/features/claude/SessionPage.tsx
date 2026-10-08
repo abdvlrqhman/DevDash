@@ -101,10 +101,11 @@ export function SessionPage() {
   const send = async (text: string, images: Img[]) => {
     const { uuid } = await unwrap(api.api.claude.sessions[':id'].messages.$post({ param: { id }, json: { text, images } }))
     stick.current = true
-    setRaw((r) => [...r, {
+    // The server also broadcasts it (for other devices) and may get here first: merge by uuid, never append twice.
+    setRaw((r) => mergeRaw(r, [{
       type: 'user', uuid,
       message: { role: 'user', content: [...images.map((i) => ({ type: 'image', source: { type: 'base64', media_type: i.mediaType, data: i.data } })), ...(text ? [{ type: 'text', text }] : [])] },
-    }])
+    }]))
   }
   const interrupt = useMutation({ mutationFn: () => unwrap(api.api.claude.sessions[':id'].interrupt.$post({ param: { id } })) })
   const switchMode = useMutation({
