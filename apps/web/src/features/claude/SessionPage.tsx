@@ -181,7 +181,7 @@ function SessionView({ id }: { id: string }) {
               {history.isPending && s.started && [0, 1].map((i) => <Skeleton key={i} className="h-20" />)}
               <ErrorAlert error={history.error} />
               {!s.started && !raw.length && <p className="py-10 text-center text-muted-foreground">Tell Claude what to work on.</p>}
-              <Blocks blocks={blocks} senders={history.data?.senders} />
+              <Blocks blocks={blocks} senders={history.data?.senders} live={working || s.status === 'waiting'} />
               <LiveText store={liveText} working={working} onGrow={toBottom} />
               {s.status === 'error' && s.statusDetail && <ErrorAlert error={s.statusDetail} />}
               <Requests sessionId={id} requests={pending} canAnswer={canSend} afterPlanApproved={afterPlanApproved} />

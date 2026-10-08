@@ -240,6 +240,9 @@ const TABS = [
 
 function MobileTabs({ waiting }: { waiting: number }) {
   const active = useActive()
+  // Inside a Claude chat the tabs step aside, as in messaging apps: the back arrow leads out.
+  const inChat = useRouterState({ select: (s) => /^\/claude\/[0-9a-f-]{36}$/.test(s.location.pathname) })
+  if (inChat) return null
   const moreActive = ['/more', '/members', '/account', '/notes', '/terminal', '/services', '/files', '/vault'].some((p) => active(p)) || active('/claude/setup')
   return (
     <nav aria-label="Sections" className="grid shrink-0 grid-cols-5 border-t bg-background pb-[env(safe-area-inset-bottom)] md:hidden [.keyboard-open_&]:hidden">

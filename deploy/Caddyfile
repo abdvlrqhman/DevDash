@@ -22,6 +22,15 @@
 	handle /.well-known/devdash.json {
 		reverse_proxy 127.0.0.1:8787
 	}
+	# The shared remote browser (neko), for signed-in members only. It runs its own UI, framed by DevDash.
+	handle /browser/* {
+		forward_auth 127.0.0.1:8787 {
+			uri /api/browser/check
+		}
+		header -X-Frame-Options
+		header Content-Security-Policy "frame-ancestors 'self'"
+		reverse_proxy 127.0.0.1:8090
+	}
 	# Public share links: a download page and the file, nothing else.
 	handle /s/* {
 		reverse_proxy 127.0.0.1:8787

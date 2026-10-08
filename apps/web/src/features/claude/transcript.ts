@@ -29,6 +29,7 @@ export type Block =
   | { kind: 'command'; key: string; name: string; output?: string }
   | { kind: 'result'; key: string; ok: boolean; seconds: number; cost?: number }
   | { kind: 'note'; key: string; text: string }
+  | { kind: 'event'; key: string; text: string; ok: boolean }
 
 export function toText(c: unknown): string {
   if (typeof c === 'string') return c
@@ -36,6 +37,7 @@ export function toText(c: unknown): string {
   return (c as Content[]).map((x) => (x.type === 'text' ? String(x.text) : x.type === 'image' ? '[image]' : '')).join('\n')
 }
 
+const unescape = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
 const tag = (text: string, name: string) => new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1]
 
 export function buildTranscript(raws: Raw[]): Block[] {
@@ -79,6 +81,14 @@ export function buildTranscript(raws: Raw[]): Block[] {
         : []
       if (!text.trim() && !images.length) return
       if (text.startsWith('Caveat: The messages below')) return
+      // Claude Code talks to the model through user-role messages too (background task results, reminders): not the person.
+      const notice = tag(text, 'task-notification')
+      if (notice !== undefined) {
+        const status = tag(notice, 'status')?.trim() ?? ''
+        top.push({ kind: 'event', key, ok: !/fail|error|killed/i.test(status), text: unescape(tag(notice, 'summary')?.trim() ?? `Background task ${status}`) })
+        return
+      }
+      if (!text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim() && !images.length) return
       const command = tag(text, 'command-name')
       if (command) return void top.push({ kind: 'command', key, name: command.trim() })
       const stdout = tag(text, 'local-command-stdout')

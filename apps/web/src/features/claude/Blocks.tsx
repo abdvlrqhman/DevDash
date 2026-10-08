@@ -19,7 +19,8 @@ export const Prose = memo(function Prose({ text }: { text: string }) {
   )
 })
 
-export const Blocks = memo(function Blocks({ blocks, senders, nested }: { blocks: Block[]; senders?: Record<string, { name: string }>; nested?: boolean }) {
+/** `live`: the session is working, so tools without a result are still running (otherwise they were interrupted). */
+export const Blocks = memo(function Blocks({ blocks, senders, nested, live = true }: { blocks: Block[]; senders?: Record<string, { name: string }>; nested?: boolean; live?: boolean }) {
   return (
     <div className={cn('flex flex-col', nested ? 'gap-2' : 'gap-4')}>
       {blocks.map((b) => {
@@ -41,7 +42,7 @@ export const Blocks = memo(function Blocks({ blocks, senders, nested }: { blocks
           case 'thinking':
             return <Thinking key={b.key} text={b.text} />
           case 'tool':
-            return <ToolCard key={b.key} tool={b} senders={senders} />
+            return <ToolCard key={b.key} tool={b} senders={senders} live={live} />
           case 'command':
             return (
               <div key={b.key} className="text-sm">
@@ -54,6 +55,13 @@ export const Blocks = memo(function Blocks({ blocks, senders, nested }: { blocks
               <p key={b.key} className={cn('flex items-center gap-1.5 text-xs', b.ok ? 'text-muted-foreground' : 'text-destructive')}>
                 {b.ok ? <Check className="size-3.5" /> : <CircleAlert className="size-3.5" />}
                 {b.ok ? 'Done' : 'Stopped with an error'} in {b.seconds}s{b.cost !== undefined ? `, $${b.cost.toFixed(2)}` : ''}
+              </p>
+            )
+          case 'event':
+            return (
+              <p key={b.key} className="flex items-start gap-2 text-xs text-muted-foreground">
+                {b.ok ? <Check className="mt-px size-3.5 shrink-0 text-live" /> : <CircleAlert className="mt-px size-3.5 shrink-0 text-destructive" />}
+                <span className="min-w-0 break-words">{b.text}</span>
               </p>
             )
           case 'note':
@@ -106,10 +114,11 @@ function diffLines(t: ToolBlock) {
   ])
 }
 
-function ToolCard({ tool: t, senders }: { tool: ToolBlock; senders?: Record<string, { name: string }> }) {
+function ToolCard({ tool: t, senders, live }: { tool: ToolBlock; senders?: Record<string, { name: string }>; live: boolean }) {
   if (t.name === 'TodoWrite' && Array.isArray(t.input.todos)) return <Todos todos={t.input.todos as Todo[]} />
   const s = summary(t)
-  const running = !t.result
+  const running = !t.result && live
+  const interrupted = !t.result && !live
   const isEdit = t.name === 'Edit' || t.name === 'MultiEdit'
   const diff = isEdit ? diffLines(t) : []
   const added = diff.filter((d) => d.sign === '+').length
@@ -124,6 +133,7 @@ function ToolCard({ tool: t, senders }: { tool: ToolBlock; senders?: Record<stri
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{s.detail}</span>
         {isEdit && <span className="shrink-0 font-mono text-xs"><span className="text-live">+{added}</span> <span className="text-destructive">-{diff.length - added}</span></span>}
         {t.children.length > 0 && <span className="shrink-0 text-xs text-muted-foreground">{t.children.filter((c) => c.kind === 'tool').length} steps</span>}
+        {interrupted && <span className="shrink-0 text-xs text-muted-foreground" title="It stopped before finishing (the turn was interrupted)">No result</span>}
         {running
           ? <LoaderCircle className="size-4 shrink-0 animate-spin text-muted-foreground" aria-label="Running" />
           : expandable && <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />}
@@ -134,7 +144,7 @@ function ToolCard({ tool: t, senders }: { tool: ToolBlock; senders?: Record<stri
             {diff.map((d, i) => <div key={i} className={d.sign === '+' ? 'text-live' : 'text-destructive'}>{d.sign} {d.l}</div>)}
           </pre>
         )}
-        {t.children.length > 0 && <Blocks blocks={t.children} senders={senders} nested />}
+        {t.children.length > 0 && <Blocks blocks={t.children} senders={senders} nested live={live} />}
         {body && <Output text={body} error={t.result?.isError} />}
       </CollapsibleContent>
     </Collapsible>

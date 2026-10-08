@@ -14,6 +14,8 @@ import { filesRoutes, publicShareRoutes } from './modules/files/routes.ts'
 import { sharesService } from './modules/files/shares.ts'
 import { buildsRoutes } from './modules/builds/routes.ts'
 import { vaultRoutes } from './modules/vault/routes.ts'
+import { browserRoutes } from './modules/browser/routes.ts'
+import { browserService } from './modules/browser/service.ts'
 import { vaultService } from './modules/vault/service.ts'
 import { buildsService } from './modules/builds/service.ts'
 import { notesRoutes } from './modules/notes/routes.ts'
@@ -75,6 +77,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
 
   const builds = buildsService({ db, agents, projects, shares })
   const vault = vaultService({ db })
+  const browser = browserService({ runDir: config.runDir })
   const app = new Hono()
     // Public: lets the native shell check that a domain is a DevDash space before loading it.
     .get('/.well-known/devdash.json', (c) => {
@@ -97,6 +100,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     .route('/api/files', filesRoutes(agents, shares, mw))
     .route('/api/builds', buildsRoutes(builds, mw))
     .route('/api/vault', vaultRoutes(vault, mw))
+    .route('/api/browser', browserRoutes(browser, mw))
     .route('/api', searchRoutes({ db, search, notes, projects, claude, services, activity }, mw))
 
   app.notFound((c) => c.json({ error: { code: 'not_found', message: 'Not found' } }, 404))

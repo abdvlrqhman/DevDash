@@ -140,10 +140,12 @@ export function Composer({ profile, working, disabledReason, onSend, onStop }: {
         <input ref={file} type="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden onChange={(e) => { if (e.target.files) void add(e.target.files); e.target.value = '' }} />
         <Textarea ref={area} value={text} rows={1} onKeyDown={onKey} onPaste={onPaste} aria-label="Message Claude"
           onChange={(e) => { setText(e.target.value); setSel(0) }}
-          placeholder={working ? 'Queue a message for when Claude is ready…' : 'Message Claude, or type / for commands'}
-          className="max-h-[40vh] min-h-10 flex-1 resize-none rounded-[20px] px-4 py-2 text-base leading-6 [field-sizing:content] md:text-sm md:leading-6" />
-        {working && <Button size="icon" variant="secondary" className="size-10 shrink-0 rounded-full" aria-label="Stop Claude" onClick={onStop}><Square className="fill-current" /></Button>}
-        <Button size="icon" className="size-10 shrink-0 rounded-full" aria-label="Send" disabled={sending || (!text.trim() && !images.length)} onClick={() => void submit()}><ArrowUp /></Button>
+          placeholder={working ? 'Add a message for Claude' : 'Message Claude'}
+          className="max-h-[40vh] min-h-10 flex-1 resize-none rounded-[20px] px-4 py-2 text-base leading-6 [field-sizing:content] placeholder:truncate md:text-sm md:leading-6" />
+        {/* One button: Stop while Claude works and nothing is typed, otherwise Send (queued until Claude is ready). */}
+        {working && !text.trim() && !images.length
+          ? <Button size="icon" variant="secondary" className="size-10 shrink-0 rounded-full" aria-label="Stop Claude" onClick={onStop}><Square className="fill-current" /></Button>
+          : <Button size="icon" className="size-10 shrink-0 rounded-full" aria-label="Send" disabled={sending || (!text.trim() && !images.length)} onClick={() => void submit()}><ArrowUp /></Button>}
       </div>
     </div>
   )
