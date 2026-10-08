@@ -18,10 +18,12 @@ import { Spinner } from '@/components/ui/spinner'
 import { Textarea } from '@/components/ui/textarea'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { api, meQuery, unwrap } from '@/lib/api'
+import { cn } from '@/lib/utils'
 import { ErrorAlert } from '../auth/LoginPage'
 import { NativeSelect } from '@/components/app/native-select'
 import { Switch } from '@/components/ui/switch'
 import { projectsQuery } from '../work/data'
+import { useArchiveSession } from './ArchiveSession'
 import { byFolder, FALLBACK_MODELS, PERMISSION_MODES, profilesQuery, relativeTime, sessionsQuery, shortPath, type PermissionMode, type Session } from './data'
 
 export function SessionsPage() {
@@ -29,6 +31,7 @@ export function SessionsPage() {
   const [archived, setArchived] = useState(false)
   const list = useQuery(sessionsQuery(archived))
   const [creating, setCreating] = useState(false)
+  const archive = useArchiveSession()
 
   const sessions = list.data?.sessions ?? []
   const waiting = sessions.filter((s) => s.status === 'waiting')
@@ -47,12 +50,12 @@ export function SessionsPage() {
         {!archived && waiting.length > 0 && (
           <Section title="Needs you">
             <ItemGroup className="gap-2">
-              {waiting.map((s) => <SessionRow key={s.id} s={s} me={me.id} highlight />)}
+              {waiting.map((s) => <SessionRow key={s.id} s={s} me={me.id} highlight onArchive={archive.ask} />)}
             </ItemGroup>
           </Section>
         )}
         {groups.map((g) => (
-          <SessionList key={g.cwd} title={<span className="font-mono">{shortPath(g.cwd, me.username)}</span>} sessions={g.sessions} me={me.id} />
+          <SessionList key={g.cwd} title={<span className="font-mono">{shortPath(g.cwd, me.username)}</span>} sessions={g.sessions} me={me.id} onArchive={archived ? undefined : archive.ask} />
         ))}
         {list.isSuccess && !sessions.length && (
           <Empty className="border">
@@ -70,6 +73,7 @@ export function SessionsPage() {
           </Button>
         </div>
       </PageBody>
+      {archive.dialog}
       <NewSession open={creating} onClose={() => setCreating(false)} />
     </>
   )
@@ -77,9 +81,10 @@ export function SessionsPage() {
 
 const light = (s: Session) => (s.status === 'working' ? 'live' : s.status === 'waiting' ? 'waiting' : s.status === 'error' ? 'error' : 'idle')
 
-function SessionRow({ s, me, highlight }: { s: Session; me: number; highlight?: boolean }) {
+function SessionRow({ s, me, highlight, onArchive }: { s: Session; me: number; highlight?: boolean; onArchive?: (s: Session) => void }) {
   return (
-    <Item asChild className={highlight ? 'border-attention/40 bg-attention-soft' : 'rounded-none border-0 border-b last:border-b-0'}>
+    <div className={cn('flex items-center', highlight ? '' : 'border-b last:border-b-0')}>
+    <Item asChild className={cn('min-w-0 flex-1', highlight ? 'border-attention/40 bg-attention-soft' : 'rounded-none border-0')}>
       <Link to="/claude/$id" params={{ id: s.id }}>
         <ItemMedia><StatusLight state={light(s)} /></ItemMedia>
         <ItemContent className="min-w-0">
@@ -97,13 +102,17 @@ function SessionRow({ s, me, highlight }: { s: Session; me: number; highlight?: 
         </ItemActions>
       </Link>
     </Item>
+    {onArchive && s.owner.id === me && !s.archived && (
+      <Button size="icon-sm" variant="ghost" className="mr-1.5 shrink-0 text-muted-foreground" aria-label={`Archive ${s.title}`} onClick={() => onArchive(s)}><Archive /></Button>
+    )}
+    </div>
   )
 }
 
-function SessionList({ title, sessions, me }: { title?: React.ReactNode; sessions: Session[]; me: number }) {
+function SessionList({ title, sessions, me, onArchive }: { title?: React.ReactNode; sessions: Session[]; me: number; onArchive?: (s: Session) => void }) {
   return (
     <Section title={title}>
-      <ItemGroup className="rounded-xl border">{sessions.map((s) => <SessionRow key={s.id} s={s} me={me} />)}</ItemGroup>
+      <ItemGroup className="rounded-xl border">{sessions.map((s) => <SessionRow key={s.id} s={s} me={me} onArchive={onArchive} />)}</ItemGroup>
     </Section>
   )
 }

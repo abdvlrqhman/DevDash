@@ -23,7 +23,13 @@ const duration = (a: string | null, b: string | null) => {
 }
 
 /** One workflow run: jobs and steps update every few seconds while it runs; logs and artifacts once done. */
+/** Keyed by the URL, so moving to another one starts from a clean slate. */
 export function RunPage() {
+  const p = useParams({ from: '/app/projects/$slug/builds/$run' })
+  return <RunPageView key={`${p.slug}/${p.run}`} />
+}
+
+function RunPageView() {
   const { slug, run } = useParams({ from: '/app/projects/$slug/builds/$run' })
   const qc = useQueryClient()
   const q = useQuery({

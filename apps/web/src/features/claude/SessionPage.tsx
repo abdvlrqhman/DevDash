@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { Archive, Check, ChevronDown, Circle, Ellipsis, FileCode, Gauge, LoaderCircle, MessageSquare, Pencil, Share2, SquareTerminal } from 'lucide-react'
+import { Archive, ArchiveRestore, Check, ChevronDown, Circle, Ellipsis, FileCode, Gauge, LoaderCircle, MessageSquare, Pencil, Share2, SquareTerminal } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
 import { PageHeader } from '@/components/app/page'
@@ -28,6 +28,7 @@ import {
   type Effort, type PendingRequest, type PermissionMode, type Session,
 } from './data'
 import { createLiveText, type LiveTextStore } from './live-text'
+import { useArchiveSession } from './ArchiveSession'
 import { Requests } from './Requests'
 import { PlanUsage } from './Usage'
 import { servicesQuery, stateOf } from '../services/data'
@@ -359,7 +360,10 @@ function ModelMenu({ s, disabled, onUpdate }: { s: Session; disabled: boolean; o
 
 function SessionMenu({ s, isOwner, canSend, onUpdate, onRename, onUsage }: { s: Session; isOwner: boolean; canSend: boolean; onUpdate: Updater; onRename: () => void; onUsage: () => void }) {
   const navigate = useNavigate()
+  const archive = useArchiveSession(() => void navigate({ to: '/claude' }))
   return (
+    <>
+    {archive.dialog}
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" aria-label="Session options"><Ellipsis /></Button>
@@ -384,7 +388,9 @@ function SessionMenu({ s, isOwner, canSend, onUpdate, onRename, onUsage }: { s: 
               {s.shared ? 'Claude still runs as you, with your account and permissions.' : 'Only you can see this session.'}
             </p>
             <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onSelect={() => { onUpdate({ archived: true }); navigate({ to: '/claude' }) }}><Archive />Archive</DropdownMenuItem>
+            {s.archived
+              ? <DropdownMenuItem onSelect={() => onUpdate({ archived: false })}><ArchiveRestore />Restore from archive</DropdownMenuItem>
+              : <DropdownMenuItem variant="destructive" onSelect={() => archive.ask(s)}><Archive />Archive…</DropdownMenuItem>}
           </>
         ) : (
           <p className="px-2 py-1.5 text-sm text-muted-foreground">
@@ -395,6 +401,7 @@ function SessionMenu({ s, isOwner, canSend, onUpdate, onRename, onUsage }: { s: 
         <DropdownMenuItem asChild><Link to="/claude/setup">Claude setup</Link></DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+    </>
   )
 }
 

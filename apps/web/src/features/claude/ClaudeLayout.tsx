@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { Link, Outlet, useRouterState } from '@tanstack/react-router'
-import { ChevronRight, Folder, Plus, Search, Settings2, Sparkles } from 'lucide-react'
+import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
+import { Archive, ChevronRight, Folder, Plus, Search, Settings2, Sparkles } from 'lucide-react'
 import { initials, StatusLight } from '@/components/app/brand'
 import { ResizeHandle, useStoredWidth } from '@/components/app/resize-handle'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -13,6 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { meQuery } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { byFolder, relativeTime, sessionsQuery, shortPath, type Session } from './data'
+import { useArchiveSession } from './ArchiveSession'
 import { NewSession, SessionsPage } from './SessionsPage'
 
 /**
@@ -62,6 +63,8 @@ const light = (s: Session) => (s.status === 'working' ? 'live' : s.status === 'w
 function SessionsPane({ active }: { active?: string }) {
   const me = useQuery(meQuery).data!
   const list = useQuery(sessionsQuery(false))
+  const navigate = useNavigate()
+  const archive = useArchiveSession((s) => { if (s.id === active) void navigate({ to: '/claude' }) })
   const [q, setQ] = useState('')
   const [creating, setCreating] = useState(false)
   const groups = useMemo(() => {
@@ -97,7 +100,11 @@ function SessionsPane({ active }: { active?: string }) {
               <CollapsibleContent>
                 <ul className="mt-0.5 flex flex-col gap-0.5">
                   {g.sessions.map((s) => (
-                    <li key={s.id}>
+                    <li key={s.id} className="group/row relative">
+                      {s.owner.id === me.id && (
+                        <Button size="icon-xs" variant="ghost" aria-label={`Archive ${s.title}`} onClick={() => archive.ask(s)}
+                          className="absolute top-2 right-1.5 z-10 bg-background/80 opacity-0 group-hover/row:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:hidden"><Archive /></Button>
+                      )}
                       <Link to="/claude/$id" params={{ id: s.id }}
                         className={cn('flex items-start gap-2.5 rounded-md py-2 pr-2 pl-6 text-sm hover:bg-accent', s.id === active && 'bg-accent', s.status === 'waiting' && s.id !== active && 'bg-attention-soft')}>
                         <StatusLight state={light(s)} className="mt-1.5" />
@@ -117,6 +124,7 @@ function SessionsPane({ active }: { active?: string }) {
           ))}
         </div>
       </nav>
+      {archive.dialog}
       <NewSession open={creating} onClose={() => setCreating(false)} />
     </>
   )

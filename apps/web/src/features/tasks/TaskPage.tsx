@@ -22,7 +22,13 @@ import { relativeTime } from '../claude/data'
 import { PRIORITIES, STATUSES, taskQuery, useLiveWork, type Priority, type Status, type TaskDetail } from '../work/data'
 import { StatusIcon, useMembers } from '../work/TaskBits'
 
+/** Keyed by the URL, so moving to another one starts from a clean slate. */
 export function TaskPage() {
+  const p = useParams({ from: '/app/tasks/$slug/$number' })
+  return <TaskPageView key={`${p.slug}#${p.number}`} />
+}
+
+function TaskPageView() {
   useLiveWork()
   const { slug, number } = useParams({ from: '/app/tasks/$slug/$number' })
   const n = Number(number)

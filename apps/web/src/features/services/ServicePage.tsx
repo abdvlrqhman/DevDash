@@ -16,7 +16,13 @@ import { TerminalView, type Status } from '../terminal/TerminalView'
 import { servicesQuery, stateOf, useLiveServices, type Service } from './data'
 import { ServiceOptions } from './ServicesPage'
 
+/** Keyed by the URL, so moving to another one starts from a clean slate. */
 export function ServicePage() {
+  const p = useParams({ from: '/app/services/$name' })
+  return <ServicePageView key={p.name} />
+}
+
+function ServicePageView() {
   useLiveServices()
   const { name } = useParams({ from: '/app/services/$name' })
   const qc = useQueryClient()

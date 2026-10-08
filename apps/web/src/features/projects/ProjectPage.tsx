@@ -20,7 +20,13 @@ import { repoLabel } from './ProjectsPage'
 import { BuildsTab } from '../builds/BuildsTab'
 import { api, unwrap } from '@/lib/api'
 
+/** Keyed by the URL, so moving to another one starts from a clean slate. */
 export function ProjectPage() {
+  const p = useParams({ from: '/app/projects/$slug' })
+  return <ProjectPageView key={p.slug} />
+}
+
+function ProjectPageView() {
   useLiveWork()
   const { slug } = useParams({ from: '/app/projects/$slug' })
   const qc = useQueryClient()
