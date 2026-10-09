@@ -55,11 +55,11 @@ export function ServerPage() {
               </> : <p className="text-sm text-muted-foreground">No backup yet. One runs every night at 03:30 UTC.</p>}
             </Card>
 
-            <Card title="Software">
+            <Card title="Software" action={d.canAct && <UpdateButton sdk={d.software.claudeSdk} />}>
               <Line label="DevDash" value={<span className="font-mono">{d.software.devdash}{d.software.release ? ` (${d.software.release.id.slice(0, 7)})` : ''}</span>} />
               {d.software.release && <Line label="Deployed" value={relativeTime(d.software.release.since)} />}
               <Line label="Claude Code" value={<span className="font-mono">{d.software.claude ?? 'not found'}</span>} />
-              <ClaudeUpdate sdk={d.software.claudeSdk} canAct={d.canAct} />
+              <Line label="Updates" value={<UpdateState sdk={d.software.claudeSdk} />} />
               <Line label="Node.js" value={<span className="font-mono">{d.software.node}</span>} />
             </Card>
 
@@ -77,9 +77,13 @@ export function ServerPage() {
               {d.agents.map((a) => {
                 const m = a.memory && describeMemory(a.memory)
                 return (
-                  <Line key={a.username} label={a.name} value={m
-                    ? <span className="flex items-center gap-1.5" title={m.hint}><StatusLight state={m.light} />{m.text}</span>
-                    : <span className="text-muted-foreground">Unknown</span>} />
+                  <div key={a.username} className="flex items-start gap-2.5 text-sm">
+                    <StatusLight state={m?.light ?? 'idle'} className="mt-1.5" />
+                    <div className="min-w-0">
+                      <div>{a.name}</div>
+                      <div className="text-muted-foreground">{m?.text ?? 'Unknown: their server account is not responding'}</div>
+                    </div>
+                  </div>
                 )
               })}
             </Card>
@@ -97,8 +101,17 @@ const newer = (a: string, b: string) => {
   return false
 }
 
-/** Claude Code comes from the Agent SDK package; admins update it for everyone from here. */
-function ClaudeUpdate({ sdk, canAct }: { sdk: { installed: string | null; latest: string | null; updating: boolean }; canAct: boolean }) {
+// Claude Code comes from the Agent SDK package (deploy/claude-update.sh); admins update it for everyone from here.
+type Sdk = { installed: string | null; latest: string | null; updating: boolean }
+const updateAvailable = (sdk: Sdk) => !!sdk.latest && !!sdk.installed && newer(sdk.latest, sdk.installed)
+
+function UpdateState({ sdk }: { sdk: Sdk }) {
+  if (sdk.updating) return <span className="flex items-center gap-1.5"><Spinner />Updating…</span>
+  if (updateAvailable(sdk)) return <span className="text-attention">{sdk.latest} available</span>
+  return <span className="text-muted-foreground">{!sdk.installed ? 'Not installed' : sdk.latest ? `Up to date (SDK ${sdk.installed})` : 'Could not check'}</span>
+}
+
+function UpdateButton({ sdk }: { sdk: Sdk }) {
   const qc = useQueryClient()
   const update = useMutation({
     mutationFn: () => unwrap(api.api.status['claude-update'].$post()),
@@ -108,16 +121,12 @@ function ClaudeUpdate({ sdk, canAct }: { sdk: { installed: string | null; latest
     },
     onError: (e) => toast.error(e.message),
   })
-  const available = !!sdk.latest && !!sdk.installed && newer(sdk.latest, sdk.installed)
-  const value = sdk.updating || update.isPending
-    ? <span className="flex items-center gap-1.5"><Spinner />Updating…</span>
-    : available
-      ? <span className="flex items-center gap-2">
-          <span className="text-attention">SDK {sdk.latest} available</span>
-          {canAct && <Button size="sm" variant="outline" onClick={() => update.mutate()}><ArrowUpCircle />Update</Button>}
-        </span>
-      : <span className="text-muted-foreground">{sdk.latest ? 'Up to date' : 'Could not check for updates'}</span>
-  return <Line label={<span>Updates{sdk.installed && <span className="font-mono text-xs"> (SDK {sdk.installed})</span>}</span>} value={value} />
+  if (!updateAvailable(sdk) || sdk.updating) return null
+  return (
+    <Button size="sm" variant="outline" disabled={update.isPending} onClick={() => update.mutate()}>
+      {update.isPending ? <Spinner /> : <ArrowUpCircle />}Update Claude Code
+    </Button>
+  )
 }
 
 function Card({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {

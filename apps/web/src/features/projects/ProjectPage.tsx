@@ -171,11 +171,11 @@ function Overview({ slug, live, tasks, onTab, onNew }: {
 
       <Card title="Tasks" action={<Button size="sm" variant="ghost" onClick={() => onTab('tasks')}>Board</Button>}>
         {!tasks ? <Skeleton className="h-24" /> : <>
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 md:grid-cols-2 xl:grid-cols-4">
             {STATUSES.filter((st) => st.value !== 'done').map((st) => (
-              <button key={st.value} onClick={() => onTab('tasks')} className="flex flex-col items-start gap-1 rounded-lg border px-2.5 py-2 text-left hover:bg-accent/50">
+              <button key={st.value} onClick={() => onTab('tasks')} className="flex min-w-0 flex-col items-start gap-1 rounded-lg border px-2.5 py-2 text-left hover:bg-accent/50">
                 <span className="text-lg font-semibold tabular-nums">{open.filter((t) => t.status === st.value).length}</span>
-                <span className="flex items-center gap-1 text-xs text-muted-foreground"><StatusIcon status={st.value} className="size-3.5" /><span className="truncate">{st.label}</span></span>
+                <span className="flex w-full min-w-0 items-center gap-1 text-xs text-muted-foreground"><StatusIcon status={st.value} className="size-3.5" /><span className="truncate">{st.label}</span></span>
               </button>
             ))}
           </div>
