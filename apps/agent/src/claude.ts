@@ -391,11 +391,12 @@ async function authStatus(name: string) {
   }
 }
 
-export async function profiles() {
+export function profileNames() {
   const root = join(homedir(), '.claude-profiles')
-  const names = ['default', ...(existsSync(root) ? readdirSync(root).filter((n) => PROFILE_RE.test(n) && n !== 'default') : [])]
-  return Promise.all(names.map(authStatus))
+  return ['default', ...(existsSync(root) ? readdirSync(root).filter((n) => PROFILE_RE.test(n) && n !== 'default') : [])]
 }
+
+export const profiles = () => Promise.all(profileNames().map(authStatus))
 
 // Without a login the SDK process waits silently; say so up front instead. Checked at most every 5 minutes.
 const loginChecked = new Map<string, number>()

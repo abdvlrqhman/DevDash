@@ -1,16 +1,18 @@
 import type { ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { DatabaseBackup } from 'lucide-react'
+import { ArrowUpCircle, DatabaseBackup } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
 import { PageBody, PageHeader } from '@/components/app/page'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
 import { api, unwrap } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ErrorAlert } from '../auth/LoginPage'
 import { relativeTime } from '../claude/data'
+import { describeMemory } from '../claude/memory'
 import { bytes } from '../files/FilesPage'
 import { Progress } from '../files/Progress'
 
@@ -57,6 +59,7 @@ export function ServerPage() {
               <Line label="DevDash" value={<span className="font-mono">{d.software.devdash}{d.software.release ? ` (${d.software.release.id.slice(0, 7)})` : ''}</span>} />
               {d.software.release && <Line label="Deployed" value={relativeTime(d.software.release.since)} />}
               <Line label="Claude Code" value={<span className="font-mono">{d.software.claude ?? 'not found'}</span>} />
+              <ClaudeUpdate sdk={d.software.claudeSdk} canAct={d.canAct} />
               <Line label="Node.js" value={<span className="font-mono">{d.software.node}</span>} />
             </Card>
 
@@ -68,11 +71,53 @@ export function ServerPage() {
                 <Line key={a.username} label={a.name} value={<span className="flex items-center gap-1.5"><StatusLight state={a.ok ? 'live' : 'error'} />{a.ok ? 'Server account ready' : 'Not responding'}</span>} />
               ))}
             </Card>
+
+            <Card title="claude-mem">
+              <p className="text-xs text-muted-foreground">Each member switches it on for their own Claude in Claude setup. Everyone has their own worker and memories.</p>
+              {d.agents.map((a) => {
+                const m = a.memory && describeMemory(a.memory)
+                return (
+                  <Line key={a.username} label={a.name} value={m
+                    ? <span className="flex items-center gap-1.5" title={m.hint}><StatusLight state={m.light} />{m.text}</span>
+                    : <span className="text-muted-foreground">Unknown</span>} />
+                )
+              })}
+            </Card>
           </div>
         )}
       </PageBody>
     </>
   )
+}
+
+const newer = (a: string, b: string) => {
+  const x = a.split('.').map(Number)
+  const y = b.split('.').map(Number)
+  for (let i = 0; i < 3; i++) if ((x[i] ?? 0) !== (y[i] ?? 0)) return (x[i] ?? 0) > (y[i] ?? 0)
+  return false
+}
+
+/** Claude Code comes from the Agent SDK package; admins update it for everyone from here. */
+function ClaudeUpdate({ sdk, canAct }: { sdk: { installed: string | null; latest: string | null; updating: boolean }; canAct: boolean }) {
+  const qc = useQueryClient()
+  const update = useMutation({
+    mutationFn: () => unwrap(api.api.status['claude-update'].$post()),
+    onSuccess: () => {
+      toast.success('Updating Claude Code. It takes a minute or two; running sessions keep their version until they restart.')
+      void qc.invalidateQueries({ queryKey: ['status'] })
+    },
+    onError: (e) => toast.error(e.message),
+  })
+  const available = !!sdk.latest && !!sdk.installed && newer(sdk.latest, sdk.installed)
+  const value = sdk.updating || update.isPending
+    ? <span className="flex items-center gap-1.5"><Spinner />Updating…</span>
+    : available
+      ? <span className="flex items-center gap-2">
+          <span className="text-attention">SDK {sdk.latest} available</span>
+          {canAct && <Button size="sm" variant="outline" onClick={() => update.mutate()}><ArrowUpCircle />Update</Button>}
+        </span>
+      : <span className="text-muted-foreground">{sdk.latest ? 'Up to date' : 'Could not check for updates'}</span>
+  return <Line label={<span>Updates{sdk.installed && <span className="font-mono text-xs"> (SDK {sdk.installed})</span>}</span>} value={value} />
 }
 
 function Card({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
@@ -83,7 +128,7 @@ function Card({ title, action, children }: { title: string; action?: ReactNode; 
     </section>
   )
 }
-const Line = ({ label, value }: { label: string; value: ReactNode }) => (
+const Line = ({ label, value }: { label: ReactNode; value: ReactNode }) => (
   <div className="flex items-baseline justify-between gap-4 text-sm"><span className="text-muted-foreground">{label}</span><span className="min-w-0 truncate text-right">{value}</span></div>
 )
 function Meter({ label, used, total }: { label: string; used: number; total: number }) {

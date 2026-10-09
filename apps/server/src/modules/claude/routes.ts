@@ -85,6 +85,11 @@ export function claudeRoutes(claude: ClaudeService, mw: ReturnType<typeof authMi
       await claude.createProfile(c.get('user'), c.req.valid('json').name)
       return c.json({ ok: true })
     })
+    .get('/memory', async (c) => c.json({ health: await claude.memoryHealth(c.get('user')) }))
+    .post('/memory/restart', async (c) => {
+      await claude.restartMemory(c.get('user'))
+      return c.json({ ok: true })
+    })
     .put('/profiles/:name/memory', json(z.object({ enabled: z.boolean() })), async (c) => {
       return c.json(await claude.setMemory(c.get('user'), c.req.param('name'), c.req.valid('json').enabled))
     })

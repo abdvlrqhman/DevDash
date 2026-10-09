@@ -13,12 +13,19 @@ const FETCH_EVERY_MS = 5 * 60_000
 type Row = {
   id: number; slug: string; name: string; repo_url: string | null; default_branch: string; created_by: number; created_at: number
   fetched_at: number | null; fetch_error: string | null; archived: number; creator_username: string; creator_name: string
-  open_tasks: number; sessions: number
+  open_tasks: number; sessions: number; working: number; waiting: number; active_people: string; last_session_at: number | null
 }
 
+// Live Claude work counts every session in the project, private ones too, but only as numbers and owners' names:
+// people see that someone's Claude is in the shared checkout, never what it is doing.
 const SELECT = `select p.*, u.username as creator_username, u.name as creator_name,
   (select count(*) from tasks t where t.project_id = p.id and t.status != 'done') as open_tasks,
-  (select count(*) from claude_sessions s where s.project_id = p.id and s.archived = 0) as sessions
+  (select count(*) from claude_sessions s where s.project_id = p.id and s.archived = 0) as sessions,
+  (select count(*) from claude_sessions s where s.project_id = p.id and s.archived = 0 and s.status = 'working') as working,
+  (select count(*) from claude_sessions s where s.project_id = p.id and s.archived = 0 and s.status = 'waiting') as waiting,
+  (select json_group_array(distinct o.name) from claude_sessions s join users o on o.id = s.owner_id
+    where s.project_id = p.id and s.archived = 0 and s.status in ('working', 'waiting')) as active_people,
+  (select max(s.last_activity_at) from claude_sessions s where s.project_id = p.id) as last_session_at
   from projects p join users u on u.id = p.created_by`
 
 export const slugify = (s: string) => s.toLowerCase().replace(/\.git$/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'project'
@@ -49,6 +56,7 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
   const dto = (p: Row) => ({
     slug: p.slug, name: p.name, repoUrl: p.repo_url, defaultBranch: p.default_branch, path: path(p.slug), createdAt: p.created_at,
     fetchedAt: p.fetched_at, fetchError: p.fetch_error, archived: p.archived === 1, openTasks: p.open_tasks, sessions: p.sessions,
+    live: { working: p.working, waiting: p.waiting, people: JSON.parse(p.active_people || '[]') as string[] }, lastSessionAt: p.last_session_at,
     creator: { username: p.creator_username, name: p.creator_name },
   })
   function find(slug: string) {

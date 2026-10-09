@@ -81,6 +81,8 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
   'claude.rename': async (r) => (await claude.rename(r.launch as claude.Launch, str(r.title, 'title')), { ok: true }),
   'claude.profiles': async () => ({ profiles: (await claude.profiles()).map((p) => ({ ...p, memory: memory.enabled(p.name) })) }),
   'claude.memory': async (r) => (await memory.set(str(r.profile, 'profile'), r.enabled === true), { ok: true }),
+  'claude.memory.health': async () => ({ health: await memory.health(claude.profileNames()) }),
+  'claude.memory.restart': async () => (await memory.restart(claude.profileNames()), { ok: true }),
   'claude.usage': async (r) => ({ usage: await claude.usage(str(r.profile, 'profile')) }),
   'claude.profile.create': (r) => (claude.createProfile(str(r.name, 'name')), { ok: true }),
   'fs.dir': async (r) => ({ path: await services.dir(r.path) }),

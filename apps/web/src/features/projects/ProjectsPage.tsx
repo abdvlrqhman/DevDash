@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { FolderGit2, GitBranch, Plus, TriangleAlert } from 'lucide-react'
+import { StatusLight } from '@/components/app/brand'
 import { PageBody, PageHeader } from '@/components/app/page'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
 import { Button } from '@/components/ui/button'
@@ -13,8 +14,26 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
 import { api, unwrap } from '@/lib/api'
 import { ErrorAlert } from '../auth/LoginPage'
+import { relativeTime } from '../claude/data'
 import { projectsQuery, useLiveWork } from '../work/data'
 import { GitHubConnection } from '../work/GitHub'
+
+type Live = { working: number; waiting: number; people: string[] }
+const firstNames = (people: string[]) => people.map((n) => n.split(' ')[0]).join(', ')
+
+/** Whose Claude is working in a project right now, or when Claude last was. Nothing about what it is doing. */
+export function LiveWork({ live, lastSessionAt }: { live: Live; lastSessionAt: number | null }) {
+  if (live.working + live.waiting > 0) {
+    const parts = [live.working && `${live.working} working`, live.waiting && `${live.waiting} waiting for an answer`].filter(Boolean).join(', ')
+    return (
+      <span className="flex min-w-0 items-center gap-1.5">
+        <StatusLight state={live.working ? 'live' : 'waiting'} />
+        <span className="truncate">{firstNames(live.people)}: {parts}</span>
+      </span>
+    )
+  }
+  return lastSessionAt ? <span className="text-muted-foreground">Claude last active {relativeTime(lastSessionAt)}</span> : null
+}
 
 export const repoLabel = (url: string | null) => (url ? url.replace(/^(https:\/\/|git@)/, '').replace(/^github\.com[:/]/, '').replace(/\.git$/, '') : 'Only on this server')
 
@@ -52,11 +71,12 @@ export function ProjectsPage() {
                       <span className="truncate font-mono">{repoLabel(p.repoUrl)}</span>
                       <span className="flex shrink-0 items-center gap-1"><GitBranch className="size-3.5" />{p.defaultBranch}</span>
                     </ItemDescription>
-                    <ItemDescription className="text-xs tabular-nums sm:hidden">{p.openTasks} open {p.openTasks === 1 ? 'task' : 'tasks'}</ItemDescription>
+                    {(p.live.working + p.live.waiting > 0 || p.lastSessionAt) && (
+                      <ItemDescription className="text-xs"><LiveWork live={p.live} lastSessionAt={p.lastSessionAt} /></ItemDescription>
+                    )}
+                    <ItemDescription className="text-xs tabular-nums sm:hidden">{counts(p)}</ItemDescription>
                   </ItemContent>
-                  <ItemActions className="hidden text-xs text-muted-foreground tabular-nums sm:flex">
-                    {p.openTasks} open {p.openTasks === 1 ? 'task' : 'tasks'}
-                  </ItemActions>
+                  <ItemActions className="hidden text-xs text-muted-foreground tabular-nums sm:flex">{counts(p)}</ItemActions>
                 </Link>
               </Item>
             ))}
@@ -67,6 +87,9 @@ export function ProjectsPage() {
     </>
   )
 }
+
+const counts = (p: { openTasks: number; sessions: number }) =>
+  `${p.openTasks} open ${p.openTasks === 1 ? 'task' : 'tasks'}, ${p.sessions} ${p.sessions === 1 ? 'session' : 'sessions'}`
 
 const slugify = (s: string) => s.toLowerCase().replace(/\.git$/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)
 

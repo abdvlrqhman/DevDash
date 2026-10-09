@@ -6,6 +6,10 @@ export function statusRoutes(status: StatusService, mw: ReturnType<typeof authMi
   return new Hono<AuthEnv>()
     .use(mw.requireUser)
     .get('/', async (c) => c.json(await status.get(c.get('user').role === 'admin')))
+    .post('/claude-update', mw.requireAdmin, async (c) => {
+      await status.updateClaude()
+      return c.json({ ok: true })
+    })
     .post('/backup', mw.requireAdmin, async (c) => {
       await status.backupNow()
       return c.json({ ok: true })

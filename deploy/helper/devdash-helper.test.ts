@@ -60,3 +60,13 @@ test('set-password: validated, sent to chpasswd on stdin (never on the command l
   assert.match(call({ cmd: 'set-password', args: { username: 'root', password: 'long enough pw' } }).error!, /refused: invalid username/)
   assert.match(call({ cmd: 'set-password', args: { username: 'alice', password: 'long enough pw' } }, { DEVDASH_HELPER_FAKE_UID: '33' }).error!, /refused: not a member/)
 })
+
+test('claude-update starts the update unit without waiting; its status is read-only', () => {
+  const r = call({ cmd: 'claude-update' })
+  assert.equal(r.ok, true)
+  assert.deepEqual(r.planned, ['systemctl start --no-block devdash-claude-update.service'])
+  const s = call({ cmd: 'claude-update-status' }) as unknown as { ok: boolean; state: string; planned: string[] }
+  assert.equal(s.ok, true)
+  assert.equal(s.state, 'inactive')
+  assert.deepEqual(s.planned, [])
+})

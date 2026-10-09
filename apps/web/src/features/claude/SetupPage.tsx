@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { LogIn, Plus } from 'lucide-react'
+import { LogIn, Plus, RotateCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
 import { PageBody, PageHeader, SettingsSection } from '@/components/app/page'
@@ -10,10 +10,12 @@ import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui
 import { Input } from '@/components/ui/input'
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Spinner } from '@/components/ui/spinner'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { api, unwrap } from '@/lib/api'
 import { ErrorAlert } from '../auth/LoginPage'
 import { FALLBACK_MODELS, PERMISSION_MODES, profilesQuery, type PermissionMode } from './data'
+import { describeMemory, memoryQuery } from './memory'
 
 type Profile = { name: string; loggedIn: boolean; authMethod: string | null; email: string | null; plan: string | null; memory: boolean }
 type Defaults = { profile: string; model: string | null; effort: string | null; permission_mode: string; open_in: 'chat' | 'cli' }
@@ -89,7 +91,39 @@ function MemorySection({ profiles }: { profiles: Profile[] }) {
         <ItemGroup className="rounded-lg border">
           {profiles.map((p) => <MemoryRow key={p.name} profile={p} />)}
         </ItemGroup>
+        {profiles.some((p) => p.memory) && <MemoryHealthRow />}
     </SettingsSection>
+  )
+}
+
+/** The member's claude-mem worker (one per person, shared by their profiles). */
+function MemoryHealthRow() {
+  const qc = useQueryClient()
+  const q = useQuery(memoryQuery)
+  const restart = useMutation({
+    mutationFn: () => unwrap(api.api.claude.memory.restart.$post()),
+    onSuccess: () => { toast.success('claude-mem restarted.'); void qc.invalidateQueries({ queryKey: memoryQuery.queryKey }) },
+  })
+  if (q.isPending) return <Skeleton className="h-12" />
+  if (q.error) return <ErrorAlert error={q.error} />
+  const h = q.data.health
+  const d = describeMemory(h)
+  return (
+    <div className="flex flex-col gap-2 rounded-lg border p-3">
+      <div className="flex items-center gap-3">
+        <StatusLight state={d.light} />
+        <div className="min-w-0 flex-1 text-sm">
+          <div>{d.text}</div>
+          {h.version && <div className="text-xs text-muted-foreground">claude-mem {h.version}</div>}
+        </div>
+        {h.state !== 'off' && <Button size="sm" variant="outline" disabled={restart.isPending} onClick={() => restart.mutate()}>
+          {restart.isPending ? <Spinner /> : <RotateCw />}Restart
+        </Button>}
+      </div>
+      {d.hint && <p className="text-xs text-muted-foreground">{d.hint}</p>}
+      {h.problems?.map((m) => <p key={m} className="text-xs text-muted-foreground">{m}</p>)}
+      <ErrorAlert error={restart.error} />
+    </div>
   )
 }
 
@@ -107,6 +141,7 @@ function MemoryRow({ profile: p }: { profile: Profile }) {
         toast.success(enabled ? `claude-mem is on for ${p.name}. New sessions use it.` : `claude-mem is off for ${p.name}.`)
       }
       void qc.invalidateQueries({ queryKey: profilesQuery.queryKey })
+      void qc.invalidateQueries({ queryKey: memoryQuery.queryKey })
     },
   })
   useEffect(() => {

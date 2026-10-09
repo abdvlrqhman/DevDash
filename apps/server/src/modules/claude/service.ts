@@ -34,6 +34,20 @@ export function toDto(s: SessionRow) {
 }
 export type SessionDto = ReturnType<typeof toDto>
 
+/** claude-mem for one member, as their agent reports it (apps/agent/src/memory.ts). */
+export type MemoryHealth = {
+  on: string[]
+  state: 'off' | 'stopped' | 'ok' | 'error'
+  error?: string | null
+  version?: string | null
+  uptime?: number | null
+  memories?: number | null
+  lastSaved?: number | null
+  problems?: string[]
+}
+export const memoryHealth = (agents: AgentsService, username: string, timeoutMs = 10_000) =>
+  agents.request<{ health: MemoryHealth }>(username, { op: 'claude.memory.health' }, timeoutMs).then((r) => r.health)
+
 const launch = (s: SessionRow) => ({
   id: s.id, cwd: s.cwd, profile: s.profile, model: s.model, effort: s.effort, permissionMode: s.permission_mode, started: !!s.started,
 })
@@ -111,6 +125,8 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
         // CLI exited: back to Chat mode, ready to resume.
         const mode = st === 'stopped' ? 'chat' : ev.mode === 'cli' || ev.mode === 'chat' ? ev.mode : s.mode
         repo.setStatus(s.id, st === 'stopped' ? 'idle' : st, typeof ev.detail === 'string' ? ev.detail : null, mode)
+        // Project pages show who is working there right now.
+        if (s.project_id && (st === 'stopped' ? 'idle' : st) !== s.status) hub.publish('projects', { type: 'changed' })
         // Claude may have committed: look for "fixes #N" now rather than at the next fetch.
         if (s.project_id && s.status === 'working' && st !== 'working') projects.rescan(s.project_id)
         // Chat mode notifies from the richer permission/result events below; the CLI only reports status.
@@ -195,6 +211,7 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
       const status = l?.status && STATUSES.has(l.status) ? l.status : s.status === 'working' || s.status === 'waiting' ? 'idle' : s.status
       if (mode !== s.mode || status !== s.status) {
         repo.setStatus(s.id, status, s.status_detail, mode)
+        if (s.project_id && status !== s.status) hub.publish('projects', { type: 'changed' })
         publish(s.id)
       }
     }
@@ -360,6 +377,10 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
       defaults: repo.defaults(user.id),
     }),
     createProfile: (user: User, name: string) => agents.request(user.username, { op: 'claude.profile.create', name }),
+    memoryHealth: (user: User) => memoryHealth(agents, user.username),
+    restartMemory: async (user: User) => {
+      await agents.request(user.username, { op: 'claude.memory.restart' }, 70_000)
+    },
     /**
      * claude-mem on or off for one of the member's profiles. Installing it the first time can take a few minutes,
      * longer than Cloudflare holds a request: after a minute this answers `pending` and the install carries on.
