@@ -197,21 +197,23 @@
   [data-slot="button"]:active:not(:disabled) { opacity: 0.75; }
 }
 
-/* Scrollbars: thin, rounded, theme-colored, and only as visible as they need to be. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in oklch, var(--foreground) 22%, transparent) transparent;
+/* Scrollbars: thin, rounded, theme-colored, and only as visible as they need to be. In the base layer so no-scrollbar can still hide one. */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--foreground) 22%, transparent) transparent;
+  }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in oklch, var(--foreground) 18%, transparent);
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover { background-color: color-mix(in oklch, var(--foreground) 32%, transparent); }
+  ::-webkit-scrollbar-corner { background: transparent; }
 }
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb {
-  background: color-mix(in oklch, var(--foreground) 18%, transparent);
-  border: 3px solid transparent;
-  border-radius: 999px;
-  background-clip: padding-box;
-}
-::-webkit-scrollbar-thumb:hover { background-color: color-mix(in oklch, var(--foreground) 32%, transparent); }
-::-webkit-scrollbar-corner { background: transparent; }
 .xterm-viewport { scrollbar-color: color-mix(in oklch, var(--term-fg) 25%, transparent) transparent; }
 
 /* A status light coming on catches in two quick steps, like an LED, rather than fading in. */

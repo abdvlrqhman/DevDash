@@ -8,7 +8,7 @@ import { PageBody, PageHeader, Section } from '@/components/app/page'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Tabs, TabsContent, TabsList, TabCount, TabsTrigger } from '@/components/ui/tabs'
 import { ErrorAlert } from '../auth/LoginPage'
 import { relativeTime, sessionsQuery, STATUS_LABEL, type Session } from '../claude/data'
 import { NewSession } from '../claude/SessionsPage'
@@ -67,13 +67,13 @@ function ProjectPageView() {
         </div>
 
         <Tabs value={tab} onValueChange={setTab} className="gap-4">
-          <TabsList className="max-w-full justify-start overflow-x-auto [&>*]:flex-none">
+          <TabsList variant="line">
             <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="tasks">Tasks<span className="text-muted-foreground tabular-nums">{p.openTasks}</span></TabsTrigger>
+            <TabsTrigger value="tasks">Tasks{p.openTasks > 0 && <TabCount>{p.openTasks}</TabCount>}</TabsTrigger>
             <TabsTrigger value="notes">Notes</TabsTrigger>
-            <TabsTrigger value="sessions" className="gap-1.5">
+            <TabsTrigger value="sessions">
               Claude
-              {p.live.working + p.live.waiting > 0 ? <StatusLight state={p.live.working ? 'live' : 'waiting'} /> : <span className="text-muted-foreground tabular-nums">{p.sessions}</span>}
+              {p.live.working + p.live.waiting > 0 ? <StatusLight state={p.live.working ? 'live' : 'waiting'} /> : p.sessions > 0 && <TabCount>{p.sessions}</TabCount>}
             </TabsTrigger>
             <TabsTrigger value="builds">Builds</TabsTrigger>
             <TabsTrigger value="commits">Commits</TabsTrigger>

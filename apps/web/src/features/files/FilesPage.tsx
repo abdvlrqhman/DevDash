@@ -80,7 +80,7 @@ export function FilesPage() {
       </>} />
       <PageBody>
         <Tabs value={tab ?? 'files'} onValueChange={(v) => void navigate({ to: '/files', search: { path, tab: v === 'links' ? 'links' : undefined } })} className="gap-4">
-          <TabsList className="w-fit">
+          <TabsList variant="line">
             <TabsTrigger value="files">Files</TabsTrigger>
             <TabsTrigger value="links">Share links</TabsTrigger>
           </TabsList>
