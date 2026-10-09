@@ -10,6 +10,11 @@ const ImageInput = z.object({
   data: z.string().max(7 * MB), // base64 of up to ~5 MB
 })
 const Images = z.array(ImageInput).max(6).default([])
+const Files = z.array(z.object({
+  name: z.string().min(1).max(255),
+  mediaType: z.string().max(120),
+  data: z.string().max(14 * MB), // base64 of up to 10 MB
+})).max(6).default([])
 const Model = z.string().max(80).nullable()
 const Effort = z.enum(EFFORTS).nullable()
 const Mode = z.enum(PERMISSION_MODES)
@@ -29,7 +34,8 @@ const CreateInput = z.object({
   cols: Size.optional(),
   rows: z.number().int().min(4).max(200).optional(),
 })
-const SendInput = z.object({ text: z.string().max(200_000), images: Images }).refine((v) => v.text.trim() || v.images.length, 'Write a message or attach an image')
+const SendInput = z.object({ text: z.string().max(200_000), images: Images, files: Files })
+  .refine((v) => v.text.trim() || v.images.length || v.files.length, 'Write a message or attach a file')
 const AnswerInput = z.object({
   requestId: z.uuid(),
   result: z.discriminatedUnion('behavior', [
@@ -45,6 +51,8 @@ const PatchInput = z.object({
   model: Model.optional(),
   effort: Effort.optional(),
   permissionMode: Mode.optional(),
+  fastMode: z.boolean().optional(),
+  remoteControl: z.boolean().optional(),
 })
 const ModeInput = z.object({ mode: z.enum(['chat', 'cli']), cols: Size.default(100), rows: z.number().int().min(4).max(200).default(30) })
 const DefaultsInput = z.object({
@@ -61,9 +69,20 @@ export function claudeRoutes(claude: ClaudeService, mw: ReturnType<typeof authMi
     .patch('/sessions/:id', json(PatchInput), async (c) => c.json({ session: await claude.update(c.get('user'), c.req.param('id'), c.req.valid('json')) }))
     .get('/sessions/:id/messages', async (c) => c.json(await claude.history(c.get('user'), c.req.param('id'))))
     .post('/sessions/:id/messages', json(SendInput), async (c) => {
-      const { text, images } = c.req.valid('json')
-      return c.json({ uuid: await claude.send(c.get('user'), c.req.param('id'), text, images) })
+      const { text, images, files } = c.req.valid('json')
+      return c.json({ uuid: await claude.send(c.get('user'), c.req.param('id'), text, images, files) })
     })
+    .get('/sessions/:id/files', query(z.object({ q: z.string().max(200).default('') })), async (c) =>
+      c.json(await claude.files(c.get('user'), c.req.param('id'), c.req.valid('query').q)))
+    .post('/sessions/:id/join', (c) => {
+      claude.askToJoin(c.get('user'), c.req.param('id'))
+      return c.json({ ok: true })
+    })
+    .put('/sessions/:id/writers/:userId', json(z.object({ allowed: z.boolean() })), (c) =>
+      c.json(claude.setWriter(c.get('user'), c.req.param('id'), Number(c.req.param('userId')), c.req.valid('json').allowed)))
+    .get('/sessions/:id/comments', (c) => c.json(claude.comments(c.get('user'), c.req.param('id'))))
+    .post('/sessions/:id/comments', json(z.object({ body: z.string().trim().min(1).max(5000) })), (c) =>
+      c.json({ comment: claude.comment(c.get('user'), c.req.param('id'), c.req.valid('json').body) }))
     .post('/sessions/:id/answer', json(AnswerInput), async (c) => {
       const { requestId, result } = c.req.valid('json')
       await claude.answer(c.get('user'), c.req.param('id'), requestId, result)

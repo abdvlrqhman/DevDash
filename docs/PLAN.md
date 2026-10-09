@@ -211,7 +211,9 @@ Resume does not restore `--plugin-dir`, `--mcp-config`, `--add-dir`, `--settings
 | @file mentions | ✅ picker | ✅ |
 | Hooks, MCP, CLAUDE.md, memory, output styles | ✅ (`settingSources` default = user+project+local) | ✅ |
 | `/theme`, `/terminal-setup`, agent teams | ❌ CLI only → "Open in CLI" button | ✅ |
-| Remote Control (Claude app) | ❌ | ✅ optional flag, needs claude.ai login on that profile |
+| Remote Control (Claude app) | ✅ per-session switch (`enableRemoteControl`), kept on across restarts | ✅ `--remote-control` at launch; needs claude.ai login on that profile |
+| Fast mode | ✅ flag settings `fastMode` (the SDK keeps it off otherwise) | ✅ `--settings {"fastMode":true}` |
+| Files (PDF, text, any) | ✅ PDFs and text as document blocks; other files saved under `~/.cache/devdash/uploads` | ⚠️ via file path |
 
 ### 5.8 Spikes before building Phase 3 (½ day)
 

@@ -22,7 +22,7 @@ export type ToolBlock = {
   children: Block[]
 }
 export type Block =
-  | { kind: 'user'; key: string; uuid?: string; text: string; images: string[] }
+  | { kind: 'user'; key: string; uuid?: string; text: string; images: string[]; files: string[] }
   | { kind: 'text'; key: string; text: string }
   | { kind: 'thinking'; key: string; text: string }
   | ToolBlock
@@ -34,7 +34,7 @@ export type Block =
 export function toText(c: unknown): string {
   if (typeof c === 'string') return c
   if (!Array.isArray(c)) return ''
-  return (c as Content[]).map((x) => (x.type === 'text' ? String(x.text) : x.type === 'image' ? '[image]' : '')).join('\n')
+  return (c as Content[]).map((x) => (x.type === 'text' ? String(x.text) : x.type === 'image' ? '[image]' : x.type === 'document' ? `[${String(x.title ?? 'file')}]` : '')).join('\n')
 }
 
 const unescape = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
@@ -79,7 +79,9 @@ export function buildTranscript(raws: Raw[]): Block[] {
             return src?.type === 'base64' ? `data:${src.media_type};base64,${src.data}` : ''
           }).filter(Boolean)
         : []
-      if (!text.trim() && !images.length) return
+      // PDFs and text files sent as documents: shown by name.
+      const files = Array.isArray(content) ? content.filter((b) => b.type === 'document').map((b) => String(b.title ?? 'File')) : []
+      if (!text.trim() && !images.length && !files.length) return
       if (text.startsWith('Caveat: The messages below')) return
       // Claude Code talks to the model through user-role messages too (background task results, reminders): not the person.
       const notice = tag(text, 'task-notification')
@@ -90,7 +92,7 @@ export function buildTranscript(raws: Raw[]): Block[] {
       }
       // Reminders Claude Code appends for the model aren't the person's words.
       const said = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
-      if (!said && !images.length) return
+      if (!said && !images.length && !files.length) return
       const command = tag(text, 'command-name')
       if (command) return void top.push({ kind: 'command', key, name: command.trim() })
       const stdout = tag(text, 'local-command-stdout')
@@ -100,7 +102,7 @@ export function buildTranscript(raws: Raw[]): Block[] {
         else if (stdout.trim()) top.push({ kind: 'note', key, text: stdout.trim() })
         return
       }
-      top.push({ kind: 'user', key, uuid: r.uuid, text: said, images })
+      top.push({ kind: 'user', key, uuid: r.uuid, text: said, images, files })
       return
     }
 

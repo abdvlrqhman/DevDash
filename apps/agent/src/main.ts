@@ -12,6 +12,7 @@ import * as services from './services.ts'
 import { ops as git } from './git.ts'
 import * as files from './files.ts'
 import * as memory from './memory.ts'
+import * as mentions from './mentions.ts'
 import * as gh from './gh.ts'
 import { attachPty, hasSession, listSessions, send, tmux, TMUX_CONF } from './tmux.ts'
 
@@ -70,7 +71,9 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
   'claude.send': async (r) => (await claude.send(r.launch as claude.Launch, r.content as unknown[], str(r.uuid, 'uuid')), { ok: true }),
   'claude.answer': (r) => (claude.answer(str(r.id, 'id'), str(r.requestId, 'requestId'), r.result as never), { ok: true }),
   'claude.interrupt': async (r) => (await claude.interrupt(str(r.id, 'id')), { ok: true }),
-  'claude.set': async (r) => (await claude.setOption(str(r.id, 'id'), r.key as 'model', (r.value as string | null) ?? null), { ok: true }),
+  'claude.set': async (r) => (await claude.setOption(str(r.id, 'id'), r.key as 'model', (r.value as string | boolean | null) ?? null), { ok: true }),
+  'claude.remote': (r) => claude.remote(r.launch as claude.Launch, r.enabled === true),
+  'claude.files': async (r) => ({ paths: await mentions.search(str(r.cwd, 'cwd'), typeof r.q === 'string' ? r.q : '') }),
   'claude.stop': async (r) => (await claude.stop(str(r.id, 'id')), { ok: true }),
   'claude.cli.open': async (r) => (await claude.openCli(r.launch as claude.Launch, Number(r.cols) || 100, Number(r.rows) || 30), { ok: true }),
   'claude.cli.close': async (r) => (await claude.closeCli(str(r.id, 'id')), { ok: true }),

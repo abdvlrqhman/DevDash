@@ -24,17 +24,23 @@ export type SessionRow = {
   last_activity_at: number
   project_id: number | null
   worktree: string | null
+  fast_mode: number
+  remote_control: number
+  context_json: string | null
   project_slug: string | null
   project_name: string | null
 }
+export type Comment = { id: number; body: string; createdAt: number; user: { id: number; name: string } }
 export type Defaults = { profile: string; model: string | null; effort: string | null; permission_mode: string; open_in: 'chat' | 'cli' }
 
 const SELECT = `select s.*, u.username as owner_username, u.name as owner_name, p.slug as project_slug, p.name as project_name
   from claude_sessions s join users u on u.id = s.owner_id left join projects p on p.id = s.project_id`
 
 // Columns a PATCH may touch; anything else is ignored.
-const PATCHABLE = ['title', 'title_custom', 'shared', 'shared_can_send', 'archived', 'model', 'effort', 'permission_mode', 'mode', 'started'] as const
+const PATCHABLE = ['title', 'title_custom', 'shared', 'shared_can_send', 'archived', 'model', 'effort', 'permission_mode', 'mode', 'started', 'fast_mode', 'remote_control', 'context_json'] as const
 export type Patch = Partial<Pick<SessionRow, (typeof PATCHABLE)[number]>>
+
+const toComment = (r: { id: number; body: string; created_at: number; user_id: number; name: string }): Comment => ({ id: r.id, body: r.body, createdAt: r.created_at, user: { id: r.user_id, name: r.name } })
 
 export function claudeRepo(db: Db) {
   const s = {
@@ -48,6 +54,14 @@ export function claudeRepo(db: Db) {
     setProject: db.prepare(`update claude_sessions set project_id = ?, worktree = ? where id = ?`),
     addSender: db.prepare(`insert or ignore into claude_message_senders (session_id, message_uuid, user_id) values (?, ?, ?)`),
     senders: db.prepare(`select m.message_uuid, u.id, u.name from claude_message_senders m join users u on u.id = m.user_id where m.session_id = ?`),
+    isWriter: db.prepare(`select 1 from claude_session_writers where session_id = ? and user_id = ?`),
+    writers: db.prepare(`select u.id, u.name from claude_session_writers w join users u on u.id = w.user_id where w.session_id = ? order by u.name`),
+    addWriter: db.prepare(`insert or ignore into claude_session_writers (session_id, user_id) values (?, ?)`),
+    removeWriter: db.prepare(`delete from claude_session_writers where session_id = ? and user_id = ?`),
+    comments: db.prepare(`select c.id, c.body, c.created_at, u.id as user_id, u.name from claude_session_comments c join users u on u.id = c.user_id
+      where c.session_id = ? order by c.id`),
+    addComment: db.prepare(`insert into claude_session_comments (session_id, user_id, body) values (?, ?, ?)`),
+    commentCount: db.prepare(`select count(*) as n from claude_session_comments where session_id = ?`),
     defaults: db.prepare(`select profile, model, effort, permission_mode, open_in from claude_defaults where user_id = ?`),
     saveDefaults: db.prepare(`insert into claude_defaults (user_id, profile, model, effort, permission_mode, open_in) values (?1, ?2, ?3, ?4, ?5, ?6)
       on conflict(user_id) do update set profile = ?2, model = ?3, effort = ?4, permission_mode = ?5, open_in = ?6`),
@@ -70,6 +84,15 @@ export function claudeRepo(db: Db) {
     addSender: (sessionId: string, uuid: string, userId: number) => void s.addSender.run(sessionId, uuid, userId),
     senders: (sessionId: string) =>
       Object.fromEntries((s.senders.all(sessionId) as { message_uuid: string; id: number; name: string }[]).map((r) => [r.message_uuid, { id: r.id, name: r.name }])),
+    isWriter: (sessionId: string, userId: number) => !!s.isWriter.get(sessionId, userId),
+    writers: (sessionId: string) => (s.writers.all(sessionId) as { id: number; name: string }[]).map(({ id, name }) => ({ id, name })),
+    setWriter: (sessionId: string, userId: number, on: boolean) => void (on ? s.addWriter : s.removeWriter).run(sessionId, userId),
+    comments: (sessionId: string) => (s.comments.all(sessionId) as Parameters<typeof toComment>[0][]).map(toComment),
+    addComment(sessionId: string, userId: number, body: string) {
+      const id = Number(s.addComment.run(sessionId, userId, body).lastInsertRowid)
+      return this.comments(sessionId).find((c) => c.id === id)!
+    },
+    commentCount: (sessionId: string) => (s.commentCount.get(sessionId) as { n: number }).n,
     defaults: (userId: number): Defaults =>
       (s.defaults.get(userId) as Defaults | undefined) ?? { profile: 'default', model: null, effort: null, permission_mode: 'bypassPermissions', open_in: 'chat' },
     saveDefaults: (userId: number, d: Defaults) => void s.saveDefaults.run(userId, d.profile, d.model, d.effort, d.permission_mode, d.open_in),

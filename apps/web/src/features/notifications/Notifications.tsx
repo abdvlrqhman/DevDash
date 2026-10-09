@@ -36,7 +36,7 @@ const KINDS: { key: keyof Prefs; label: string; description: string }[] = [
   { key: 'needs_you', label: 'Claude needs you', description: 'A question, a plan to approve, or a permission to grant.' },
   { key: 'finished', label: 'Claude finished', description: 'A reply or task is done.' },
   { key: 'errors', label: 'Claude stopped with an error', description: 'Usage limits, sign-in problems, crashes.' },
-  { key: 'shared', label: 'Shared with you', description: 'A teammate shares a Claude session.' },
+  { key: 'shared', label: 'Shared with you', description: 'A teammate shares a Claude session, asks to join yours, or comments on it.' },
 ]
 
 export function NotificationsPanel() {

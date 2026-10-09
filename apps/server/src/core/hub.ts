@@ -10,6 +10,18 @@ type Conn = { ws: WebSocket; user: User; topics: Set<string>; active: boolean }
 export function createHub() {
   const conns = new Set<Conn>()
   const authorizers = new Map<string, (user: User, topic: string) => boolean>()
+  // Topics whose subscribers see each other ("who's watching"): every join or leave tells the topic who is there.
+  const presence = new Set<string>()
+  const watchers = (topic: string) => {
+    const seen = new Map<number, { id: number; name: string }>()
+    for (const c of conns) if (c.topics.has(topic)) seen.set(c.user.id, { id: c.user.id, name: c.user.name })
+    return [...seen.values()]
+  }
+  const changed = (topic: string) => {
+    if (!presence.has(topic.split(':')[0]!)) return
+    const data = JSON.stringify({ topic, type: 'viewers', viewers: watchers(topic) })
+    for (const c of conns) if (c.topics.has(topic)) c.ws.send(data)
+  }
 
   return {
     /** Registers who may subscribe to topics starting with `prefix`. */
@@ -19,7 +31,10 @@ export function createHub() {
     attach(ws: WebSocket, user: User) {
       const c: Conn = { ws, user, topics: new Set(), active: false }
       conns.add(c)
-      ws.on('close', () => conns.delete(c))
+      ws.on('close', () => {
+        conns.delete(c)
+        for (const t of c.topics) changed(t)
+      })
       ws.on('message', (data) => {
         let m: { sub?: unknown; unsub?: unknown; active?: unknown }
         try {
@@ -27,16 +42,23 @@ export function createHub() {
         } catch {
           return
         }
-        if (typeof m.unsub === 'string') c.topics.delete(m.unsub)
+        if (typeof m.unsub === 'string' && c.topics.delete(m.unsub)) changed(m.unsub)
         // The tab is visible and focused: the member sees in-app notifications there, so push stays quiet.
         if (typeof m.active === 'boolean') c.active = m.active
         if (typeof m.sub === 'string' && m.sub.length < 100) {
           const prefix = m.sub.split(':')[0]!
-          if (authorizers.get(prefix)?.(user, m.sub)) c.topics.add(m.sub)
-          else ws.send(JSON.stringify({ topic: m.sub, type: 'denied' }))
+          if (authorizers.get(prefix)?.(user, m.sub)) {
+            c.topics.add(m.sub)
+            changed(m.sub)
+          } else ws.send(JSON.stringify({ topic: m.sub, type: 'denied' }))
         }
       })
     },
+    /** Subscribers of topics starting with `prefix` are told who else is subscribed, as {type: 'viewers'}. */
+    trackPresence(prefix: string) {
+      presence.add(prefix)
+    },
+    viewers: watchers,
     isActive(userId: number) {
       for (const c of conns) if (c.user.id === userId && c.active) return true
       return false

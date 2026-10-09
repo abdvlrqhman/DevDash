@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { Archive, ArchiveRestore, Check, ChevronDown, Circle, Ellipsis, FileCode, Gauge, LoaderCircle, MessageSquare, Pencil, Share2, SquareTerminal, Shield, ShieldOff, SlidersHorizontal } from 'lucide-react'
+import { Archive, ArchiveRestore, Check, ChevronDown, Circle, Ellipsis, FileCode, Gauge, LoaderCircle, MessageSquare, Pencil, Share2, SquareTerminal, Shield, ShieldOff, SlidersHorizontal, X, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
 import { PageHeader } from '@/components/app/page'
@@ -23,7 +23,9 @@ import { TerminalView, type Mods, type Status as TermStatus, type TerminalHandle
 import { ModelChoices } from './ModelChoices'
 import { effortLevels, modelLabel, type ModelInfo } from './models'
 import { Blocks, Prose } from './Blocks'
-import { Composer, type Img } from './Composer'
+import { Composer, type Doc, type Img } from './Composer'
+import { Comments, CommentsButton, commentsQuery, WatchOnly, Watchers, type Comment, type Person } from './Collab'
+import { FAST_HINT, REMOTE_HINT, SessionChips } from './SessionChips'
 import {
   EFFORTS, FALLBACK_MODELS, PERMISSION_MODES, commandsQuery, modeLabel, profilesQuery, sessionQuery, shortPath, STATUS_LABEL,
   type Effort, type PendingRequest, type PermissionMode, type Session, sessionPlace } from './data'
@@ -61,15 +63,44 @@ function SessionView({ id }: { id: string }) {
   const [pending, setPending] = useState<PendingRequest[]>([])
   const [settings, setSettings] = useState(false)
   const [usage, setUsage] = useState(false)
+  const [viewers, setViewers] = useState<Person[]>([])
+  const [commentCount, setCommentCount] = useState(0)
+  const [commentsOpen, setCommentsOpen] = useState(false)
+  const commentsOpenRef = useRef(false)
+  commentsOpenRef.current = commentsOpen
   const scroller = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
 
   const s = info.data?.session
   const setSession = (session: Session) => qc.setQueryData(sessionQuery(id).queryKey, (old) => (old ? { ...old, session } : old))
 
+  const letIn = (user: Person) =>
+    unwrap(api.api.claude.sessions[':id'].writers[':userId'].$put({ param: { id, userId: String(user.id) }, json: { allowed: true } })).then(
+      () => { toast.success(`${user.name} can send messages now.`); void info.refetch() },
+      (err: Error) => toast.error(err.message),
+    )
+
   useTopic(`session:${id}`, (e) => {
     if (e.type === 'session') setSession(e.session as Session)
-    else if (e.type === 'permission') {
+    else if (e.type === 'viewers') setViewers(e.viewers as Person[])
+    else if (e.type === 'access') void info.refetch()
+    else if (e.type === 'join_request') {
+      const user = e.user as Person
+      toast(`${user.name} asks to join`, {
+        description: 'They can watch. Let them send messages too?', duration: 60_000,
+        action: { label: 'Let in', onClick: () => void letIn(user) },
+      })
+    } else if (e.type === 'comment') {
+      const c = e.comment as Comment
+      const cached = qc.getQueryData<{ comments: Comment[] }>(commentsQuery(id).queryKey)
+      if (!cached?.comments.some((x) => x.id === c.id)) {
+        setCommentCount((n) => n + 1)
+        if (cached) qc.setQueryData(commentsQuery(id).queryKey, { comments: [...cached.comments, c] })
+      }
+      if (c.user.id !== me.id && !commentsOpenRef.current) {
+        toast(`${c.user.name} commented`, { description: c.body.slice(0, 140), action: { label: 'Open', onClick: () => setCommentsOpen(true) } })
+      }
+    } else if (e.type === 'permission') {
       const r = e.request as PendingRequest
       setPending((p) => [...p.filter((x) => x.requestId !== r.requestId), r])
     } else if (e.type === 'permission_done') setPending((p) => p.filter((x) => x.requestId !== e.requestId))
@@ -96,7 +127,12 @@ function SessionView({ id }: { id: string }) {
     if (lastMode.current === 'cli' && mode === 'chat') void history.refetch()
     lastMode.current = mode
   }, [mode, history])
-  useEffect(() => { if (info.data) setPending(info.data.pending as PendingRequest[]) }, [info.data])
+  useEffect(() => {
+    if (!info.data) return
+    setPending(info.data.pending as PendingRequest[])
+    setViewers(info.data.viewers)
+    setCommentCount(info.data.comments)
+  }, [info.data])
   const blocks = useMemo(() => buildTranscript(raw), [raw])
   const toBottom = () => {
     const el = scroller.current
@@ -104,13 +140,19 @@ function SessionView({ id }: { id: string }) {
   }
   useEffect(toBottom, [blocks, pending])
 
-  const send = async (text: string, images: Img[]) => {
-    const { uuid } = await unwrap(api.api.claude.sessions[':id'].messages.$post({ param: { id }, json: { text, images } }))
+  const send = async (text: string, images: Img[], files: Doc[] = []) => {
+    const { uuid } = await unwrap(api.api.claude.sessions[':id'].messages.$post({
+      param: { id }, json: { text, images, files: files.map(({ name, mediaType, data }) => ({ name, mediaType, data })) },
+    }))
     stick.current = true
     // The server also broadcasts it (for other devices) and may get here first: merge by uuid, never append twice.
     setRaw((r) => mergeRaw(r, [{
       type: 'user', uuid,
-      message: { role: 'user', content: [...images.map((i) => ({ type: 'image', source: { type: 'base64', media_type: i.mediaType, data: i.data } })), ...(text ? [{ type: 'text', text }] : [])] },
+      message: { role: 'user', content: [
+        ...images.map((i) => ({ type: 'image', source: { type: 'base64', media_type: i.mediaType, data: i.data } })),
+        ...files.map((f) => ({ type: 'document', title: f.name })),
+        ...(text ? [{ type: 'text', text }] : []),
+      ] },
     }]))
   }
   const interrupt = useMutation({ mutationFn: () => unwrap(api.api.claude.sessions[':id'].interrupt.$post({ param: { id } })) })
@@ -120,7 +162,7 @@ function SessionView({ id }: { id: string }) {
     onError: (e) => toast.error(e.message),
   })
   const update = useMutation({
-    mutationFn: (json: { model?: string | null; effort?: Effort | null; permissionMode?: PermissionMode; shared?: boolean; sharedCanSend?: boolean; archived?: boolean; title?: string }) =>
+    mutationFn: (json: Parameters<Updater>[0] & { title?: string }) =>
       unwrap(api.api.claude.sessions[':id'].$patch({ param: { id }, json })),
     onSuccess: (r) => setSession(r.session),
     onError: (e) => toast.error(e.message),
@@ -143,6 +185,8 @@ function SessionView({ id }: { id: string }) {
   const canSend = info.data!.canSend
   const isOwner = info.data!.isOwner
   const working = s.status === 'working'
+  const watching = viewers.filter((v) => v.id !== me.id).length
+  const showComments = s.shared || commentCount > 0
 
 
   return (
@@ -155,17 +199,20 @@ function SessionView({ id }: { id: string }) {
             <span className="truncate" title={s.cwd}>{sessionPlace(s)}</span>
             {s.owner.id !== me.id && <span className="shrink-0">, {s.owner.name}'s</span>}
             {s.shared && s.owner.id === me.id && <span className="flex shrink-0 items-center gap-1">, <Share2 className="size-3" />shared{s.sharedCanSend ? ', others can type' : ''}</span>}
+            {watching > 0 && <span className="shrink-0 sm:hidden">, {watching} watching</span>}
           </span>
         }
         actions={<>
-          <ModelMenu s={s} disabled={!canSend} onUpdate={(v) => update.mutate(v)} />
+          <div className="hidden sm:flex"><Watchers viewers={viewers} me={me.id} /></div>
+          {showComments && <CommentsButton count={commentCount} onClick={() => setCommentsOpen(true)} />}
+          <ModelMenu s={s} disabled={!canSend} isOwner={isOwner} onUpdate={(v) => update.mutate(v)} />
           <Tabs value={s.mode} onValueChange={(v) => v !== s.mode && switchMode.mutate(v as 'chat' | 'cli')}>
             <TabsList className="pointer-coarse:h-10!">
               <TabsTrigger value="chat" disabled={!canSend || switchMode.isPending}><MessageSquare /><span className="hidden sm:inline">Chat</span></TabsTrigger>
               <TabsTrigger value="cli" disabled={!canSend || switchMode.isPending}><SquareTerminal /><span className="hidden sm:inline">CLI</span></TabsTrigger>
             </TabsList>
           </Tabs>
-          <SessionMenu s={s} isOwner={isOwner} canSend={canSend} onUpdate={(v) => update.mutate(v)} onRename={() => setSettings(true)} onUsage={() => setUsage(true)} />
+          <SessionMenu s={s} isOwner={isOwner} canSend={canSend} writers={info.data!.writers} onUpdate={(v) => update.mutate(v)} onRename={() => setSettings(true)} onUsage={() => setUsage(true)} />
         </>} />
 
 
@@ -188,14 +235,17 @@ function SessionView({ id }: { id: string }) {
           </div>
           <div className="border-t bg-background px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-6 md:pt-3 md:pb-3">
             <div className="mx-auto max-w-4xl">
-              <Composer profile={s.profile} working={working || s.status === 'waiting'} onSend={send} onStop={() => interrupt.mutate()}
-                disabledReason={canSend ? undefined : `${s.owner.name} shared this session to watch. Only they can send messages.`} />
+              <Composer sessionId={id} profile={s.profile} working={working || s.status === 'waiting'} onSend={send} onStop={() => interrupt.mutate()}
+                disabledReason={canSend ? undefined : <WatchOnly id={id} owner={s.owner.name} onComment={() => setCommentsOpen(true)} />}
+                footer={<SessionChips s={s} isOwner={isOwner} canSend={canSend} working={working} onUpdate={(v) => update.mutate(v)}
+                  onCompact={() => void send('/compact', []).catch((err: Error) => toast.error(err.message))} />} />
             </div>
           </div>
         </div>
         <SessionAside s={s} blocks={blocks} isOwner={isOwner} />
         </div>
       )}
+      <Comments id={id} open={commentsOpen} onOpenChange={setCommentsOpen} me={me.id} />
       {isOwner && <RenameDialog open={settings} onOpenChange={setSettings} s={s} onSave={(title) => update.mutate({ title })} />}
       {isOwner && (
         <ResponsiveDialog open={usage} onOpenChange={setUsage} title="Plan usage" description="Your Claude plan's limits, the same as /usage in Claude Code.">
@@ -308,10 +358,13 @@ function CliView({ id, onEnded }: { id: string; onEnded: () => void }) {
   )
 }
 
-type Updater = (v: { model?: string | null; effort?: Effort | null; permissionMode?: PermissionMode; shared?: boolean; sharedCanSend?: boolean; archived?: boolean }) => void
+type Updater = (v: {
+  model?: string | null; effort?: Effort | null; permissionMode?: PermissionMode; shared?: boolean; sharedCanSend?: boolean; archived?: boolean
+  fastMode?: boolean; remoteControl?: boolean
+}) => void
 
 /** Model, effort and permissions, changed in place from the chip row. */
-function ModelMenu({ s, disabled, onUpdate }: { s: Session; disabled: boolean; onUpdate: Updater }) {
+function ModelMenu({ s, disabled, isOwner, onUpdate }: { s: Session; disabled: boolean; isOwner: boolean; onUpdate: Updater }) {
   const models = useQuery({ ...commandsQuery(s.profile), enabled: !disabled }).data?.models as ModelInfo[] | undefined
   const list: ModelInfo[] = models?.length ? models : FALLBACK_MODELS
   return (
@@ -322,6 +375,7 @@ function ModelMenu({ s, disabled, onUpdate }: { s: Session; disabled: boolean; o
           <span className="hidden sm:inline">{modelLabel(list, s.model)}</span>
           <span className="hidden items-center gap-1 border-l pl-2 text-foreground/80 sm:flex">
             {s.permissionMode === 'bypassPermissions' ? <ShieldOff /> : <Shield />}{modeLabel(s.permissionMode)}{s.effort ? `, ${s.effort}` : ''}
+            {s.fastMode && <Zap aria-label="Fast mode" />}
           </span>
           <ChevronDown className="hidden sm:block" />
         </Button>
@@ -353,13 +407,38 @@ function ModelMenu({ s, disabled, onUpdate }: { s: Session; disabled: boolean; o
             <p className="px-2 py-1.5 text-xs text-muted-foreground">{s.mode === 'cli' ? 'In the CLI it applies when the CLI next opens; use /effort to change it right away.' : 'Applies right away, even mid-answer.'}</p>
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+        <DropdownMenuSeparator />
+        <SwitchRow label="Fast mode" checked={s.fastMode} onChange={(v) => onUpdate({ fastMode: v })}
+          hint={`${FAST_HINT}${s.mode === 'cli' ? ' In the CLI it applies when the CLI next opens; /fast switches it now.' : ''}`} />
+        {isOwner && (
+          <SwitchRow label="Remote Control" checked={s.remoteControl} onChange={(v) => onUpdate({ remoteControl: v })}
+            hint={`${REMOTE_HINT}${s.mode === 'cli' ? ' In the CLI it applies when the CLI next opens; /remote-control switches it now.' : ''}`} />
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )
 }
 
-function SessionMenu({ s, isOwner, canSend, onUpdate, onRename, onUsage }: { s: Session; isOwner: boolean; canSend: boolean; onUpdate: Updater; onRename: () => void; onUsage: () => void }) {
+/** A setting with a switch and a line about what it does, inside a menu (it stays open). */
+function SwitchRow({ label, hint, checked, onChange }: { label: string; hint: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="flex cursor-pointer items-start justify-between gap-3 rounded-sm px-2 py-1.5 text-sm hover:bg-accent">
+      <span className="flex flex-col"><span>{label}</span><span className="text-xs text-muted-foreground">{hint}</span></span>
+      <Switch checked={checked} onCheckedChange={onChange} className="mt-0.5" />
+    </label>
+  )
+}
+
+function SessionMenu({ s, isOwner, canSend, writers, onUpdate, onRename, onUsage }: {
+  s: Session; isOwner: boolean; canSend: boolean; writers: Person[]; onUpdate: Updater; onRename: () => void; onUsage: () => void
+}) {
   const navigate = useNavigate()
+  const qc = useQueryClient()
+  const remove = useMutation({
+    mutationFn: (userId: number) => unwrap(api.api.claude.sessions[':id'].writers[':userId'].$put({ param: { id: s.id, userId: String(userId) }, json: { allowed: false } })),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: sessionQuery(s.id).queryKey }),
+    onError: (e) => toast.error(e.message),
+  })
   const archive = useArchiveSession(() => void navigate({ to: '/claude' }))
   return (
     <>
@@ -382,6 +461,17 @@ function SessionMenu({ s, isOwner, canSend, onUpdate, onRename, onUsage }: { s: 
               <div className="flex items-center justify-between gap-3 px-2 py-1.5 text-sm">
                 <span>Others can send messages</span>
                 <Switch checked={s.sharedCanSend} onCheckedChange={(v) => onUpdate({ sharedCanSend: v })} />
+              </div>
+            )}
+            {s.shared && !s.sharedCanSend && writers.length > 0 && (
+              <div className="flex flex-col gap-1 px-2 py-1.5 text-sm">
+                <span className="text-xs text-muted-foreground">Also sending messages</span>
+                {writers.map((w) => (
+                  <div key={w.id} className="flex items-center justify-between gap-2">
+                    <span>{w.name}</span>
+                    <Button size="icon" variant="ghost" className="size-6" aria-label={`Stop ${w.name} sending messages`} onClick={() => remove.mutate(w.id)}><X /></Button>
+                  </div>
+                ))}
               </div>
             )}
             <p className="px-2 pb-1.5 text-xs text-muted-foreground">

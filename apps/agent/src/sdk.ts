@@ -33,6 +33,10 @@ export type Query = AsyncGenerator<SDKMessage, void> & {
     rate_limits: Record<string, unknown> | null
   }>
   supportedModels(): Promise<{ value: string; displayName: string; description?: string }[]>
+  /** The data behind /context. 'summary' answers from the last response's usage, without token-count calls. */
+  getContextUsage(o?: { detail?: 'summary' | 'full' }): Promise<{ percentage: number; totalTokens: number; maxTokens: number }>
+  /** Remote Control (claude.ai/code and the Claude app). Not in the SDK's public types yet, so optional here. */
+  enableRemoteControl?(enabled: boolean, name?: string): Promise<{ session_url?: string } | undefined>
   close(): void
 }
 type Sdk = {

@@ -29,11 +29,17 @@ export type Launch = {
   permissionMode: PermissionMode
   /** false until the first message exists, so the first start uses sessionId instead of resume */
   started: boolean
+  /** Fast mode (faster output on models that have it, billed as extra usage). */
+  fast?: boolean
+  /** Remote Control: the session also shows in claude.ai/code and the Claude app, under this title. */
+  remote?: boolean
+  title?: string
 }
 export type Status = 'working' | 'waiting' | 'idle' | 'stopped' | 'error'
 type Pending = { requestId: string; toolName: string; input: Record<string, unknown>; suggestions?: unknown[]; resolve: (r: PermissionResult) => void }
 /** `bg`: background shells, subagents and monitors still running; Claude picks their results up when they finish. */
-type Chat = { launch: Launch; q: Query; inbox: Inbox; pending: Map<string, Pending>; status: Status; lastActive: number; bg: number; done?: Promise<void> }
+/** `remote`: the claude.ai link while Remote Control is on. */
+type Chat = { launch: Launch; q: Query; inbox: Inbox; pending: Map<string, Pending>; status: Status; lastActive: number; bg: number; remote: string | null; done?: Promise<void> }
 
 let emit: (ev: Record<string, unknown>) => void = () => {}
 export const setEmitter = (fn: typeof emit) => { emit = fn }
@@ -135,6 +141,8 @@ async function startChat(l: Launch): Promise<Chat> {
       ...(l.started ? { resume: l.id } : { sessionId: l.id }),
       ...(l.model ? { model: l.model } : {}),
       ...(l.effort ? { effort: l.effort } : {}),
+      // The SDK keeps fast mode off unless the session's flag settings ask for it.
+      ...(l.fast ? { settings: { fastMode: true } } : {}),
       permissionMode: l.permissionMode,
       allowDangerouslySkipPermissions: l.permissionMode === 'bypassPermissions',
       // A complete Claude Code session: same system prompt, settings, skills, agents, hooks and MCP as the CLI.
@@ -160,9 +168,10 @@ async function startChat(l: Launch): Promise<Chat> {
       stderr: (d: string) => console.error(`[${l.id.slice(0, 8)}] ${d.trimEnd()}`),
     },
   })
-  chat = { launch: { ...l, started: true }, q, inbox, pending, status: 'idle', lastActive: Date.now(), bg: 0 }
+  chat = { launch: { ...l, started: true }, q, inbox, pending, status: 'idle', lastActive: Date.now(), bg: 0, remote: null }
   chats.set(l.id, chat)
   chat.done = pump(chat)
+  if (l.remote) void remoteControl(chat, true).catch((err: Error) => emit({ ev: 'claude.remote', id: l.id, url: null, error: err.message.slice(0, 300) }))
   return chat
 }
 
@@ -186,6 +195,7 @@ async function pump(c: Chat) {
         void c.q.supportedCommands().then((v) => commandCache.set(c.launch.profile, v), () => {})
         void c.q.supportedModels().then((v) => modelCache.set(c.launch.profile, v), () => {})
       }
+      if (msg.type === 'result') reportContext(c)
       emit({ ev: 'claude.msg', id, msg })
     }
     setStatus(c, id, 'idle')
@@ -197,6 +207,37 @@ async function pump(c: Chat) {
     emit({ ev: 'claude.closed', id })
   }
 }
+
+/** How full the context window is, as /context reports it; sent after every turn. */
+function reportContext(c: Chat) {
+  void c.q.getContextUsage({ detail: 'summary' }).then(
+    (u) => emit({ ev: 'claude.context', id: c.launch.id, percent: u.percentage, tokens: u.totalTokens, max: u.maxTokens }),
+    () => {},
+  )
+}
+
+async function remoteControl(c: Chat, on: boolean) {
+  if (!c.q.enableRemoteControl) throw new Error('This Claude Code version has no Remote Control. Update Claude Code from the Server page.')
+  const r = await c.q.enableRemoteControl(on, on ? c.launch.title : undefined)
+  c.remote = on ? (r?.session_url ?? 'https://claude.ai/code') : null
+  c.launch = { ...c.launch, remote: on }
+  emit({ ev: 'claude.remote', id: c.launch.id, url: c.remote })
+}
+
+/**
+ * Remote Control on or off. In Chat it applies now (starting the process if needed, so the Claude app can reach the
+ * session); in the CLI it applies the next time the CLI opens.
+ */
+export const remote = (l: Launch, on: boolean) => serial(l.id, async () => {
+  if (await hasSession(cliName(l.id))) return { url: null, cli: true }
+  let c = chats.get(l.id)
+  if (!c) {
+    if (!on) return { url: null }
+    c = await startChat({ ...l, remote: false })
+  }
+  await remoteControl(c, on)
+  return { url: c.remote }
+})
 
 async function stopChat(c: Chat) {
   c.inbox.close()
@@ -238,12 +279,13 @@ export async function interrupt(id: string) {
   else if (await hasSession(cliName(id))) await tmux('send-keys', '-t', `=${cliName(id)}`, 'Escape')
 }
 
-/** Model, permission mode and effort all apply live to a running Chat session (and to the next start otherwise). */
-export async function setOption(id: string, key: 'model' | 'permissionMode' | 'effort', value: string | null) {
+/** Model, permission mode, effort and fast mode all apply live to a running Chat session (and to the next start otherwise). */
+export async function setOption(id: string, key: 'model' | 'permissionMode' | 'effort' | 'fast', value: string | boolean | null) {
   const c = chats.get(id)
   if (!c) return
-  if (key === 'model') await c.q.setModel(value ?? undefined)
+  if (key === 'model') await c.q.setModel((value as string | null) ?? undefined)
   else if (key === 'permissionMode') await c.q.setPermissionMode(value as PermissionMode)
+  else if (key === 'fast') await c.q.applyFlagSettings({ fastMode: value === true })
   else await c.q.applyFlagSettings({ effortLevel: value })
   c.launch = { ...c.launch, [key]: value }
 }
@@ -265,6 +307,8 @@ async function openCliNow(l: Launch, cols: number, rows: number) {
   const args = [CLAUDE_BIN, ...(l.started ? ['--resume', l.id] : ['--session-id', l.id]), '--plugin-dir', PLUGIN_DIR, '--append-system-prompt', RULES]
   if (l.model) args.push('--model', l.model)
   if (l.effort) args.push('--effort', l.effort)
+  if (l.fast) args.push('--settings', JSON.stringify({ fastMode: true }))
+  if (l.remote) args.push('--remote-control')
   args.push(...(l.permissionMode === 'bypassPermissions' ? ['--dangerously-skip-permissions'] : ['--permission-mode', l.permissionMode]))
   const env = Object.entries({ ...profileEnv(l.profile), DEVDASH_SESSION_ID: l.id }).flatMap(([k, v]) => ['-e', `${k}=${v}`])
   try {
@@ -284,7 +328,7 @@ export const closeCli = (id: string) => serial(id, async () => {
 export async function snapshot() {
   const cli = (await listSessions()).filter((s) => s.name.startsWith('c-')).map((s) => ({ id: s.name.slice(2), mode: 'cli' }))
   const chat = [...chats.values()].map((c) => ({
-    id: c.launch.id, mode: 'chat', status: c.status,
+    id: c.launch.id, mode: 'chat', status: c.status, remote: c.remote,
     pending: [...c.pending.values()].map(({ resolve: _, ...p }) => p),
   }))
   return [...chat, ...cli]
@@ -467,6 +511,7 @@ export const busy = () => [...chats.values()].some((c) => c.status === 'working'
 
 setInterval(() => {
   for (const c of chats.values()) {
-    if (c.status === 'idle' && !c.pending.size && !c.bg && Date.now() - c.lastActive > IDLE_CLOSE_MS) void stopChat(c)
+    // With Remote Control on, the Claude app needs the process: it stays until the owner turns it off.
+    if (c.status === 'idle' && !c.pending.size && !c.bg && !c.remote && Date.now() - c.lastActive > IDLE_CLOSE_MS) void stopChat(c)
   }
 }, 60_000).unref()

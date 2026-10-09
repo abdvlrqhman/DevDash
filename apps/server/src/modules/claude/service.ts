@@ -14,12 +14,29 @@ const STATUSES = new Set<SessionStatus>(['working', 'waiting', 'idle', 'stopped'
 const PROFILE_RE = /^[a-z0-9][a-z0-9-]{0,20}$/
 
 export type Image = { mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'; data: string }
+/** Any other file sent with a message: PDFs and text go to Claude directly, anything else is saved for Claude to open. */
+export type Attachment = { name: string; mediaType: string; data: string }
 export type PermissionAnswer =
   | { behavior: 'allow'; updatedInput?: Record<string, unknown>; updatedPermissions?: unknown[] }
   | { behavior: 'deny'; message: string; interrupt?: boolean }
 
 const canView = (u: User, s: SessionRow) => s.owner_id === u.id || s.shared === 1
-const canSend = (u: User, s: SessionRow) => s.owner_id === u.id || (s.shared === 1 && s.shared_can_send === 1)
+
+/**
+ * What the running process reports and nothing needs to remember across restarts: the Remote Control link and
+ * whether fast mode is actually serving (it can be on but unavailable, e.g. without extra usage on the plan).
+ */
+type Live = { remoteUrl?: string | null; remoteError?: string | null; fast?: { state: string; reason: string | null } }
+const live = new Map<string, Live>()
+const setLive = (id: string, v: Live) => live.set(id, { ...live.get(id), ...v })
+
+const context = (s: SessionRow) => {
+  try {
+    return s.context_json ? (JSON.parse(s.context_json) as { percent: number; tokens: number; max: number }) : null
+  } catch {
+    return null
+  }
+}
 
 /** What browsers get: no internal flags they don't need. */
 export function toDto(s: SessionRow) {
@@ -30,6 +47,8 @@ export function toDto(s: SessionRow) {
     owner: { id: s.owner_id, username: s.owner_username, name: s.owner_name },
     createdAt: s.created_at, lastActivityAt: s.last_activity_at,
     project: s.project_slug ? { slug: s.project_slug, name: s.project_name! } : null, worktree: s.worktree,
+    fastMode: !!s.fast_mode, fast: live.get(s.id)?.fast ?? null, context: context(s),
+    remoteControl: !!s.remote_control, remoteUrl: live.get(s.id)?.remoteUrl ?? null, remoteError: live.get(s.id)?.remoteError ?? null,
   }
 }
 export type SessionDto = ReturnType<typeof toDto>
@@ -50,14 +69,21 @@ export const memoryHealth = (agents: AgentsService, username: string, timeoutMs 
 
 const launch = (s: SessionRow) => ({
   id: s.id, cwd: s.cwd, profile: s.profile, model: s.model, effort: s.effort, permissionMode: s.permission_mode, started: !!s.started,
+  fast: !!s.fast_mode, remote: !!s.remote_control, title: s.title,
 })
 
-function content(text: string, images: Image[]) {
+function content(text: string, images: Image[], docs: unknown[] = []) {
   return [
     ...images.map((i) => ({ type: 'image', source: { type: 'base64', media_type: i.mediaType, data: i.data } })),
+    ...docs,
     ...(text ? [{ type: 'text', text }] : []),
   ]
 }
+
+// Text Claude can read straight from the message: source code, data, configs, logs.
+const TEXT_TYPES = /^(text\/|application\/(json|xml|javascript|typescript|x-yaml|yaml|toml|sql|x-sh|graphql|ld\+json))/
+const TEXT_EXT = /\.(txt|md|mdx|csv|tsv|json|jsonl|ya?ml|toml|ini|cfg|conf|xml|html?|css|scss|less|js|mjs|cjs|jsx|ts|tsx|py|rb|go|rs|java|kt|swift|c|h|cc|cpp|hpp|cs|php|sh|bash|zsh|ps1|sql|graphql|proto|lua|r|dart|vue|svelte|log|diff|patch|tf)$/i
+const safeName = (n: string) => n.split(/[\\/]/).pop()!.replace(/[^\w.\- ()]/g, '_').replace(/^\.+/, '').slice(0, 120) || 'file'
 
 type Notify = (userId: number, kind: NotificationKind, n: { title: string; body?: string; url?: string; tag?: string }) => Promise<void>
 
@@ -84,6 +110,10 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
     void notify(s.owner_id, kind, { title, body, url: `/claude/${s.id}`, tag: `session:${s.id}` }).catch((err) => console.error('notify:', err))
   }
 
+  // Owner, anyone when the owner lets everyone send, and teammates the owner let in after they asked to join.
+  const canSend = (u: User, s: SessionRow) =>
+    s.owner_id === u.id || (s.shared === 1 && (s.shared_can_send === 1 || repo.isWriter(s.id, u.id)))
+
   function find(user: User, id: string) {
     const s = repo.byId(id)
     if (!s || !canView(user, s)) throw new AppError(404, 'not_found', 'This session does not exist or is private.')
@@ -108,12 +138,13 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
     const s = repo.byId(topic.slice('session:'.length))
     return !!s && canView(u, s)
   })
+  hub.trackPresence('session') // who has a session open: "watching"
 
   // Agent events. An agent only speaks for its own member, so events about anyone else's session are dropped.
   agents.onEvent((username, ev) => {
     if (ev.ev === 'snapshot') {
       void backfillTitles(username)
-      return reconcile(username, ev.sessions as { id: string; mode: string; status?: SessionStatus; pending?: unknown[] }[])
+      return reconcile(username, ev.sessions as { id: string; mode: string; status?: SessionStatus; remote?: string | null }[])
     }
     const s = typeof ev.id === 'string' ? repo.byId(ev.id) : undefined
     if (!s || s.owner_username !== username) return
@@ -135,8 +166,28 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
         else if (s.mode === 'cli' && st === 'idle' && s.status === 'working') alert(s, 'finished', `Claude finished: ${s.title}`)
         return publish(s.id)
       }
+      case 'claude.context': {
+        const percent = Number(ev.percent), tokens = Number(ev.tokens), max = Number(ev.max)
+        if (![percent, tokens, max].every(Number.isFinite)) return
+        repo.patch(s.id, { context_json: JSON.stringify({ percent, tokens, max }) })
+        return publish(s.id)
+      }
+      case 'claude.remote':
+        setLive(s.id, { remoteUrl: typeof ev.url === 'string' ? ev.url : null, remoteError: typeof ev.error === 'string' ? ev.error : null })
+        return publish(s.id)
       case 'claude.msg': {
-        const m = ev.msg as { type?: string; subtype?: string; result?: unknown; is_error?: boolean; terminal_reason?: string }
+        const m = ev.msg as {
+          type?: string; subtype?: string; result?: unknown; is_error?: boolean; terminal_reason?: string
+          fast_mode_state?: string; fast_mode_disabled_reason?: string
+        }
+        if (typeof m.fast_mode_state === 'string') {
+          const fast = { state: m.fast_mode_state, reason: m.fast_mode_disabled_reason ?? null }
+          const was = live.get(s.id)?.fast
+          if (was?.state !== fast.state || was?.reason !== fast.reason) {
+            setLive(s.id, { fast })
+            publish(s.id)
+          }
+        }
         // Pressing Stop ends the turn with an "aborted" reason: nothing to tell anyone.
         if (m.type === 'result' && !m.terminal_reason?.startsWith('aborted')) {
           if (m.subtype === 'success' && !m.is_error) alert(s, 'finished', `Claude finished: ${s.title}`, typeof m.result === 'string' ? clip(m.result) : undefined)
@@ -199,10 +250,23 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
     publish(s.id)
   }
 
-  function reconcile(username: string, live: { id: string; mode: string; status?: SessionStatus }[]) {
-    const byId = new Map(live.map((l) => [l.id, l]))
+  /** Remote Control stays on across restarts: the Claude app should keep reaching the session. */
+  async function restoreRemote(s: SessionRow) {
+    try {
+      const r = await agents.request<{ url: string | null }>(s.owner_username, { op: 'claude.remote', launch: launch(s), enabled: true }, 60_000)
+      setLive(s.id, { remoteUrl: r.url, remoteError: null })
+    } catch (err) {
+      setLive(s.id, { remoteUrl: null, remoteError: (err as Error).message.slice(0, 300) })
+    }
+    publish(s.id)
+  }
+
+  function reconcile(username: string, running: { id: string; mode: string; status?: SessionStatus; remote?: string | null }[]) {
+    const byId = new Map(running.map((l) => [l.id, l]))
     for (const s of repo.ownedActive(username)) {
       const l = byId.get(s.id)
+      setLive(s.id, { remoteUrl: l?.mode === 'chat' ? (l.remote ?? null) : null })
+      if (!l && s.remote_control && s.mode === 'chat' && s.started && s.status !== 'working') void restoreRemote(s)
       if (!l && s.status === 'working' && s.started && Date.now() - (resumed.get(s.id) ?? 0) > 30 * 60_000) {
         void resumeInterrupted(s)
         continue
@@ -217,10 +281,53 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
     }
   }
 
-  async function sendTo(user: User, s: SessionRow, text: string, images: Image[]) {
+  const asked = new Map<string, number>()
+
+  /** Remote Control in Chat applies now; in the CLI it applies the next time the CLI opens. */
+  async function setRemote(s: SessionRow, on: boolean) {
+    if (on && !s.started) throw new AppError(409, 'not_started', 'Send Claude a first message, then turn on Remote Control.')
+    repo.patch(s.id, { remote_control: on ? 1 : 0 })
+    if (s.mode !== 'chat') return
+    try {
+      const r = await agents.request<{ url: string | null }>(s.owner_username, { op: 'claude.remote', launch: { ...launch(s), remote: on }, enabled: on }, 60_000)
+      setLive(s.id, { remoteUrl: r.url, remoteError: null })
+    } catch (err) {
+      repo.patch(s.id, { remote_control: s.remote_control })
+      if (s.remote_control) setLive(s.id, { remoteUrl: null, remoteError: (err as Error).message.slice(0, 300) })
+      throw new AppError(400, 'remote_failed', `Remote Control did not start: ${(err as Error).message}`)
+    }
+  }
+
+  /**
+   * PDFs and text files become document blocks Claude reads directly. Anything else (archives, spreadsheets, binaries)
+   * is saved in the owner's account and its path added to the message, so Claude can open it with its tools.
+   */
+  async function attach(s: SessionRow, uuid: string, files: Attachment[]) {
+    const docs: unknown[] = []
+    const saved: string[] = []
+    for (const f of files) {
+      const name = safeName(f.name)
+      const buf = Buffer.from(f.data, 'base64')
+      if (f.mediaType === 'application/pdf') {
+        docs.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: f.data }, title: name })
+      } else if ((TEXT_TYPES.test(f.mediaType) || TEXT_EXT.test(name)) && !buf.includes(0) && buf.length <= 2 * 1024 * 1024) {
+        docs.push({ type: 'document', source: { type: 'text', media_type: 'text/plain', data: buf.toString('utf8') }, title: name })
+      } else {
+        const dir = `/home/${s.owner_username}/.cache/devdash/uploads/${s.id}/${uuid.slice(0, 8)}`
+        await agents.request(s.owner_username, { op: 'fs.mkdirp', path: dir })
+        await agents.request(s.owner_username, { op: 'fs.write', path: `${dir}/${name}`, data: f.data, offset: 0 }, 120_000)
+        saved.push(`${dir}/${name}`)
+      }
+    }
+    const note = saved.length ? `\n\nAttached files, saved on this server:\n${saved.map((p) => `- ${p}`).join('\n')}` : ''
+    return { docs, note }
+  }
+
+  async function sendTo(user: User, s: SessionRow, text: string, images: Image[], files: Attachment[] = []) {
     const uuid = randomUUID()
     repo.addSender(s.id, uuid, user.id)
-    const message = { role: 'user', content: content(text, images) }
+    const { docs, note } = await attach(s, uuid, files)
+    const message = { role: 'user', content: content(`${text}${note}`.trim(), images, docs) }
     await agents.request(s.owner_username, { op: 'claude.send', launch: launch(s), content: message.content, uuid })
     if (!s.started) repo.patch(s.id, { started: 1 })
     repo.touch(s.id)
@@ -238,7 +345,11 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
       const pending = s.mode === 'chat'
         ? (await agents.request<{ pending: unknown[] }>(s.owner_username, { op: 'claude.pending', id }).catch(() => ({ pending: [] }))).pending
         : []
-      return { session: toDto(s), pending, canSend: canSend(user, s), isOwner: s.owner_id === user.id }
+      const isOwner = s.owner_id === user.id
+      return {
+        session: toDto(s), pending, canSend: canSend(user, s), isOwner,
+        viewers: hub.viewers(`session:${id}`), comments: repo.commentCount(id), writers: isOwner ? repo.writers(id) : [],
+      }
     },
 
     async create(user: User, input: {
@@ -278,11 +389,58 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
       return toDto(repo.byId(id)!)
     },
 
-    async send(user: User, id: string, text: string, images: Image[]) {
+    async send(user: User, id: string, text: string, images: Image[], files: Attachment[] = []) {
       const s = find(user, id)
       requireSend(user, s)
       if (s.mode === 'cli') throw new AppError(409, 'cli_mode', 'This session is open in the CLI. Switch to Chat to send from here.')
-      return sendTo(user, s, text, images)
+      return sendTo(user, s, text, images, files)
+    },
+
+    /** Files and folders in the session's folder, for @ mentions. */
+    async files(user: User, id: string, q: string) {
+      const s = find(user, id)
+      requireSend(user, s)
+      return agents.request<{ paths: string[] }>(s.owner_username, { op: 'claude.files', cwd: s.cwd, q }, 20_000)
+    },
+
+    /** Someone watching a shared session asks the owner to let them send messages too. */
+    askToJoin(user: User, id: string) {
+      const s = find(user, id)
+      if (canSend(user, s)) throw new AppError(409, 'already', 'You can already send messages here.')
+      const key = `${id}:${user.id}`
+      if (Date.now() - (asked.get(key) ?? 0) < 60_000) return
+      asked.set(key, Date.now())
+      hub.publish(`session:${id}`, { type: 'join_request', user: { id: user.id, name: user.name } }, (u) => u.id === s.owner_id)
+      void notify(s.owner_id, 'shared', {
+        title: `${user.name} asks to join: ${s.title}`, body: 'Open the session to let them send messages.', url: `/claude/${id}`, tag: `join:${key}`,
+      }).catch(() => {})
+    },
+
+    /** The owner lets a teammate send messages, or takes it back. */
+    setWriter(user: User, id: string, userId: number, allowed: boolean) {
+      const s = find(user, id)
+      requireOwner(user, s)
+      if (userId === s.owner_id) throw new AppError(400, 'owner', 'You can always send messages in your own session.')
+      const who = db.prepare('select id from users where id = ? and disabled_at is null').get(userId)
+      if (!who) throw new AppError(404, 'not_found', 'No such member.')
+      repo.setWriter(id, userId, allowed)
+      // Their page asks again what it may do.
+      hub.publish(`session:${id}`, { type: 'access' }, (u) => u.id === userId)
+      if (allowed) void notify(userId, 'shared', { title: `You can send messages in ${s.title}`, body: `${user.name} let you in.`, url: `/claude/${id}` }).catch(() => {})
+      return { writers: repo.writers(id) }
+    },
+
+    comments: (user: User, id: string) => (find(user, id), { comments: repo.comments(id) }),
+
+    /** A comment for the team, never sent to Claude. The owner hears about comments from others. */
+    comment(user: User, id: string, body: string) {
+      const s = find(user, id)
+      const c = repo.addComment(id, user.id, body.trim())
+      hub.publish(`session:${id}`, { type: 'comment', comment: c }, (u) => canView(u, s))
+      if (user.id !== s.owner_id) {
+        void notify(s.owner_id, 'shared', { title: `${user.name} commented on ${s.title}`, body: clip(c.body), url: `/claude/${id}`, tag: `comment:${id}` }).catch(() => {})
+      }
+      return c
     },
 
     async answer(user: User, id: string, requestId: string, result: PermissionAnswer) {
@@ -299,10 +457,11 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
 
     async update(user: User, id: string, p: {
       title?: string; shared?: boolean; sharedCanSend?: boolean; archived?: boolean
-      model?: string | null; effort?: string | null; permissionMode?: string
+      model?: string | null; effort?: string | null; permissionMode?: string; fastMode?: boolean; remoteControl?: boolean
     }) {
       const s = find(user, id)
       const ownerOnly = p.title !== undefined || p.shared !== undefined || p.sharedCanSend !== undefined || p.archived !== undefined
+        || p.remoteControl !== undefined
       if (ownerOnly) requireOwner(user, s)
       else requireSend(user, s)
       const patch: Patch = {
@@ -311,14 +470,19 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
         shared_can_send: p.sharedCanSend === undefined ? undefined : p.sharedCanSend ? 1 : 0,
         archived: p.archived === undefined ? undefined : p.archived ? 1 : 0,
         model: p.model, effort: p.effort, permission_mode: p.permissionMode,
+        fast_mode: p.fastMode === undefined ? undefined : p.fastMode ? 1 : 0,
       }
       if (patch.title) {
         patch.title_custom = 1
         if (s.started) await agents.request(s.owner_username, { op: 'claude.rename', launch: launch(s), title: patch.title }).catch(() => {})
       }
       repo.patch(id, patch)
-      for (const [key, value] of [['model', p.model], ['effort', p.effort], ['permissionMode', p.permissionMode]] as const) {
+      for (const [key, value] of [['model', p.model], ['effort', p.effort], ['permissionMode', p.permissionMode], ['fast', p.fastMode]] as const) {
         if (value !== undefined && s.mode === 'chat') await agents.request(s.owner_username, { op: 'claude.set', id, key, value })
+      }
+      // Turning it on again while it has no link (it failed, or the process went away) tries again.
+      if (p.remoteControl !== undefined && (p.remoteControl !== !!s.remote_control || (p.remoteControl && !live.get(id)?.remoteUrl))) {
+        await setRemote(s, p.remoteControl)
       }
       if (p.archived) {
         await agents.request(s.owner_username, { op: 'claude.stop', id }).catch(() => {})

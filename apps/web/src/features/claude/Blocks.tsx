@@ -34,6 +34,15 @@ export const Blocks = memo(function Blocks({ blocks, senders, nested, live = tru
                     {b.images.map((src, i) => <img key={i} src={src} alt="Attached image" className="max-h-40 rounded-lg border" />)}
                   </div>
                 )}
+                {b.files.length > 0 && (
+                  <div className="flex flex-wrap justify-end gap-1.5">
+                    {b.files.map((name, i) => (
+                      <span key={i} className="flex max-w-60 items-center gap-1.5 rounded-lg border bg-muted/40 px-2.5 py-1.5 text-xs">
+                        <FileText className="size-3.5 shrink-0 text-muted-foreground" /><span className="truncate">{name}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {b.text.trim() && <div className="rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-[15px] break-words whitespace-pre-wrap text-primary-foreground md:text-sm">{b.text}</div>}
               </div>
             )
