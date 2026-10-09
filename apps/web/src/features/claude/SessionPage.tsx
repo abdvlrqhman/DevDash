@@ -26,8 +26,7 @@ import { Blocks, Prose } from './Blocks'
 import { Composer, type Img } from './Composer'
 import {
   EFFORTS, FALLBACK_MODELS, PERMISSION_MODES, commandsQuery, modeLabel, profilesQuery, sessionQuery, shortPath, STATUS_LABEL,
-  type Effort, type PendingRequest, type PermissionMode, type Session,
-} from './data'
+  type Effort, type PendingRequest, type PermissionMode, type Session, sessionPlace } from './data'
 import { createLiveText, type LiveTextStore } from './live-text'
 import { useArchiveSession } from './ArchiveSession'
 import { Requests } from './Requests'
@@ -153,7 +152,7 @@ function SessionView({ id }: { id: string }) {
         description={
           <span className="flex items-center gap-1.5">
             <StatusLight state={light(s.status)} />{STATUS_LABEL[s.status]}
-            <span className="truncate font-mono">{shortPath(s.cwd, s.owner.username)}</span>
+            <span className="truncate" title={s.cwd}>{sessionPlace(s)}</span>
             {s.owner.id !== me.id && <span className="shrink-0">, {s.owner.name}'s</span>}
             {s.shared && s.owner.id === me.id && <span className="flex shrink-0 items-center gap-1">, <Share2 className="size-3" />shared{s.sharedCanSend ? ', others can type' : ''}</span>}
           </span>

@@ -2,6 +2,9 @@ import { queryOptions, useQueryClient } from '@tanstack/react-query'
 import type { InferResponseType } from 'hono/client'
 import { api, unwrap } from '../../lib/api'
 import { useTopic } from '../../lib/live'
+import { URGENCY } from './places'
+
+export { byFolder, folderName, sessionPlace, shortPath } from './places'
 
 export type Session = InferResponseType<typeof api.api.claude.sessions.$get>['sessions'][number]
 export type PermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan' | 'dontAsk' | 'auto'
@@ -70,26 +73,5 @@ export const relativeTime = (unix: number) => {
   return new Date(unix * 1000).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-const URGENCY: Record<string, number> = { waiting: 0, working: 1, error: 2, idle: 3, stopped: 3 }
 
-/** Sessions grouped by folder: folders with something waiting first, then by most recent activity. */
-export function byFolder(sessions: Session[]) {
-  const groups = new Map<string, Session[]>()
-  for (const s of sessions) {
-    const g = groups.get(s.cwd)
-    if (g) g.push(s)
-    else groups.set(s.cwd, [s])
-  }
-  return [...groups.entries()]
-    .map(([cwd, list]) => ({
-      cwd,
-      owner: list[0]!.owner.username,
-      sessions: list.sort((a, b) => URGENCY[a.status]! - URGENCY[b.status]! || b.lastActivityAt - a.lastActivityAt),
-      waiting: list.filter((s) => s.status === 'waiting').length,
-      latest: Math.max(...list.map((s) => s.lastActivityAt)),
-    }))
-    .sort((a, b) => Number(b.waiting > 0) - Number(a.waiting > 0) || b.latest - a.latest)
-}
 
-/** "~/projects/app" for paths in the member's home. */
-export const shortPath = (cwd: string, username: string) => cwd.replace(new RegExp(`^/home/${username}(?=/|$)`), '~')

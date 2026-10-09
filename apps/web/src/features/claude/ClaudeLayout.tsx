@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
-import { Archive, ChevronRight, Folder, Plus, Search, Settings2, Sparkles } from 'lucide-react'
+import { Archive, ChevronRight, Folder, Plus, Search, Settings2, Sparkles, FolderGit2 } from 'lucide-react'
 import { initials, StatusLight } from '@/components/app/brand'
 import { ResizeHandle, useStoredWidth } from '@/components/app/resize-handle'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -12,7 +12,7 @@ import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/in
 import { Skeleton } from '@/components/ui/skeleton'
 import { meQuery } from '@/lib/api'
 import { cn } from '@/lib/utils'
-import { byFolder, relativeTime, sessionsQuery, shortPath, type Session } from './data'
+import { byFolder, relativeTime, sessionsQuery, type Session } from './data'
 import { useArchiveSession } from './ArchiveSession'
 import { NewSession, SessionsPage } from './SessionsPage'
 
@@ -90,11 +90,11 @@ function SessionsPane({ active }: { active?: string }) {
         {list.isSuccess && !groups.length && <p className="px-2 py-6 text-center text-sm text-muted-foreground">{q ? 'No session matches.' : 'No sessions yet.'}</p>}
         <div className="flex flex-col gap-2">
           {groups.map((g) => (
-            <Collapsible key={g.cwd} defaultOpen>
-              <CollapsibleTrigger className="group flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground" title={g.cwd}>
+            <Collapsible key={g.key} defaultOpen>
+              <CollapsibleTrigger className="group flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:text-foreground" title={g.path}>
                 <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]:rotate-90" />
-                <Folder className="size-3.5 shrink-0" />
-                <span className="min-w-0 truncate font-mono">{shortPath(g.cwd, me.username)}</span>
+                {g.project ? <FolderGit2 className="size-3.5 shrink-0" /> : <Folder className="size-3.5 shrink-0" />}
+                <span className="min-w-0 truncate font-medium">{g.label}</span>
                 <span className="ml-auto shrink-0 tabular-nums">{g.sessions.length}</span>
               </CollapsibleTrigger>
               <CollapsibleContent>

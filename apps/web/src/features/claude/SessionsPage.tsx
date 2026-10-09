@@ -27,7 +27,7 @@ import { projectsQuery } from '../work/data'
 import { useArchiveSession } from './ArchiveSession'
 import { ModelChoices } from './ModelChoices'
 import { groupModels, isDefaultModel, modelLabel, type ModelInfo } from './models'
-import { byFolder, commandsQuery, FALLBACK_MODELS, PERMISSION_MODES, profilesQuery, relativeTime, sessionsQuery, shortPath, type PermissionMode, type Session } from './data'
+import { byFolder, commandsQuery, FALLBACK_MODELS, PERMISSION_MODES, profilesQuery, relativeTime, sessionPlace, sessionsQuery, shortPath, type PermissionMode, type Session } from './data'
 
 export function SessionsPage() {
   const me = useQuery(meQuery).data!
@@ -58,7 +58,7 @@ export function SessionsPage() {
           </Section>
         )}
         {groups.map((g) => (
-          <SessionList key={g.cwd} title={<span className="font-mono">{shortPath(g.cwd, me.username)}</span>} sessions={g.sessions} me={me.id} onArchive={archived ? undefined : archive.ask} />
+          <SessionList key={g.key} title={<span title={g.path}>{g.label}</span>} sessions={g.sessions} me={me.id} onArchive={archived ? undefined : archive.ask} />
         ))}
         {list.isSuccess && !sessions.length && (
           <Empty>
@@ -94,7 +94,7 @@ function SessionRow({ s, me, highlight, onArchive }: { s: Session; me: number; h
           <ItemTitle className="line-clamp-1">{s.title}</ItemTitle>
           <ItemDescription className="line-clamp-1">
             {s.owner.id !== me && <span className="text-foreground">{s.owner.name.split(' ')[0]}, </span>}
-            {s.status === 'working' ? 'Working' : s.status === 'waiting' ? 'Needs you' : relativeTime(s.lastActivityAt)}{highlight ? <>, <span className="font-mono">{shortPath(s.cwd, s.owner.username)}</span></> : null}
+            {s.status === 'working' ? 'Working' : s.status === 'waiting' ? 'Needs you' : relativeTime(s.lastActivityAt)}{highlight ? <>, {sessionPlace(s)}</> : null}
           </ItemDescription>
         </ItemContent>
         <ItemActions>

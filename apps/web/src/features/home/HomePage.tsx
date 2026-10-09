@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { api, meQuery, spaceQuery, unwrap } from '@/lib/api'
 import { landFrom, landTo, useArrivals, useMotion } from '@/lib/motion'
 import { cn } from '@/lib/utils'
-import { relativeTime, sessionsQuery, shortPath, type Session } from '@/features/claude/data'
+import { relativeTime, sessionPlace, sessionsQuery, type Session } from '@/features/claude/data'
 import { NewSession } from '@/features/claude/SessionsPage'
 import { servicesQuery, useLiveServices } from '@/features/services/data'
 import { activityQuery, tasksQuery, useLiveWork, type Activity, type Task } from '@/features/work/data'
@@ -30,7 +30,7 @@ const clock = (at: number) => {
   const days = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 86_400_000)
   return days === 0 ? time : days === 1 ? `Yesterday ${time}` : d.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
-const where = (s: Session) => s.project?.name ?? (shortPath(s.cwd, s.owner.username) === '~' ? 'home folder' : shortPath(s.cwd, s.owner.username))
+const where = sessionPlace
 
 /**
  * When this member last left Home (or put the app away while on it). Saved on this device only, it marks the
