@@ -75,7 +75,7 @@ class Inbox implements AsyncIterable<SDKUserMessage> {
 }
 
 export const profileDir = (p: string) => (p === 'default' ? join(homedir(), '.claude') : join(homedir(), '.claude-profiles', p))
-const profileEnv = (p: string): Record<string, string> => (p === 'default' ? {} : { CLAUDE_CONFIG_DIR: profileDir(p) })
+export const profileEnv = (p: string): Record<string, string> => (p === 'default' ? {} : { CLAUDE_CONFIG_DIR: profileDir(p) })
 
 function validate(l: Launch) {
   if (!ID_RE.test(l.id)) throw new Error('invalid session id')

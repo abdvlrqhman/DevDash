@@ -85,5 +85,8 @@ export function claudeRoutes(claude: ClaudeService, mw: ReturnType<typeof authMi
       await claude.createProfile(c.get('user'), c.req.valid('json').name)
       return c.json({ ok: true })
     })
+    .put('/profiles/:name/memory', json(z.object({ enabled: z.boolean() })), async (c) => {
+      return c.json(await claude.setMemory(c.get('user'), c.req.param('name'), c.req.valid('json').enabled))
+    })
     .put('/defaults', json(DefaultsInput), (c) => c.json({ defaults: claude.saveDefaults(c.get('user'), c.req.valid('json')) }))
 }

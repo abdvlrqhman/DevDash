@@ -27,6 +27,11 @@ getent group devdash-users >/dev/null || groupadd devdash-users
 install -d -m 755 /srv/devdash
 install -d -m 2775 -o root -g devdash-users /srv/devdash/projects /srv/devdash/worktrees /srv/devdash/files
 command -v gh >/dev/null || apt-get install -yq gh >/dev/null
+# Bun for members who switch claude-mem on (its worker runs on Bun and looks for /usr/local/bin/bun).
+if [[ ! -x /usr/local/bin/bun ]]; then
+  command -v unzip >/dev/null || apt-get install -yq unzip >/dev/null
+  curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash >/dev/null
+fi
 
 if [[ ! -f $ENV_FILE ]]; then
   [[ -n $DOMAIN ]] || { echo "first install: pass --domain <domain>" >&2; exit 2; }

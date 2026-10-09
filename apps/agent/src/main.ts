@@ -11,6 +11,7 @@ import * as claude from './claude.ts'
 import * as services from './services.ts'
 import { ops as git } from './git.ts'
 import * as files from './files.ts'
+import * as memory from './memory.ts'
 import * as gh from './gh.ts'
 import { attachPty, hasSession, listSessions, send, tmux, TMUX_CONF } from './tmux.ts'
 
@@ -78,7 +79,8 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
   'claude.commands': (r) => claude.commandsAndModels(str(r.profile, 'profile')),
   'claude.title': (r) => claude.title(r.launch as claude.Launch),
   'claude.rename': async (r) => (await claude.rename(r.launch as claude.Launch, str(r.title, 'title')), { ok: true }),
-  'claude.profiles': async () => ({ profiles: await claude.profiles() }),
+  'claude.profiles': async () => ({ profiles: (await claude.profiles()).map((p) => ({ ...p, memory: memory.enabled(p.name) })) }),
+  'claude.memory': async (r) => (await memory.set(str(r.profile, 'profile'), r.enabled === true), { ok: true }),
   'claude.usage': async (r) => ({ usage: await claude.usage(str(r.profile, 'profile')) }),
   'claude.profile.create': (r) => (claude.createProfile(str(r.name, 'name')), { ok: true }),
   'fs.dir': async (r) => ({ path: await services.dir(r.path) }),

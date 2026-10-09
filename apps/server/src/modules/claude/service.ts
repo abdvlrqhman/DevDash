@@ -360,6 +360,21 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
       defaults: repo.defaults(user.id),
     }),
     createProfile: (user: User, name: string) => agents.request(user.username, { op: 'claude.profile.create', name }),
+    /**
+     * claude-mem on or off for one of the member's profiles. Installing it the first time can take a few minutes,
+     * longer than Cloudflare holds a request: after a minute this answers `pending` and the install carries on.
+     */
+    setMemory: async (user: User, profile: string, enabled: boolean) => {
+      if (!PROFILE_RE.test(profile)) throw new AppError(400, 'bad_profile', 'Unknown profile.')
+      let late = false
+      const job = agents.request(user.username, { op: 'claude.memory', profile, enabled }, 300_000)
+      job.catch((err: Error) => {
+        if (late) void notify(user.id, 'errors', { title: 'claude-mem could not be turned on', body: clip(err.message), url: '/claude/setup' }).catch(() => {})
+      })
+      const done = await Promise.race([job.then(() => true), new Promise<false>((r) => setTimeout(r, 60_000, false))])
+      late = !done
+      return { pending: !done }
+    },
     defaults: (user: User) => repo.defaults(user.id),
     saveDefaults: (user: User, d: Defaults) => {
       if (!PROFILE_RE.test(d.profile)) throw new AppError(400, 'bad_profile', 'Unknown profile.')

@@ -15,7 +15,7 @@ import { api, unwrap } from '@/lib/api'
 import { ErrorAlert } from '../auth/LoginPage'
 import { FALLBACK_MODELS, PERMISSION_MODES, profilesQuery, type PermissionMode } from './data'
 
-type Profile = { name: string; loggedIn: boolean; authMethod: string | null; email: string | null; plan: string | null }
+type Profile = { name: string; loggedIn: boolean; authMethod: string | null; email: string | null; plan: string | null; memory: boolean }
 type Defaults = { profile: string; model: string | null; effort: string | null; permission_mode: string; open_in: 'chat' | 'cli' }
 
 export function SetupPage() {
@@ -73,9 +73,66 @@ export function SetupPage() {
               Signing in opens a terminal running Claude's own sign-in. Open the link it prints, approve, then paste the code back. DevDash never sees your Claude credentials.
             </p>
         </SettingsSection>
+        {!q.isPending && profiles.length > 0 && <MemorySection profiles={profiles} />}
         {q.data && <DefaultsCard profiles={profiles} initial={q.data.defaults} />}
       </PageBody>
     </>
+  )
+}
+
+/** Per profile: Claude Code's own memory (the default) or claude-mem on top of it. */
+function MemorySection({ profiles }: { profiles: Profile[] }) {
+  return (
+    <SettingsSection title="Memory" description={<>
+          Claude Code remembers through CLAUDE.md files and its own auto memory. claude-mem adds to that: it records what Claude does and brings the relevant parts back in later sessions, searchable across projects. It summarizes in the background with your Claude plan, and new sessions pick the change up.
+    </>}>
+        <ItemGroup className="rounded-lg border">
+          {profiles.map((p) => <MemoryRow key={p.name} profile={p} />)}
+        </ItemGroup>
+    </SettingsSection>
+  )
+}
+
+function MemoryRow({ profile: p }: { profile: Profile }) {
+  const qc = useQueryClient()
+  // A first install can outlast the request; the profile list is polled until it reports claude-mem on.
+  const [waiting, setWaiting] = useState(false)
+  const save = useMutation({
+    mutationFn: (enabled: boolean) => unwrap(api.api.claude.profiles[':name'].memory.$put({ param: { name: p.name }, json: { enabled } })),
+    onSuccess: (r, enabled) => {
+      if (r.pending) {
+        setWaiting(true)
+        toast.info('Installing claude-mem. This takes a few minutes the first time; you will get a notification if it fails.')
+      } else {
+        toast.success(enabled ? `claude-mem is on for ${p.name}. New sessions use it.` : `claude-mem is off for ${p.name}.`)
+      }
+      void qc.invalidateQueries({ queryKey: profilesQuery.queryKey })
+    },
+  })
+  useEffect(() => {
+    if (!waiting) return
+    if (p.memory) return setWaiting(false)
+    const poll = setInterval(() => void qc.invalidateQueries({ queryKey: profilesQuery.queryKey }), 5_000)
+    const giveUp = setTimeout(() => setWaiting(false), 5 * 60_000)
+    return () => { clearInterval(poll); clearTimeout(giveUp) }
+  }, [waiting, p.memory, qc])
+  const busy = save.isPending || waiting
+  const id = `memory-${p.name}`
+  return (
+    <Item className="rounded-none border-0 border-b last:border-b-0">
+      <ItemContent>
+        <ItemTitle id={id}>{p.name === 'default' ? 'Default' : p.name}</ItemTitle>
+        <ItemDescription>{busy ? 'Working on it…' : p.memory ? 'Claude Code memory and claude-mem' : 'Claude Code memory'}</ItemDescription>
+        <ErrorAlert error={save.error} />
+      </ItemContent>
+      <ItemActions>
+        <ToggleGroup type="single" variant="outline" size="sm" aria-labelledby={id} disabled={busy} value={p.memory ? 'mem' : 'builtin'}
+          onValueChange={(v) => v && v !== (p.memory ? 'mem' : 'builtin') && save.mutate(v === 'mem')}>
+          <ToggleGroupItem value="builtin">Built-in</ToggleGroupItem>
+          <ToggleGroupItem value="mem">claude-mem</ToggleGroupItem>
+        </ToggleGroup>
+      </ItemActions>
+    </Item>
   )
 }
 
