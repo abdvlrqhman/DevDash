@@ -1,30 +1,39 @@
-import { memo, useState, type ReactNode } from 'react'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import { memo, useState } from 'react'
 import {
-  Bot, Brain, Check, ChevronRight, Circle, CircleAlert, FilePen, FileText, Globe, ListChecks, LoaderCircle, Search, SquareTerminal, Wrench,
+  BookOpen, Brain, CalendarClock, Check, ChevronRight, Circle, CircleAlert, FileText, Info, ListChecks, LoaderCircle, MessagesSquare, SquareSlash,
+  type LucideIcon,
 } from 'lucide-react'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
-import { openExternal } from '@/lib/shell'
 import { cn } from '@/lib/utils'
-import type { Block, ToolBlock } from './transcript'
+import { Prose } from './Prose'
+import { ToolSteps } from './ToolSteps'
+import type { Block, EventTone, ToolBlock } from './transcript'
 
-export const Prose = memo(function Prose({ text }: { text: string }) {
-  return (
-    <div className="prose-dd text-[15px] md:text-sm">
-      <Markdown remarkPlugins={[remarkGfm]} components={{
-        a: ({ href, children }) => <a href={href} onClick={(e) => { e.preventDefault(); if (href) openExternal(href) }}>{children}</a>,
-      }}>{text}</Markdown>
-    </div>
-  )
-})
+export { Prose }
+
+/** Consecutive tool calls form one timeline; to-do lists stand on their own. */
+type Item = Block | { kind: 'steps'; key: string; tools: ToolBlock[] }
+function group(blocks: Block[]): Item[] {
+  const out: Item[] = []
+  for (const b of blocks) {
+    if (b.kind === 'tool' && !(b.name === 'TodoWrite' && Array.isArray(b.input.todos))) {
+      const last = out.at(-1)
+      if (last?.kind === 'steps') last.tools.push(b)
+      else out.push({ kind: 'steps', key: b.key, tools: [b] })
+    } else out.push(b)
+  }
+  return out
+}
 
 /** `live`: the session is working, so tools without a result are still running (otherwise they were interrupted). */
 export const Blocks = memo(function Blocks({ blocks, senders, nested, live = true }: { blocks: Block[]; senders?: Record<string, { name: string }>; nested?: boolean; live?: boolean }) {
+  const children = (b: Block[]) => <Blocks blocks={b} senders={senders} nested live={live} />
   return (
     <div className={cn('flex flex-col', nested ? 'gap-2' : 'gap-4')}>
-      {blocks.map((b) => {
+      {group(blocks).map((b) => {
         switch (b.kind) {
+          case 'steps':
+            return <ToolSteps key={b.key} tools={b.tools} live={live} renderChildren={children} />
           case 'user':
             return (
               <div key={b.key} className="flex max-w-[85%] flex-col items-end gap-1 self-end">
@@ -51,12 +60,15 @@ export const Blocks = memo(function Blocks({ blocks, senders, nested, live = tru
           case 'thinking':
             return <Thinking key={b.key} text={b.text} />
           case 'tool':
-            return <ToolCard key={b.key} tool={b} senders={senders} live={live} />
+            return <Todos key={b.key} todos={b.input.todos as Todo[]} />
           case 'command':
             return (
-              <div key={b.key} className="text-sm">
-                <span className="rounded-md bg-muted px-2 py-0.5 font-mono">{b.name}</span>
-                {b.output && <pre className="mt-1.5 font-mono text-xs whitespace-pre-wrap text-muted-foreground">{b.output}</pre>}
+              <div key={b.key} className="flex flex-col gap-1.5 text-sm">
+                <span className="flex w-fit max-w-full items-center gap-1.5 rounded-md border bg-muted/40 px-2 py-0.5 font-mono text-[12.5px]">
+                  <SquareSlash className="size-3.5 shrink-0 text-muted-foreground" />
+                  <span className="truncate">{b.name}{b.args ? <span className="text-muted-foreground"> {b.args}</span> : null}</span>
+                </span>
+                {b.output && <pre className="font-mono text-xs whitespace-pre-wrap text-muted-foreground">{b.output}</pre>}
               </div>
             )
           case 'result':
@@ -67,12 +79,7 @@ export const Blocks = memo(function Blocks({ blocks, senders, nested, live = tru
               </p>
             )
           case 'event':
-            return (
-              <p key={b.key} className="flex items-start gap-2 text-xs text-muted-foreground">
-                {b.ok ? <Check className="mt-px size-3.5 shrink-0 text-live" /> : <CircleAlert className="mt-px size-3.5 shrink-0 text-destructive" />}
-                <span className="min-w-0 break-words">{b.text}</span>
-              </p>
-            )
+            return <Event key={b.key} text={b.text} ok={b.ok} tone={b.tone} detail={b.detail} />
           case 'note':
             return <p key={b.key} className="border-y py-1.5 text-center text-xs text-muted-foreground">{b.text}</p>
         }
@@ -80,6 +87,29 @@ export const Blocks = memo(function Blocks({ blocks, senders, nested, live = tru
     </div>
   )
 })
+
+const TONE: Record<EventTone, LucideIcon> = { task: Check, skill: BookOpen, peer: MessagesSquare, schedule: CalendarClock, system: Info }
+
+/** Something Claude Code put in the conversation itself: a quiet line, its raw text one tap away. */
+function Event({ text, ok, tone = 'task', detail }: { text: string; ok: boolean; tone?: EventTone; detail?: string }) {
+  const [open, setOpen] = useState(false)
+  const Icon = ok ? TONE[tone] : CircleAlert
+  const line = (
+    <>
+      <Icon className={cn('mt-px size-3.5 shrink-0', !ok ? 'text-destructive' : tone === 'task' ? 'text-live' : 'text-muted-foreground')} />
+      <span className="min-w-0 flex-1 break-words">{text}</span>
+      {detail && <ChevronRight className={cn('mt-px size-3.5 shrink-0 transition-transform duration-150', open && 'rotate-90')} />}
+    </>
+  )
+  return (
+    <div className="text-xs text-muted-foreground">
+      {detail
+        ? <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="-mx-1.5 flex w-[calc(100%+0.75rem)] items-start gap-2 rounded-md px-1.5 py-0.5 text-left transition-colors duration-150 hover:bg-muted/60 hover:text-foreground">{line}</button>
+        : <p className="flex items-start gap-2">{line}</p>}
+      {open && detail && <pre className="mt-1 ml-5.5 max-h-72 overflow-auto rounded-md border bg-muted/30 px-2.5 py-2 font-mono text-[11.5px] leading-5 break-words whitespace-pre-wrap">{detail}</pre>}
+    </div>
+  )
+}
 
 function Thinking({ text }: { text: string }) {
   return (
@@ -89,87 +119,6 @@ function Thinking({ text }: { text: string }) {
       </CollapsibleTrigger>
       <CollapsibleContent className="mt-1.5 border-l-2 pl-3 whitespace-pre-wrap">{text}</CollapsibleContent>
     </Collapsible>
-  )
-}
-
-const str = (v: unknown) => (typeof v === 'string' ? v : v === undefined ? '' : JSON.stringify(v))
-const base = (p: string) => p.split('/').pop() || p
-
-/** One line that says what the tool did, by tool name. */
-function summary(t: ToolBlock): { icon: ReactNode; label: string; detail: string } {
-  const i = t.input
-  const ic = 'size-4'
-  switch (t.name) {
-    case 'Bash': return { icon: <SquareTerminal className={ic} />, label: 'Bash', detail: str(i.command) }
-    case 'Read': return { icon: <FileText className={ic} />, label: 'Read', detail: base(str(i.file_path)) }
-    case 'Edit': case 'MultiEdit': return { icon: <FilePen className={ic} />, label: 'Edit', detail: base(str(i.file_path)) }
-    case 'Write': return { icon: <FilePen className={ic} />, label: 'Write', detail: base(str(i.file_path)) }
-    case 'Grep': return { icon: <Search className={ic} />, label: 'Search', detail: str(i.pattern) }
-    case 'Glob': return { icon: <Search className={ic} />, label: 'Find files', detail: str(i.pattern) }
-    case 'WebFetch': return { icon: <Globe className={ic} />, label: 'Fetch', detail: str(i.url) }
-    case 'WebSearch': return { icon: <Globe className={ic} />, label: 'Web search', detail: str(i.query) }
-    case 'Task': case 'Agent': return { icon: <Bot className={ic} />, label: str(i.subagent_type) || 'Subagent', detail: str(i.description) }
-    default: return { icon: <Wrench className={ic} />, label: t.name.replace(/^mcp__/, '').replace(/__/g, ': '), detail: '' }
-  }
-}
-
-function diffLines(t: ToolBlock) {
-  const edits = t.name === 'MultiEdit' && Array.isArray(t.input.edits)
-    ? (t.input.edits as { old_string?: string; new_string?: string }[])
-    : [{ old_string: str(t.input.old_string), new_string: str(t.input.new_string) }]
-  return edits.flatMap((e) => [
-    ...(e.old_string ?? '').split('\n').filter(Boolean).map((l) => ({ sign: '-', l })),
-    ...(e.new_string ?? '').split('\n').filter(Boolean).map((l) => ({ sign: '+', l })),
-  ])
-}
-
-function ToolCard({ tool: t, senders, live }: { tool: ToolBlock; senders?: Record<string, { name: string }>; live: boolean }) {
-  if (t.name === 'TodoWrite' && Array.isArray(t.input.todos)) return <Todos todos={t.input.todos as Todo[]} />
-  const s = summary(t)
-  const running = !t.result && live
-  const interrupted = !t.result && !live
-  const isEdit = t.name === 'Edit' || t.name === 'MultiEdit'
-  const diff = isEdit ? diffLines(t) : []
-  const added = diff.filter((d) => d.sign === '+').length
-  const body = isEdit ? null : t.result?.text
-  const expandable = isEdit || !!body || t.children.length > 0
-
-  return (
-    <Collapsible className="overflow-hidden rounded-lg border bg-card text-sm">
-      <CollapsibleTrigger disabled={!expandable} className="group flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-muted/50 disabled:cursor-default disabled:hover:bg-transparent">
-        <span className={cn('shrink-0', t.result?.isError ? 'text-destructive' : 'text-muted-foreground')}>{s.icon}</span>
-        <span className="shrink-0 font-medium">{s.label}</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">{s.detail}</span>
-        {isEdit && <span className="shrink-0 font-mono text-xs"><span className="text-live">+{added}</span> <span className="text-destructive">-{diff.length - added}</span></span>}
-        {t.children.length > 0 && <span className="shrink-0 text-xs text-muted-foreground">{t.children.filter((c) => c.kind === 'tool').length} steps</span>}
-        {interrupted && <span className="shrink-0 text-xs text-muted-foreground" title="It stopped before finishing (the turn was interrupted)">No result</span>}
-        {running
-          ? <LoaderCircle className="size-4 shrink-0 animate-spin text-muted-foreground" aria-label="Running" />
-          : expandable && <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-90" />}
-      </CollapsibleTrigger>
-      <CollapsibleContent className="border-t bg-muted/40 px-3 py-2">
-        {isEdit && (
-          <pre className="max-h-80 overflow-auto font-mono text-xs break-all whitespace-pre-wrap">
-            {diff.map((d, i) => <div key={i} className={d.sign === '+' ? 'text-live' : 'text-destructive'}>{d.sign} {d.l}</div>)}
-          </pre>
-        )}
-        {t.children.length > 0 && <Blocks blocks={t.children} senders={senders} nested live={live} />}
-        {body && <Output text={body} error={t.result?.isError} />}
-      </CollapsibleContent>
-    </Collapsible>
-  )
-}
-
-function Output({ text, error }: { text: string; error?: boolean }) {
-  const [all, setAll] = useState(false)
-  const long = text.length > 3000
-  return (
-    <div>
-      <pre className={cn('max-h-96 overflow-auto font-mono text-xs break-words whitespace-pre-wrap', error && 'text-destructive')}>
-        {long && !all ? text.slice(0, 3000) + '\n…' : text}
-      </pre>
-      {long && !all && <button className="mt-1 text-xs underline underline-offset-2" onClick={() => setAll(true)}>Show all {Math.round(text.length / 1000)}k characters</button>}
-    </div>
   )
 }
 
