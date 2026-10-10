@@ -4,7 +4,7 @@
 // Switching mode stops one process and resumes the same id in the other (Claude Code has no lock of its own).
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -296,6 +296,27 @@ export const stop = (id: string) => serial(id, async () => {
   await stopCli(id)
 })
 
+/**
+ * The folder a session works in counts as trusted: choosing it in DevDash is the person's answer to Claude Code's
+ * "do you trust this folder?", whose default would quit the CLI. Written just before the CLI starts; if the config
+ * can't be read cleanly it is left alone and Claude Code asks as usual.
+ */
+export function trustFolder(configFile: string, cwd: string) {
+  let config: Record<string, unknown> = {}
+  try {
+    config = JSON.parse(readFileSync(configFile, 'utf8')) as Record<string, unknown>
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') return
+  }
+  const projects = (config.projects ??= {}) as Record<string, Record<string, unknown>>
+  if (projects[cwd]?.hasTrustDialogAccepted === true) return
+  projects[cwd] = { ...projects[cwd], hasTrustDialogAccepted: true }
+  const tmp = `${configFile}.devdash-${process.pid}`
+  writeFileSync(tmp, JSON.stringify(config, null, 2), { mode: 0o600 })
+  renameSync(tmp, configFile)
+}
+const claudeConfig = (profile: string) => (profile === 'default' ? join(homedir(), '.claude.json') : join(profileDir(profile), '.claude.json'))
+
 /** Opens CLI mode: the SDK process must be gone first, so only one process ever writes the transcript. */
 export const openCli = (l: Launch, cols: number, rows: number) => serial(l.id, () => openCliNow(l, cols, rows))
 async function openCliNow(l: Launch, cols: number, rows: number) {
@@ -304,6 +325,7 @@ async function openCliNow(l: Launch, cols: number, rows: number) {
   if (c) await stopChat(c)
   if (await hasSession(cliName(l.id))) return
   cliLaunches.set(l.id, l)
+  try { trustFolder(claudeConfig(l.profile), l.cwd) } catch { /* Claude Code asks instead */ }
   const args = [CLAUDE_BIN, ...(l.started ? ['--resume', l.id] : ['--session-id', l.id]), '--plugin-dir', PLUGIN_DIR, '--append-system-prompt', RULES]
   if (l.model) args.push('--model', l.model)
   if (l.effort) args.push('--effort', l.effort)
