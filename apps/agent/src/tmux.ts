@@ -40,7 +40,8 @@ export function send(conn: Socket, msg: object) {
   return conn.write(JSON.stringify(msg) + '\n')
 }
 
-const HISTORY_LINES = 3000
+// As much as the browser terminal keeps (TerminalView scrollback), so a session scrolls back to its start.
+const HISTORY_LINES = 10_000
 
 /**
  * Streams one tmux session to one connection as JSON lines: {d} data both ways, {r:[cols,rows]} resize from the client.

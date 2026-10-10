@@ -310,7 +310,9 @@ async function openCliNow(l: Launch, cols: number, rows: number) {
   if (l.fast) args.push('--settings', JSON.stringify({ fastMode: true }))
   if (l.remote) args.push('--remote-control')
   args.push(...(l.permissionMode === 'bypassPermissions' ? ['--dangerously-skip-permissions'] : ['--permission-mode', l.permissionMode]))
-  const env = Object.entries({ ...profileEnv(l.profile), DEVDASH_SESSION_ID: l.id }).flatMap(([k, v]) => ['-e', `${k}=${v}`])
+  // The classic renderer, not the full-screen one: the conversation flows into the terminal's history, so it scrolls
+  // all the way back (phones included) and can be selected and copied in the browser.
+  const env = Object.entries({ ...profileEnv(l.profile), DEVDASH_SESSION_ID: l.id, CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1' }).flatMap(([k, v]) => ['-e', `${k}=${v}`])
   try {
     await tmux('new-session', '-d', '-s', cliName(l.id), '-c', l.cwd, '-x', String(cols), '-y', String(rows), ...env, ...args)
   } catch (err) {

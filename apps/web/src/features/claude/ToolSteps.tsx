@@ -120,7 +120,7 @@ function PreviewView({ p }: { p: Preview }) {
           {p.lines.map((l, i) => (
             <div key={i} className={cn('flex min-w-0', l.sign === '+' && 'bg-live/10', l.sign === '-' && 'bg-destructive/10')}>
               <span className={cn('w-5 shrink-0 text-center select-none', l.sign === '+' ? 'text-live' : l.sign === '-' ? 'text-destructive' : 'text-muted-foreground/50')}>{l.sign === ' ' ? '' : l.sign === '-' ? '−' : '+'}</span>
-              <span className={cn('min-w-0 flex-1 pr-2 break-all whitespace-pre-wrap', l.sign === ' ' && 'text-muted-foreground')}>{l.text || ' '}</span>
+              <span className={cn('min-w-0 flex-1 pr-2 [overflow-wrap:anywhere] whitespace-pre-wrap', l.sign === ' ' && 'text-muted-foreground')}>{l.text || ' '}</span>
             </div>
           ))}
         </div>
@@ -133,7 +133,7 @@ function PreviewView({ p }: { p: Preview }) {
             {p.lines.map((l, i) => (
               <div key={i} className="flex min-w-0">
                 {l.n !== undefined && <span className="w-10 shrink-0 pr-2 text-right text-muted-foreground/60 tabular-nums select-none">{l.n}</span>}
-                <span className={cn('min-w-0 flex-1 pr-2 break-all whitespace-pre-wrap', l.n === undefined && 'pl-2.5')}>{l.text || ' '}</span>
+                <span className={cn('min-w-0 flex-1 pr-2 [overflow-wrap:anywhere] whitespace-pre-wrap', l.n === undefined && 'pl-2.5')}>{l.text || ' '}</span>
               </div>
             ))}
             {p.total > p.lines.length && <div className="px-2.5 py-1 text-muted-foreground">… {p.total - p.lines.length} more lines</div>}
