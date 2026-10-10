@@ -214,7 +214,8 @@ export function toolView(t: ToolBlock): ToolView {
 
   if (t.name.startsWith('mcp__')) {
     const { server, tool } = mcpName(t.name)
-    const main = Object.values(i).find((v) => typeof v === 'string' && v.trim()) as string | undefined
+    const KEYS = ['title', 'query', 'description', 'text', 'content', 'prompt', 'message', 'name', 'key', 'path', 'url', 'id']
+    const main = (KEYS.map((k) => i[k]).find((v) => typeof v === 'string' && v.trim()) ?? Object.values(i).find((v) => typeof v === 'string' && v.trim())) as string | undefined
     return {
       icon: 'plug', verb: tool, doing: tool, target: main ? first(main, 80) : '', where: server, meta: err ? 'failed' : undefined, inline: errInline,
       details: [...argFields(i), ...(t.result?.images.length ? [{ kind: 'images', srcs: t.result.images } as Preview] : []), ...(text ? [{ kind: 'output', text: pretty(text), error: err } as Preview] : [])],

@@ -1,6 +1,6 @@
 import { memo, useState, type ReactNode } from 'react'
 import {
-  Bot, BookOpen, CalendarClock, ChevronRight, CircleAlert, ClipboardList, Code, Eye, FilePen, FilePlus, FileText, FolderSearch, Globe, ListChecks,
+  Bot, BookOpen, Brain, CalendarClock, ChevronRight, CircleAlert, ClipboardList, Code, Eye, FilePen, FilePlus, FileText, FolderSearch, Globe, ListChecks,
   LoaderCircle, MessageCircleQuestion, NotebookPen, Plug, Search, SquareTerminal, Wrench, type LucideIcon,
 } from 'lucide-react'
 import { openExternal } from '@/lib/shell'
@@ -19,18 +19,19 @@ const ICONS: Record<ToolView['icon'], LucideIcon> = {
  * A run of tool calls as one timeline: each step says what it did and how it went; edits, writes, images and errors
  * show without a tap, the rest opens on tap. Long runs fold their middle so the conversation stays readable.
  */
-export function ToolSteps({ tools, live, renderChildren }: { tools: ToolBlock[]; live: boolean; renderChildren: (b: Block[]) => ReactNode }) {
+export type StepBlock = ToolBlock | Extract<Block, { kind: 'thinking' }>
+export function ToolSteps({ steps, live, renderChildren }: { steps: StepBlock[]; live: boolean; renderChildren: (b: Block[]) => ReactNode }) {
   const [all, setAll] = useState(false)
-  const fold = !all && tools.length > 7
-  const shown = fold ? [...tools.slice(0, 2), null, ...tools.slice(-3)] : tools
+  const fold = !all && steps.length > 7
+  const shown = fold ? [...steps.slice(0, 2), null, ...steps.slice(-3)] : steps
   return (
     <ol className="relative flex flex-col gap-0.5 before:absolute before:top-3 before:bottom-3 before:left-[11px] before:w-px before:bg-border">
-      {shown.map((t, i) => t
-        ? <Step key={t.key} tool={t} live={live} renderChildren={renderChildren} />
+      {shown.map((t) => t
+        ? t.kind === 'thinking' ? <Thought key={t.key} text={t.text} /> : <Step key={t.key} tool={t} live={live} renderChildren={renderChildren} />
         : (
           <li key="fold" className="relative pl-8">
             <button className="rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground" onClick={() => setAll(true)}>
-              {tools.length - 5} more steps
+              {steps.length - 5} more steps
             </button>
           </li>
         ))}
@@ -61,7 +62,7 @@ const Step = memo(function Step({ tool: t, live, renderChildren }: { tool: ToolB
         <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
           <span className="shrink-0 font-medium">{running ? `${v.doing}…` : v.verb}</span>
           {v.target && <span className={cn('min-w-0 truncate', v.mono ? 'font-mono text-[12.5px] text-foreground/85' : 'text-foreground/85')} title={v.target}>{v.target}</span>}
-          {v.where && <span className={cn('hidden min-w-0 shrink truncate text-xs text-muted-foreground sm:inline', v.mono || v.icon === 'run' ? 'font-mono' : '')} title={v.where}>{v.where}</span>}
+          {v.where && <span className={cn('hidden min-w-0 shrink-[4] truncate text-xs text-muted-foreground sm:inline', v.mono || v.icon === 'run' ? 'font-mono' : '')} title={v.where}>{v.where}</span>}
         </span>
         {v.meta && <Meta text={v.meta} failed={failed} />}
         {stopped && <span className="shrink-0 text-xs text-muted-foreground" title="The turn ended before this finished">stopped</span>}
@@ -77,6 +78,22 @@ const Step = memo(function Step({ tool: t, live, renderChildren }: { tool: ToolB
     </li>
   )
 })
+
+/** Claude's thinking between steps: a quiet row, the thought itself on tap. */
+function Thought({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <li className="relative">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
+        className="flex w-full items-center gap-2.5 rounded-md py-1 pr-1.5 text-left text-sm text-muted-foreground transition-colors duration-150 hover:bg-muted/60 hover:text-foreground">
+        <span className="relative z-10 flex size-6 shrink-0 items-center justify-center rounded-full border bg-background"><Brain className="size-3.5" /></span>
+        <span className="flex-1">Thought</span>
+        <ChevronRight className={cn('size-3.5 shrink-0 transition-transform duration-150', open && 'rotate-90')} />
+      </button>
+      {open && <p className="mt-1 mb-2 border-l-2 pl-3 ml-8 text-sm whitespace-pre-wrap text-muted-foreground">{text}</p>}
+    </li>
+  )
+}
 
 function agentView(t: ToolBlock): ToolView {
   const steps = t.children.filter((c) => c.kind === 'tool').length

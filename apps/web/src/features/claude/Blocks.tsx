@@ -6,23 +6,24 @@ import {
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { cn } from '@/lib/utils'
 import { Prose } from './Prose'
-import { ToolSteps } from './ToolSteps'
-import type { Block, EventTone, ToolBlock } from './transcript'
+import { ToolSteps, type StepBlock } from './ToolSteps'
+import type { Block, EventTone } from './transcript'
 
 export { Prose }
 
-/** Consecutive tool calls form one timeline; to-do lists stand on their own. */
-type Item = Block | { kind: 'steps'; key: string; tools: ToolBlock[] }
+/** Tool calls and the thinking between them form one timeline; to-do lists and replies stand on their own. */
+type Item = Block | { kind: 'steps'; key: string; steps: StepBlock[] }
 function group(blocks: Block[]): Item[] {
   const out: Item[] = []
   for (const b of blocks) {
-    if (b.kind === 'tool' && !(b.name === 'TodoWrite' && Array.isArray(b.input.todos))) {
-      const last = out.at(-1)
-      if (last?.kind === 'steps') last.tools.push(b)
-      else out.push({ kind: 'steps', key: b.key, tools: [b] })
-    } else out.push(b)
+    const step = (b.kind === 'tool' && !(b.name === 'TodoWrite' && Array.isArray(b.input.todos))) || b.kind === 'thinking'
+    const last = out.at(-1)
+    if (step && last?.kind === 'steps') last.steps.push(b as StepBlock)
+    else if (step) out.push({ kind: 'steps', key: b.key, steps: [b as StepBlock] })
+    else out.push(b)
   }
-  return out
+  // A run of only thoughts isn't a timeline.
+  return out.flatMap((i) => (i.kind === 'steps' && !i.steps.some((s) => s.kind === 'tool') ? i.steps : [i]))
 }
 
 /** `live`: the session is working, so tools without a result are still running (otherwise they were interrupted). */
@@ -33,7 +34,7 @@ export const Blocks = memo(function Blocks({ blocks, senders, nested, live = tru
       {group(blocks).map((b) => {
         switch (b.kind) {
           case 'steps':
-            return <ToolSteps key={b.key} tools={b.tools} live={live} renderChildren={children} />
+            return <ToolSteps key={b.key} steps={b.steps} live={live} renderChildren={children} />
           case 'user':
             return (
               <div key={b.key} className="flex max-w-[85%] flex-col items-end gap-1 self-end">
