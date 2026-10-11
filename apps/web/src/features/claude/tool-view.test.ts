@@ -21,7 +21,7 @@ test('each tool reads as what it did', () => {
   assert.deepEqual([write.verb, write.meta], ['Created', '3 lines'])
 
   const bash = toolView(tool('Bash', { command: 'npm test', description: 'Run the tests' }, 'pass 3\nfail 0'))
-  assert.deepEqual([bash.verb, bash.target, bash.where, bash.meta], ['Ran', 'Run the tests', 'npm test', '2 lines'])
+  assert.deepEqual([bash.verb, bash.target, bash.where, bash.meta], ['Ran tests', 'Run the tests', 'npm test', '2 lines'])
   const failed = toolView(tool('Bash', { command: 'false' }, 'Exit code 1\nboom', { isError: true }))
   assert.equal(failed.meta, 'failed')
   assert.equal(failed.inline?.kind, 'output', 'errors show without a tap')

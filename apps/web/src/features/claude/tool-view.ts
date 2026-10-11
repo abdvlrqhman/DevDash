@@ -16,6 +16,7 @@ export type Preview =
 export type ToolView = {
   /** Icon name, mapped to an icon by the component. */
   icon: 'read' | 'write' | 'edit' | 'run' | 'search' | 'files' | 'web' | 'agent' | 'plan' | 'ask' | 'skill' | 'tools' | 'clock' | 'watch' | 'task' | 'plug' | 'notebook' | 'code' | 'tool'
+    | 'git' | 'package' | 'test' | 'build' | 'container' | 'delete'
   verb: string
   /** The verb while it runs ("Reading"). */
   doing: string
@@ -144,7 +145,7 @@ export function toolView(t: ToolBlock): ToolView {
       const desc = str(i.description)
       const n = nonEmpty(text)
       return {
-        icon: 'run', verb: 'Ran', doing: 'Running', target: desc || first(command), mono: !desc, where: desc ? first(command, 80) : undefined,
+        ...shellAction(command), target: desc || first(command), mono: !desc, where: desc ? first(command, 80) : undefined,
         meta: i.run_in_background ? 'in background' : err ? 'failed' : n ? plural(n, 'line') : 'no output',
         inline: errInline,
         details: [{ kind: 'code', lines: linesOf(command).map((l) => ({ text: l })), total: 0, label: 'Command' }, ...(text ? [{ kind: 'output', text, error: err } as Preview] : [])],
@@ -214,12 +215,108 @@ export function toolView(t: ToolBlock): ToolView {
 
   if (t.name.startsWith('mcp__')) {
     const { server, tool } = mcpName(t.name)
-    const KEYS = ['title', 'query', 'description', 'text', 'content', 'prompt', 'message', 'name', 'key', 'path', 'url', 'id']
-    const main = (KEYS.map((k) => i[k]).find((v) => typeof v === 'string' && v.trim()) ?? Object.values(i).find((v) => typeof v === 'string' && v.trim())) as string | undefined
-    return {
-      icon: 'plug', verb: tool, doing: tool, target: main ? first(main, 80) : '', where: server, meta: err ? 'failed' : undefined, inline: errInline,
-      details: [...argFields(i), ...(t.result?.images.length ? [{ kind: 'images', srcs: t.result.images } as Preview] : []), ...(text ? [{ kind: 'output', text: pretty(text), error: err } as Preview] : [])],
-    }
+    return { ...generic(t, tool, 'plug'), where: server }
   }
-  return { icon: 'tool', verb: words(t.name), doing: words(t.name), target: '', meta: err ? 'failed' : undefined, inline: errInline, details: [...argFields(i), ...output(t)] }
+  return generic(t, words(t.name), 'tool')
+}
+
+/** Arguments that say what a call is about, most telling first. */
+const SUBJECT_KEYS = ['file_path', 'notebook_path', 'path', 'url', 'uri', 'query', 'pattern', 'command', 'title', 'subject', 'description', 'prompt', 'text', 'content', 'message', 'name', 'key', 'id']
+
+/**
+ * Any tool DevDash has no special view for, today's or one Claude Code adds tomorrow: its name in words, the argument
+ * that says what it's about (a file shows as file and folder, a link as its site), how it went, and everything on tap.
+ */
+function generic(t: ToolBlock, verb: string, icon: ToolView['icon']): ToolView {
+  const i = t.input
+  const text = clean(t.result?.text ?? '')
+  const err = t.result?.isError === true
+  const key = SUBJECT_KEYS.find((k) => typeof i[k] === 'string' && (i[k] as string).trim())
+    ?? Object.keys(i).find((k) => typeof i[k] === 'string' && (i[k] as string).trim())
+  const value = key ? (i[key] as string) : ''
+  let target = value ? first(value, 80) : ''
+  let where: string | undefined
+  let mono = /path|pattern|command|id|key|uri/.test(key ?? '')
+  if (value.startsWith('/') && !value.includes(' ')) { target = base(value); where = dir(value) || undefined; mono = false }
+  else if (/^https?:\/\//.test(value)) { try { const u = new URL(value); target = u.host; where = u.pathname === '/' ? undefined : u.pathname } catch { /* keep as is */ } }
+  const n = nonEmpty(text)
+  const images = t.result?.images ?? []
+  return {
+    icon, verb, doing: verb, target, mono, where,
+    meta: err ? 'failed' : images.length ? plural(images.length, 'image') : n > 1 ? plural(n, 'line') : undefined,
+    inline: err && text ? { kind: 'output', text: linesOf(text).slice(-8).join('\n'), error: true } : images.length ? { kind: 'images', srcs: images } : undefined,
+    details: [...argFields(i), ...(text && text !== '[image]' ? [{ kind: 'output', text: pretty(text), error: err } as Preview] : [])],
+  }
+}
+
+/**
+ * What a shell command mostly does, so a session full of Bash still reads as searches, reads, fetches and builds
+ * (Claude Code has no Grep or Glob tools any more: those all run as shell commands). Looks at the first real command:
+ * past cd, export, env vars and sudo, and before any pipe. Unknown commands stay "Ran".
+ */
+export function shellAction(command: string): Pick<ToolView, 'icon' | 'verb' | 'doing'> {
+  const a = (icon: ToolView['icon'], verb: string, doing: string) => ({ icon, verb, doing })
+  const segments = command.split(/\s*(?:&&|\|\||;|\n)\s*/).map((x) => x.trim()).filter(Boolean)
+  for (const [n, seg] of segments.entries()) {
+    const s = seg.split(/\s\|\s/)[0]!
+      .replace(/^(?:sudo\s+(?:-[ugCDhpRrTU]\s+\S+\s+|-\S+\s+)*|runuser\s+(?:-u\s+\S+\s+)?(?:--\s+)?|timeout\s+\S+\s+|nohup\s+|time\s+|env\s+)+/, '')
+      .replace(/^(?:[A-Za-z_][A-Za-z0-9_]*=\S*(?:\s+|$))+/, '')
+    const w = s.split(/\s+/)
+    const cmd = (w[0] ?? '').split('/').pop()!
+    const rest = w.slice(1).join(' ')
+    const sub = w.slice(1).find((x) => !x.startsWith('-')) ?? ''
+    const setup = ['cd', 'export', 'set', 'source', '.', 'echo', 'printf', 'true', ':', 'pwd', 'umask']
+    if ((setup.includes(cmd) || !cmd) && n < segments.length - 1) continue // setup, or only setting a variable
+    switch (cmd) {
+      case 'grep': case 'rg': case 'ag': case 'ack': case 'egrep': case 'fgrep': return a('search', 'Searched', 'Searching')
+      case 'cat': case 'head': case 'tail': case 'less': case 'more': case 'bat': case 'nl': case 'wc': case 'awk': case 'jq': return a('read', 'Read', 'Reading')
+      case 'sed': return /(^|\s)-i/.test(rest) ? a('edit', 'Edited', 'Editing') : a('read', 'Read', 'Reading')
+      case 'ls': case 'tree': case 'du': case 'stat': case 'file': return a('files', 'Listed', 'Listing')
+      case 'find': case 'fd': case 'locate': return a('files', 'Found files', 'Finding files')
+      case 'curl': case 'wget': case 'http': case 'xh': return a('web', 'Fetched', 'Fetching')
+      case 'ssh': return a('web', 'Ran remotely', 'Running remotely')
+      case 'scp': case 'rsync': return a('files', 'Copied', 'Copying')
+      case 'git': case 'gh': {
+        const verbs: Record<string, [string, string]> = {
+          status: ['Checked git status', 'Checking git status'], log: ['Read git history', 'Reading git history'], show: ['Read a commit', 'Reading a commit'],
+          diff: ['Compared changes', 'Comparing changes'], commit: ['Committed', 'Committing'], push: ['Pushed', 'Pushing'], pull: ['Pulled', 'Pulling'],
+          fetch: ['Fetched from git', 'Fetching from git'], clone: ['Cloned', 'Cloning'], checkout: ['Switched branch', 'Switching branch'],
+          switch: ['Switched branch', 'Switching branch'], add: ['Staged changes', 'Staging changes'], merge: ['Merged', 'Merging'], rebase: ['Rebased', 'Rebasing'],
+          branch: ['Listed branches', 'Listing branches'], stash: ['Stashed', 'Stashing'], pr: ['Worked on a pull request', 'Working on a pull request'],
+          run: ['Checked CI runs', 'Checking CI runs'], grep: ['Searched', 'Searching'], worktree: ['Managed worktrees', 'Managing worktrees'],
+        }
+        const v = verbs[sub] ?? (cmd === 'gh' ? ['Used GitHub', 'Using GitHub'] : ['Used git', 'Using git'])
+        return a(sub === 'grep' ? 'search' : 'git', v[0], v[1])
+      }
+      case 'pytest': case 'vitest': case 'jest': return a('test', 'Ran tests', 'Running tests')
+      case 'tsc': case 'make': return a('build', cmd === 'tsc' ? 'Type-checked' : 'Built', cmd === 'tsc' ? 'Type-checking' : 'Building')
+      case 'apt': case 'apt-get': case 'brew': return a('package', 'Installed', 'Installing')
+      case 'npm': case 'pnpm': case 'yarn': case 'bun': case 'npx': case 'pip': case 'pip3': case 'uv': case 'poetry': case 'cargo': case 'go':
+      case 'flutter': case 'dart': case 'gradle': case 'mvn': case 'composer': case 'bundle': {
+        if (/^(install|i|add|get|sync|ci|pub get)\b/.test(rest) || /^pub (get|add)\b/.test(rest)) return a('package', 'Installed', 'Installing')
+        if (/(^|\s)(test|t)(\s|$)|run test|\btest\b/.test(rest)) return a('test', 'Ran tests', 'Running tests')
+        if (/^(analyze|lint|check|typecheck|vet|fmt|format|clippy)\b|run (lint|typecheck|check)/.test(rest)) return a('test', 'Checked the code', 'Checking the code')
+        if (/\b(build|compile)\b/.test(rest)) return a('build', 'Built', 'Building')
+        if (/^run\b/.test(rest)) return a('run', `Ran ${w[2] ?? 'a script'}`, `Running ${w[2] ?? 'a script'}`)
+        return a('package', `Used ${cmd}`, `Using ${cmd}`)
+      }
+      case 'python': case 'python3': return a('code', 'Ran Python', 'Running Python')
+      case 'node': case 'deno': case 'tsx': return a('code', 'Ran JavaScript', 'Running JavaScript')
+      case 'ruby': case 'php': case 'perl': return a('code', `Ran ${cmd[0]!.toUpperCase()}${cmd.slice(1)}`, 'Running a script')
+      case 'docker': case 'podman': case 'docker-compose': return a('container', 'Used Docker', 'Using Docker')
+      case 'rm': case 'rmdir': return a('delete', 'Deleted', 'Deleting')
+      case 'mv': return a('files', 'Moved', 'Moving')
+      case 'cp': return a('files', 'Copied', 'Copying')
+      case 'mkdir': return a('files', 'Created a folder', 'Creating a folder')
+      case 'touch': return a('write', 'Created a file', 'Creating a file')
+      case 'tar': case 'unzip': case 'zip': case 'gzip': case 'gunzip': case '7z':
+        return /^(unzip|gunzip)$/.test(cmd) || /^-?\w*x/.test(w[1] ?? '') ? a('files', 'Unpacked', 'Unpacking') : a('files', 'Packed', 'Packing')
+      case 'devdash': return a('plug', 'Managed services', 'Managing services')
+      case 'systemctl': case 'journalctl': case 'ps': case 'kill': case 'pkill': case 'top': case 'free': case 'df': case 'uptime': return a('task', 'Checked the system', 'Checking the system')
+      case 'chmod': case 'chown': return a('files', 'Changed permissions', 'Changing permissions')
+      case 'pandoc': case 'libreoffice': case 'soffice': case 'pdftotext': case 'convert': case 'magick': case 'ffmpeg': return a('files', 'Converted', 'Converting')
+    }
+    break
+  }
+  return a('run', 'Ran', 'Running')
 }

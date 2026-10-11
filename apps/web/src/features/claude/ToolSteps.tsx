@@ -1,7 +1,8 @@
 import { memo, useState, type ReactNode } from 'react'
 import {
   Bot, BookOpen, Brain, CalendarClock, ChevronRight, CircleAlert, ClipboardList, Code, Eye, FilePen, FilePlus, FileText, FolderSearch, Globe, ListChecks,
-  LoaderCircle, MessageCircleQuestion, NotebookPen, Plug, Search, SquareTerminal, Wrench, type LucideIcon,
+  LoaderCircle, MessageCircleQuestion, NotebookPen, Plug, Search, SquareTerminal, Wrench, GitBranch, Package, FlaskConical, Hammer, Container, Trash2,
+  type LucideIcon,
 } from 'lucide-react'
 import { openExternal } from '@/lib/shell'
 import { cn } from '@/lib/utils'
@@ -13,6 +14,7 @@ const ICONS: Record<ToolView['icon'], LucideIcon> = {
   read: FileText, write: FilePlus, edit: FilePen, run: SquareTerminal, search: Search, files: FolderSearch, web: Globe, agent: Bot,
   plan: ClipboardList, ask: MessageCircleQuestion, skill: BookOpen, tools: Wrench, clock: CalendarClock, watch: Eye, task: ListChecks,
   plug: Plug, notebook: NotebookPen, code: Code, tool: Wrench,
+  git: GitBranch, package: Package, test: FlaskConical, build: Hammer, container: Container, delete: Trash2,
 }
 
 /**
