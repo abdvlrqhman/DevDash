@@ -3,6 +3,7 @@
 // ("via Claude"). The project comes from the Claude session (DEVDASH_SESSION_ID) or the working folder.
 import { connect } from 'node:net'
 import { createInterface } from 'node:readline'
+import { isRole, TEAM_TOOLS } from './team.mjs' // Team (optional): docs/REMOVING-TEAM.md
 
 const SOCKET = process.env.DEVDASH_AGENT_SOCKET
 const context = { sessionId: process.env.DEVDASH_SESSION_ID ?? null, cwd: process.cwd() }
@@ -46,6 +47,9 @@ function call(method, params) {
   })
 }
 
+let listed
+const tools = () => (listed ??= isRole(call, context).then((role) => (role ? [...TOOLS, ...TEAM_TOOLS] : TOOLS)))
+
 const send = (msg) => process.stdout.write(JSON.stringify(msg) + '\n')
 
 async function handle(m) {
@@ -55,10 +59,10 @@ async function handle(m) {
     case 'ping':
       return {}
     case 'tools/list':
-      return { tools: TOOLS }
+      return { tools: await tools() }
     case 'tools/call': {
       const name = m.params?.name
-      if (!TOOLS.some((t) => t.name === name)) throw Object.assign(new Error(`Unknown tool ${name}`), { code: -32602 })
+      if (!(await tools()).some((t) => t.name === name)) throw Object.assign(new Error(`Unknown tool ${name}`), { code: -32602 })
       try {
         const result = await call(`mcp.${name}`, { ...context, args: m.params?.arguments ?? {} })
         return { content: [{ type: 'text', text: typeof result === 'string' ? result : JSON.stringify(result, null, 2) }] }

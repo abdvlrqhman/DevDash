@@ -37,6 +37,7 @@ import { notificationsService } from './modules/notifications/service.ts'
 import { provisioningService } from './modules/provisioning/service.ts'
 import { terminalsRoutes } from './modules/terminals/routes.ts'
 import { terminalsService } from './modules/terminals/service.ts'
+import { teamPlugin } from './modules/team/index.ts' // Team (optional): docs/REMOVING-TEAM.md
 
 export function createApp({ db, config }: { db: Db; config: Config }) {
   const auth = authService({ db, masterKey: config.masterKey, spaceName: config.spaceName })
@@ -86,6 +87,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   const builds = buildsService({ db, agents, projects, shares })
   const vault = vaultService({ db })
   const browser = browserService({ db, runDir: config.runDir, dataDir: config.dataDir, masterKey: config.masterKey, origin: config.origin })
+  const team = teamPlugin({ db, hub, agents, claude, projects, activity, mw }) // Team
   const status = statusService({ db, agents, services, browser, runDir: config.runDir, dataDir: config.dataDir, version: config.version })
   const app = new Hono()
     // Requests from the services site (port 8443) are proxied to services, never mixed with DevDash's routes.
@@ -114,6 +116,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     .route('/api/vault', vaultRoutes(vault, mw))
     .route('/api/browser', browserRoutes(browser, mw))
     .route('/api/status', statusRoutes(status, mw))
+    .route('/api/team', team.routes) // Team
     .route('/api', searchRoutes({ db, search, notes, projects, claude, services, activity }, mw))
 
   app.notFound((c) => c.json({ error: { code: 'not_found', message: 'Not found' } }, 404))

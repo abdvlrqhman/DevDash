@@ -70,7 +70,21 @@ export const memoryHealth = (agents: AgentsService, username: string, timeoutMs 
 const launch = (s: SessionRow) => ({
   id: s.id, cwd: s.cwd, profile: s.profile, model: s.model, effort: s.effort, permissionMode: s.permission_mode, started: !!s.started,
   fast: !!s.fast_mode, remote: !!s.remote_control, title: s.title,
+  instructions: s.instructions, toolPolicy: s.tool_policy ? (JSON.parse(s.tool_policy) as { tools?: string[]; allow?: string[] }) : null,
 })
+
+/** What a DevDash feature can add when it starts a session for someone (a team role's chat or shift, say). */
+export type SessionExtras = {
+  title?: string
+  instructions?: string
+  toolPolicy?: { tools?: string[]; allow?: string[] }
+  listed?: boolean
+  shared?: boolean
+  sharedCanSend?: boolean
+}
+
+/** A Claude turn ended: what features that watch sessions (e.g. a project journal) are told. */
+export type TurnEnd = { session: SessionRow; ok: boolean; aborted: boolean; result: string | null }
 
 function content(text: string, images: Image[], docs: unknown[] = []) {
   return [
@@ -102,7 +116,18 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
   const repo = claudeRepo(db)
   // A failing turn can report twice (its result, then the process exiting): one error alert per session per minute.
   const lastError = new Map<string, number>()
+  const turnEnds = new Set<(t: TurnEnd) => void>()
+  const turnEnded = (t: TurnEnd) => {
+    for (const fn of turnEnds) {
+      try {
+        fn(t)
+      } catch (err) {
+        console.error('turn end listener:', err)
+      }
+    }
+  }
   const alert = (s: SessionRow, kind: NotificationKind, title: string, body?: string) => {
+    if (!s.listed) return // the feature that started an unlisted session tells people what matters
     if (kind === 'errors') {
       if (Date.now() - (lastError.get(s.id) ?? 0) < 60_000) return
       lastError.set(s.id, Date.now())
@@ -164,6 +189,7 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
         if (st === 'error') alert(s, 'errors', `Claude stopped with an error: ${s.title}`, typeof ev.detail === 'string' ? clip(ev.detail) : undefined)
         else if (s.mode === 'cli' && st === 'waiting' && s.status !== 'waiting') alert(s, 'needs_you', `Claude needs you: ${s.title}`, 'Waiting for you in the CLI')
         else if (s.mode === 'cli' && st === 'idle' && s.status === 'working') alert(s, 'finished', `Claude finished: ${s.title}`)
+        if (s.mode === 'cli' && s.status === 'working' && (st === 'idle' || st === 'stopped')) turnEnded({ session: s, ok: true, aborted: false, result: null })
         return publish(s.id)
       }
       case 'claude.context': {
@@ -192,6 +218,12 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
         if (m.type === 'result' && !m.terminal_reason?.startsWith('aborted')) {
           if (m.subtype === 'success' && !m.is_error) alert(s, 'finished', `Claude finished: ${s.title}`, typeof m.result === 'string' ? clip(m.result) : undefined)
           else alert(s, 'errors', `Claude stopped with an error: ${s.title}`, typeof m.result === 'string' ? clip(m.result) : undefined)
+        }
+        if (m.type === 'result') {
+          turnEnded({
+            session: s, ok: m.subtype === 'success' && !m.is_error, aborted: !!m.terminal_reason?.startsWith('aborted'),
+            result: typeof m.result === 'string' ? m.result : null,
+          })
         }
         return hub.publish(`session:${s.id}`, { type: 'msg', msg: ev.msg }, viewers)
       }
@@ -355,7 +387,7 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
     async create(user: User, input: {
       prompt: string; images: Image[]; cwd: string; profile: string; model: string | null; effort: string | null
       permissionMode: string; mode: 'chat' | 'cli'; cols?: number; rows?: number; project?: string; worktree?: boolean
-    }) {
+    }, extra: SessionExtras = {}) {
       if (!PROFILE_RE.test(input.profile)) throw new AppError(400, 'bad_profile', 'Unknown profile.')
       const home = `/home/${user.username}`
       // In a project: its shared checkout, or a fresh worktree on its own branch so parallel sessions don't collide.
@@ -373,6 +405,12 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
         model: input.model, effort: input.effort, permission_mode: input.permissionMode,
       })
       if (project) repo.setProject(id, project.id, wt?.path ?? null)
+      repo.patch(id, {
+        title: extra.title?.slice(0, 120), title_custom: extra.title ? 1 : undefined,
+        instructions: extra.instructions, tool_policy: extra.toolPolicy ? JSON.stringify(extra.toolPolicy) : undefined,
+        listed: extra.listed === false ? 0 : undefined,
+        shared: extra.shared ? 1 : undefined, shared_can_send: extra.sharedCanSend ? 1 : undefined,
+      })
       const s = repo.byId(id)!
       try {
         if (input.mode === 'cli') {
@@ -512,6 +550,31 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
       publish(id)
       return toDto(repo.byId(id)!)
     },
+
+    /** Changes what a feature gave a session it started; the next Claude process for it uses the new values. */
+    configure(id: string, extra: Pick<SessionExtras, 'title' | 'instructions' | 'toolPolicy'>) {
+      repo.patch(id, {
+        title: extra.title?.slice(0, 120), instructions: extra.instructions, tool_policy: extra.toolPolicy ? JSON.stringify(extra.toolPolicy) : undefined,
+      })
+      publish(id)
+    },
+
+    /** Tells `fn` whenever a Claude turn ends in any session. Returns a function that stops it. */
+    onTurnEnd(fn: (t: TurnEnd) => void) {
+      turnEnds.add(fn)
+      return () => void turnEnds.delete(fn)
+    },
+
+    /** A session's whole transcript, for server features (no viewer check: callers decide what to show whom). */
+    async transcript(id: string) {
+      const s = repo.byId(id)
+      if (!s?.started) return []
+      return (await agents.request<{ messages: unknown[] }>(s.owner_username, { op: 'claude.history', launch: launch(s) }, 120_000)).messages
+    },
+
+    /** One answer from Claude, run as `username` on one of their profiles: no tools, no session, none of their plugins. */
+    complete: async (username: string, prompt: string, o: { profile?: string; model?: string; system?: string } = {}) =>
+      (await agents.request<{ text: string }>(username, { op: 'claude.complete', profile: o.profile ?? 'default', prompt, model: o.model, system: o.system }, 180_000)).text,
 
     async history(user: User, id: string) {
       const s = find(user, id)

@@ -21,6 +21,7 @@ import { NoteList } from '../notes/NotesPage'
 import { repoLabel } from './ProjectsPage'
 import { BuildsTab } from '../builds/BuildsTab'
 import { api, unwrap } from '@/lib/api'
+import { TeamTab } from '../team/TeamTab' // Team (optional): docs/REMOVING-TEAM.md
 
 /** Keyed by the URL, so moving to another one starts from a clean slate. */
 export function ProjectPage() {
@@ -35,7 +36,9 @@ function ProjectPageView() {
   const q = useQuery(projectQuery(slug))
   const tasks = useQuery(tasksQuery({ project: slug }))
   const [session, setSession] = useState(false)
-  const [tab, setTab] = useState('overview')
+  // Coming back to a project (from a task, a run or a role) opens the tab you left.
+  const [tab, setTabState] = useState(() => { try { return sessionStorage.getItem(`project-tab:${slug}`) ?? 'overview' } catch { return 'overview' } })
+  const setTab = (v: string) => { setTabState(v); try { sessionStorage.setItem(`project-tab:${slug}`, v) } catch { /* private mode */ } }
   const fetchNow = useMutation({
     mutationFn: () => unwrap(api.api.projects[':slug'].fetch.$post({ param: { slug } })),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ['projects'] }); toast.success('Fetched.') },
@@ -75,6 +78,7 @@ function ProjectPageView() {
               Claude
               {p.live.working + p.live.waiting > 0 ? <StatusLight state={p.live.working ? 'live' : 'waiting'} /> : p.sessions > 0 && <TabCount>{p.sessions}</TabCount>}
             </TabsTrigger>
+            <TabsTrigger value="team">Team</TabsTrigger>
             <TabsTrigger value="builds">Builds</TabsTrigger>
             <TabsTrigger value="commits">Commits</TabsTrigger>
             <TabsTrigger value="activity">Activity</TabsTrigger>
@@ -91,6 +95,7 @@ function ProjectPageView() {
           <TabsContent value="builds"><BuildsTab slug={slug} isGithub={/github\.com/.test(p.repoUrl ?? '')} /></TabsContent>
           <TabsContent value="commits"><Commits slug={slug} /></TabsContent>
           <TabsContent value="activity"><ProjectActivity slug={slug} /></TabsContent>
+          <TabsContent value="team"><TeamTab slug={slug} /></TabsContent>
         </Tabs>
       </PageBody>
       <NewSession open={session} onClose={() => setSession(false)} initialProject={slug} />

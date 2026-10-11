@@ -73,6 +73,11 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
   'claude.interrupt': async (r) => (await claude.interrupt(str(r.id, 'id')), { ok: true }),
   'claude.set': async (r) => (await claude.setOption(str(r.id, 'id'), r.key as 'model', (r.value as string | boolean | null) ?? null), { ok: true }),
   'claude.remote': (r) => claude.remote(r.launch as claude.Launch, r.enabled === true),
+  'claude.complete': async (r) => ({
+    text: await claude.complete(str(r.profile, 'profile'), str(r.prompt, 'prompt'), {
+      model: typeof r.model === 'string' ? r.model : undefined, system: typeof r.system === 'string' ? r.system : undefined,
+    }),
+  }),
   'claude.files': async (r) => ({ paths: await mentions.search(str(r.cwd, 'cwd'), typeof r.q === 'string' ? r.q : '') }),
   'claude.stop': async (r) => (await claude.stop(str(r.id, 'id')), { ok: true }),
   'claude.cli.open': async (r) => (await claude.openCli(r.launch as claude.Launch, Number(r.cols) || 100, Number(r.rows) || 30), { ok: true }),

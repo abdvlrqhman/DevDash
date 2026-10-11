@@ -34,6 +34,10 @@ export type Launch = {
   /** Remote Control: the session also shows in claude.ai/code and the Claude app, under this title. */
   remote?: boolean
   title?: string
+  /** Added to Claude's system prompt after DevDash's own rules (sessions other features start, e.g. a team role's). */
+  instructions?: string | null
+  /** Limits the session: `tools` = the built-in tools it has, `allow` = the tools that run without asking. */
+  toolPolicy?: { tools?: string[]; allow?: string[] } | null
 }
 export type Status = 'working' | 'waiting' | 'idle' | 'stopped' | 'error'
 type Pending = { requestId: string; toolName: string; input: Record<string, unknown>; suggestions?: unknown[]; resolve: (r: PermissionResult) => void }
@@ -108,6 +112,8 @@ Long-running processes (web servers, dev servers, APIs, workers, containers) go 
 - Each service opens in the browser at $DEVDASH_URL (members only, or anyone with the link if made public); \`devdash service add\` prints it. Apps that build absolute URLs should use the base path $DEVDASH_BASE_PATH (Vite: \`--base $DEVDASH_BASE_PATH\`).
 - Services you add are linked to this session. Only stop or change services that belong to this person.`
 
+const systemAppend = (l: Launch) => (l.instructions?.trim() ? `${RULES}\n\n${l.instructions.trim()}` : RULES)
+
 // Questions and plan approvals need a person in every mode. Bypass mode skips canUseTool entirely, so these two
 // tools are routed through a PreToolUse hook instead, which always runs.
 const INTERACTIVE = new Set(['AskUserQuestion', 'ExitPlanMode'])
@@ -146,7 +152,9 @@ async function startChat(l: Launch): Promise<Chat> {
       permissionMode: l.permissionMode,
       allowDangerouslySkipPermissions: l.permissionMode === 'bypassPermissions',
       // A complete Claude Code session: same system prompt, settings, skills, agents, hooks and MCP as the CLI.
-      systemPrompt: { type: 'preset', preset: 'claude_code', append: RULES },
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: systemAppend(l) },
+      ...(l.toolPolicy?.tools ? { tools: l.toolPolicy.tools } : {}),
+      ...(l.toolPolicy?.allow ? { allowedTools: l.toolPolicy.allow } : {}),
       plugins: [{ type: 'local', path: PLUGIN_DIR }],
       includePartialMessages: true,
       canUseTool: async (toolName: string, input: Record<string, unknown>, o: { signal: AbortSignal; suggestions?: unknown[] }) =>
@@ -326,7 +334,9 @@ async function openCliNow(l: Launch, cols: number, rows: number) {
   if (await hasSession(cliName(l.id))) return
   cliLaunches.set(l.id, l)
   try { trustFolder(claudeConfig(l.profile), l.cwd) } catch { /* Claude Code asks instead */ }
-  const args = [CLAUDE_BIN, ...(l.started ? ['--resume', l.id] : ['--session-id', l.id]), '--plugin-dir', PLUGIN_DIR, '--append-system-prompt', RULES]
+  const args = [CLAUDE_BIN, ...(l.started ? ['--resume', l.id] : ['--session-id', l.id]), '--plugin-dir', PLUGIN_DIR, '--append-system-prompt', systemAppend(l)]
+  if (l.toolPolicy?.tools?.length) args.push('--tools', l.toolPolicy.tools.join(','))
+  if (l.toolPolicy?.allow?.length) args.push('--allowedTools', l.toolPolicy.allow.join(','))
   if (l.model) args.push('--model', l.model)
   if (l.effort) args.push('--effort', l.effort)
   if (l.fast) args.push('--settings', JSON.stringify({ fastMode: true }))
@@ -504,6 +514,37 @@ export async function usage(profile: string) {
       temp.close()
       q.close()
     }
+  }
+}
+
+/**
+ * One answer to one prompt, for small jobs DevDash does with Claude (writing a summary, drafting text). No tools, no
+ * session file, and none of the member's settings, hooks or plugins (so e.g. claude-mem doesn't record it).
+ */
+export async function complete(profile: string, prompt: string, o: { model?: string; system?: string } = {}) {
+  if (!PROFILE_RE.test(profile)) throw new Error('invalid profile')
+  await requireLogin(profile)
+  const inbox = new Inbox()
+  const q = (await loadSdk()).query({
+    prompt: inbox,
+    options: {
+      cwd: homedir(), env: { ...process.env, ...profileEnv(profile) }, pathToClaudeCodeExecutable: CLAUDE_BIN,
+      persistSession: false, settingSources: [], tools: [], maxTurns: 1,
+      ...(o.model ? { model: o.model } : {}), ...(o.system ? { systemPrompt: o.system } : {}),
+    },
+  })
+  inbox.push({ type: 'user', message: { role: 'user', content: [{ type: 'text', text: prompt }] }, parent_tool_use_id: null })
+  try {
+    for await (const m of q) {
+      if (m.type !== 'result') continue
+      const text = typeof m.result === 'string' ? m.result.trim() : ''
+      if (m.is_error || m.subtype !== 'success') throw new Error(text || 'Claude could not answer.')
+      return text
+    }
+    throw new Error('Claude stopped without an answer.')
+  } finally {
+    inbox.close()
+    q.close()
   }
 }
 

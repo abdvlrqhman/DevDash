@@ -27,6 +27,9 @@ export type SessionRow = {
   fast_mode: number
   remote_control: number
   context_json: string | null
+  instructions: string | null
+  tool_policy: string | null
+  listed: number
   project_slug: string | null
   project_name: string | null
 }
@@ -37,7 +40,7 @@ const SELECT = `select s.*, u.username as owner_username, u.name as owner_name, 
   from claude_sessions s join users u on u.id = s.owner_id left join projects p on p.id = s.project_id`
 
 // Columns a PATCH may touch; anything else is ignored.
-const PATCHABLE = ['title', 'title_custom', 'shared', 'shared_can_send', 'archived', 'model', 'effort', 'permission_mode', 'mode', 'started', 'fast_mode', 'remote_control', 'context_json'] as const
+const PATCHABLE = ['title', 'title_custom', 'shared', 'shared_can_send', 'archived', 'model', 'effort', 'permission_mode', 'mode', 'started', 'fast_mode', 'remote_control', 'context_json', 'instructions', 'tool_policy', 'listed'] as const
 export type Patch = Partial<Pick<SessionRow, (typeof PATCHABLE)[number]>>
 
 const toComment = (r: { id: number; body: string; created_at: number; user_id: number; name: string }): Comment => ({ id: r.id, body: r.body, createdAt: r.created_at, user: { id: r.user_id, name: r.name } })
@@ -45,7 +48,7 @@ const toComment = (r: { id: number; body: string; created_at: number; user_id: n
 export function claudeRepo(db: Db) {
   const s = {
     byId: db.prepare(`${SELECT} where s.id = ?`),
-    visible: db.prepare(`${SELECT} where (s.owner_id = ?1 or s.shared = 1) and s.archived = ?2 order by s.last_activity_at desc limit 200`),
+    visible: db.prepare(`${SELECT} where (s.owner_id = ?1 or s.shared = 1) and s.archived = ?2 and s.listed = 1 order by s.last_activity_at desc limit 200`),
     ownedActive: db.prepare(`${SELECT} where u.username = ? and s.archived = 0`),
     insert: db.prepare(`insert into claude_sessions (id, owner_id, profile, title, cwd, mode, model, effort, permission_mode)
       values (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
