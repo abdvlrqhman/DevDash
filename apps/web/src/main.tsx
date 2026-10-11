@@ -65,6 +65,7 @@ const project = createRoute({ getParentRoute: () => app, path: '/projects/$slug'
 // Team (optional): docs/REMOVING-TEAM.md
 const teamRole = createRoute({ getParentRoute: () => app, path: '/projects/$slug/team/$role', component: lazy(() => import('./features/team/RolePage'), 'RolePage') })
 const approvals = createRoute({ getParentRoute: () => app, path: '/approvals', component: lazy(() => import('./features/team/Approvals'), 'ApprovalsPage') })
+const teamThread = createRoute({ getParentRoute: () => app, path: '/projects/$slug/team/threads/$thread', component: lazy(() => import('./features/team/ThreadPage'), 'ThreadPage') })
 const buildRun = createRoute({ getParentRoute: () => app, path: '/projects/$slug/builds/$run', component: lazy(() => import('./features/builds/RunPage'), 'RunPage') })
 const tasks = createRoute({ getParentRoute: () => app, path: '/tasks', component: lazy(() => import('./features/tasks/TasksPage'), 'TasksPage') })
 const task = createRoute({ getParentRoute: () => app, path: '/tasks/$slug/$number', component: lazy(() => import('./features/tasks/TaskPage'), 'TaskPage') })
@@ -99,7 +100,7 @@ const claudeSession = createRoute({
 })
 
 const router = createRouter({
-  routeTree: root.addChildren([login, invite, app.addChildren([home, claude.addChildren([claudeIndex, claudeSetup, claudeSession]), terminal, files, vaultRoute, browserRoute, serverRoute, services, service, projects, project, teamRole, approvals, buildRun, tasks, task, notes, note, members, account, more])]),
+  routeTree: root.addChildren([login, invite, app.addChildren([home, claude.addChildren([claudeIndex, claudeSetup, claudeSession]), terminal, files, vaultRoute, browserRoute, serverRoute, services, service, projects, project, teamRole, teamThread, approvals, buildRun, tasks, task, notes, note, members, account, more])]),
   context: { queryClient },
   defaultPreload: 'intent',
 })

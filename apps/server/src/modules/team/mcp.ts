@@ -1,6 +1,6 @@
 import { AppError } from '../../core/http.ts'
 import type { AgentsService } from '../agents/service.ts'
-import { KINDS, type ProposalInput, type TeamService } from './service.ts'
+import { KINDS, MESSAGE_KINDS, type MessageInput, type ProposalInput, type TeamService } from './service.ts'
 
 type Ctx = { sessionId?: string | null; args?: Record<string, unknown> }
 
@@ -20,10 +20,51 @@ export function registerTeamMcp(agents: AgentsService, team: TeamService) {
     return v
   }
 
-  // Asked when the plugin's tool server starts: role sessions get the team tools, others don't see them.
+  // Asked when the plugin's tool server starts: role sessions get the team tools, other sessions in a project with Team
+  // on get team_message (to raise something with a role), the rest see nothing.
   agents.onRpc('mcp.team_role', (username, params) => {
-    const found = team.roleOf(username, ((params ?? {}) as Ctx).sessionId ?? null)
-    return found ? { role: found.r.name, project: found.p.slug } : null
+    const sessionId = ((params ?? {}) as Ctx).sessionId ?? null
+    const found = team.roleOf(username, sessionId)
+    if (found) return { role: found.r.name, project: found.p.slug }
+    return team.sessionAuthor(username, sessionId) ? { session: true } : null
+  })
+  const messageInput = (a: Record<string, unknown>): MessageInput => {
+    const kind = String(a.kind ?? (a.thread ? 'reply' : 'fyi'))
+    if (!(MESSAGE_KINDS as readonly string[]).includes(kind)) throw new AppError(400, 'bad_args', `kind is one of: ${MESSAGE_KINDS.join(', ')}.`)
+    return {
+      kind: kind as MessageInput['kind'], body: text(a.body, 'message'),
+      thread: Number.isInteger(a.thread) ? (a.thread as number) : undefined,
+      to: typeof a.to === 'string' ? a.to : undefined, title: typeof a.title === 'string' ? a.title : undefined,
+      cc: Array.isArray(a.cc) ? a.cc.filter((x): x is string => typeof x === 'string').slice(0, 6) : undefined,
+      evidence: typeof a.evidence === 'string' ? a.evidence : undefined,
+    }
+  }
+  const sent = (r: { thread: number; note: string }) => `Posted in thread #${r.thread}.${r.note}`
+  agents.onRpc('mcp.team_message', (username, params) => {
+    const c = (params ?? {}) as Ctx
+    const input = messageInput(c.args ?? {})
+    const found = team.roleOf(username, c.sessionId ?? null)
+    return sent(found ? team.roleMessage(found.r.id, c.sessionId!, input) : team.sessionMessage(username, c.sessionId ?? '', input))
+  })
+  agents.onRpc('mcp.team_thread', (username, params) => {
+    const c = role(username, params)
+    if (!Number.isInteger(c.args.id)) throw new AppError(400, 'bad_args', 'Give the thread id.')
+    return team.roleThread(c.r.id, c.args.id as number)
+  })
+  agents.onRpc('mcp.team_resolve', (username, params) => {
+    const c = role(username, params)
+    if (!Number.isInteger(c.args.id)) throw new AppError(400, 'bad_args', 'Give the thread id.')
+    team.roleResolve(c.r.id, c.args.id as number, typeof c.args.resolution === 'string' ? c.args.resolution : '')
+    return `Thread #${c.args.id} resolved.`
+  })
+  agents.onRpc('mcp.team_sources', (username, params) => team.roleSources(role(username, params).r.id))
+  agents.onRpc('mcp.team_query', (username, params) => {
+    const c = role(username, params)
+    return team.roleRead(c.r.id, text(c.args.source, 'source name'), { sql: text(c.args.sql, 'SQL') })
+  })
+  agents.onRpc('mcp.team_fetch', (username, params) => {
+    const c = role(username, params)
+    return team.roleRead(c.r.id, text(c.args.source, 'source name'), { path: typeof c.args.path === 'string' ? c.args.path : '' })
   })
   agents.onRpc('mcp.team_context', (username, params) => team.context(role(username, params).r.id))
   agents.onRpc('mcp.team_note', (username, params) => {
@@ -48,7 +89,7 @@ export function registerTeamMcp(agents: AgentsService, team: TeamService) {
       tasks: Array.isArray(a.tasks) ? (a.tasks as ProposalInput['tasks'])!.filter((t) => typeof t?.title === 'string') : undefined,
       prompt: typeof a.prompt === 'string' ? a.prompt : undefined,
       goal: a.goal as ProposalInput['goal'], details: typeof a.details === 'string' ? a.details : undefined,
-    })
+    }, ((params ?? {}) as Ctx).sessionId ?? undefined)
     return r.status === 'done' ? `Done (you may do this on your own): ${r.outcome}` : 'Sent to the team for approval. You will find their answer in your notebook.'
   })
   agents.onRpc('mcp.team_goal_update', (username, params) => {

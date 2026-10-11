@@ -10,6 +10,7 @@ import type { ProjectsService } from '../projects/service.ts'
 import { searchService } from '../search/service.ts'
 import { tasksService } from '../tasks/service.ts'
 import { dueSlots, nextRun } from './schedule.ts'
+import { fetchHttp, readOnlySql } from './sources.ts'
 import { activityTrigger, teamService, transcriptText } from './service.ts'
 
 function setup() {
@@ -46,7 +47,7 @@ function setup() {
   const claude = claudeService({ db, agents, hub, projects, notify: async () => {} })
   const team = teamService({
     db, hub, claude, projects, activity, tasks, notify: async (userId, _k, n) => void notified.push({ userId, title: n.title }),
-    digestAfterMs: 60_000, tickMs: 3_600_000,
+    agents, masterKey: Buffer.alloc(32, 7), digestAfterMs: 60_000, tickMs: 3_600_000,
   })
   const user = (id: number, name: string): User => ({ id, name, username: name === 'Youssef' ? 'youssef' : 'abdo', email: '', role: 'admin' })
   return {
@@ -144,6 +145,92 @@ test('transcript text keeps what people said and what Claude did, not system rem
     { type: 'assistant', message: { content: [{ type: 'text', text: 'All tests pass.' }] } },
   ])
   assert.equal(text, 'Person: Ship it\nClaude used Bash: npm test\nClaude: All tests pass.')
+})
+
+test('threads: a session raises an alert with a role, the owner wakes, people hear about it, and roles can\'t argue forever', async (t) => {
+  const { team, claude, sent, notified, db, youssef } = setup()
+  t.after(() => team.stop())
+  team.enable(youssef, 'seevil')
+  const ceo = team.createRole(youssef, 'seevil', { name: 'CEO', summary: '', instructions: '', model: null })
+  const ms = team.createRole(youssef, 'seevil', { name: 'Marketing – Social', summary: '', instructions: '', model: null })
+  const fin = team.createRole(youssef, 'seevil', { name: 'Finance', summary: '', instructions: '', model: null })
+  assert.equal(team.overview('seevil').roles.find((r) => r.id === ceo.id)!.lead, true) // the first CEO leads
+
+  const s = await claude.create(youssef, { prompt: 'Build the stats page', images: [], cwd: '', profile: 'default', model: null, effort: null, permissionMode: 'default', mode: 'chat', project: 'seevil' })
+  assert.ok(team.sessionAuthor('youssef', s.id))
+  assert.throws(() => team.sessionMessage('youssef', s.id, { to: 'marketing', title: 'Last 3 videos: 1k views, 0 likes', kind: 'alert', body: 'Views but no likes.' }), /evidence/)
+  const first = team.sessionMessage('youssef', s.id, {
+    to: 'marketing', cc: ['finance'], title: 'Last 3 videos: 1k views, 0 likes', kind: 'alert', body: 'Our last 3 videos have views but no likes.', evidence: 'Beta walkthrough 1,204 views 0 likes; Dark mode 1,051 views 0 likes',
+  })
+  const th = team.thread(first.thread)
+  assert.equal(th.thread.owner!.name, 'Marketing – Social')
+  assert.deepEqual(th.thread.roles.map((r) => r.name).sort(), ['Finance', 'Marketing – Social'])
+  assert.match(th.messages[0]!.author, /^Claude session "Build the stats page" \(Youssef\)$/)
+  assert.ok(notified.some((n) => /^Alert in Seevil: Last 3 videos/.test(n.title)))
+  await new Promise((r) => setTimeout(r, 10))
+  assert.match(String((shiftsOf(sent).at(-1)!.content as { text: string }[])[0]!.text), new RegExp(`thread #${first.thread}`)) // owner woken about it
+
+  // The same issue again joins the open thread.
+  const again = team.sessionMessage('youssef', s.id, { to: 'marketing', title: 'last 3 videos: 1k views, 0 likes ', kind: 'fyi', body: 'Still no likes.', evidence: 'same numbers' })
+  assert.equal(again.thread, first.thread)
+
+  // Roles talking among themselves stop after 6 messages without a person, and the thread waits for people.
+  for (let i = 0; i < 6; i++) team.roleMessage(i % 2 ? fin.id : ms.id, 'x', { thread: first.thread, kind: 'reply', body: `point ${i}` })
+  assert.equal(team.thread(first.thread).thread.needsPeople, true)
+  assert.throws(() => team.roleMessage(ms.id, 'x', { thread: first.thread, kind: 'reply', body: 'one more' }), /waits for people/)
+  assert.ok(notified.some((n) => /needs a person/.test(n.title)))
+
+  // A person answers: the thread opens up again for roles, and only the owner closes it.
+  db.prepare("update team_shifts set status = 'done', ended_at = unixepoch()").run()
+  team.postAsPerson(youssef, 'seevil', { thread: first.thread, kind: 'reply', body: 'Pause the promotion.' })
+  team.roleMessage(ms.id, 'x', { thread: first.thread, kind: 'reply', body: 'Done.' })
+  assert.throws(() => team.roleResolve(fin.id, first.thread, 'x'), /Only the owner/)
+  team.roleResolve(ms.id, first.thread, 'Promotion paused; bot traffic reported.')
+  assert.equal(team.thread(first.thread).thread.status, 'resolved')
+  assert.match(team.roleThread(ms.id, first.thread), /Resolved: Promotion paused/)
+
+  // Five alerts a day per sender, then requests.
+  for (let i = 0; i < 4; i++) team.sessionMessage('youssef', s.id, { to: 'finance', title: `alert ${i}`, kind: 'alert', body: 'x', evidence: 'y' })
+  assert.throws(() => team.sessionMessage('youssef', s.id, { to: 'finance', title: 'alert 5', kind: 'alert', body: 'x', evidence: 'y' }), /5 alerts today/)
+})
+
+test('the lead\'s shift report goes to everyone as the digest', async (t) => {
+  const { team, notified, youssef, event } = setup()
+  t.after(() => team.stop())
+  team.enable(youssef, 'seevil')
+  const ceo = team.createRole(youssef, 'seevil', { name: 'CEO', summary: '', instructions: '', model: null })
+  await team.runShift(ceo.id)
+  const sessionId = team.role(ceo.id).shifts[0]!.sessionId!
+  team.shiftReport(sessionId, '**This week**: v1 on track; sign-ups behind.')
+  event('youssef', { ev: 'claude.msg', id: sessionId, msg: { type: 'result', subtype: 'success', result: 'ok' } })
+  assert.deepEqual(notified.map((n) => n.title), ['Seevil: CEO\'s digest', 'Seevil: CEO\'s digest'])
+  assert.match(team.overview('seevil').digest!.report, /v1 on track/)
+})
+
+test('sources: one read-only statement, API calls stay under the base URL, keys never reach roles', async (t) => {
+  const { team, replies, youssef } = setup()
+  t.after(() => team.stop())
+  assert.equal(readOnlySql('select count(*) from users;'), 'select count(*) from users')
+  assert.throws(() => readOnlySql('delete from users'), /Only reading/)
+  assert.throws(() => readOnlySql('select 1; drop table users'), /One statement/)
+  assert.throws(() => readOnlySql('with x as (delete from users returning *) select * from x'), /no statements that change/)
+  assert.equal(readOnlySql("select * from posts where title = 'how to delete an account'"), "select * from posts where title = 'how to delete an account'")
+  await assert.rejects(fetchHttp({ baseUrl: 'https://api.example.com/v3/' }, 'k', '../../admin'), /Stay under/)
+  await assert.rejects(fetchHttp({ baseUrl: 'https://api.example.com/v3/' }, 'k', 'https://evil.example/steal'), /Stay under/)
+
+  team.enable(youssef, 'seevil')
+  team.addSource(youssef, 'seevil', { name: 'YouTube', kind: 'http', description: 'Our channel stats', config: { baseUrl: 'https://www.googleapis.com/youtube/v3/', secretIn: 'query', secretName: 'key' }, secret: 'AIza-secret' })
+  team.addSource(youssef, 'seevil', { name: 'App DB', kind: 'sqlite', description: 'Sign-ups', config: { path: '/srv/devdash/projects/seevil/data.db' } })
+  const [app, yt] = team.overview('seevil').sources
+  assert.equal(yt!.hasSecret, true)
+  assert.ok(!JSON.stringify(team.overview('seevil')).includes('AIza-secret'))
+  const ms = team.createRole(youssef, 'seevil', { name: 'Marketing', summary: '', instructions: '', model: null })
+  assert.match(team.roleSources(ms.id), /YouTube \(API under https:\/\/www\.googleapis\.com\/youtube\/v3\/: team_fetch/)
+  assert.match(team.context(ms.id), /App DB \(sqlite\): Sign-ups/)
+  replies['sqlite.query'] = { fields: ['day', 'signups'], rows: [['2026-10-10', 12], ['2026-10-11', 15]], total: 2 }
+  assert.equal(await team.roleRead(ms.id, 'app db', { sql: 'select day, count(*) from signups group by day' }), '["day","signups"]\n["2026-10-10",12]\n["2026-10-11",15]')
+  await assert.rejects(team.roleRead(ms.id, 'App DB', { sql: 'update signups set x = 1' }), /Only reading/)
+  assert.equal(app!.name, 'App DB')
 })
 
 test('schedules are read in the project time zone, run once per slot and day, and catch up after a short restart', () => {

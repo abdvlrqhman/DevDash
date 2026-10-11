@@ -4,22 +4,36 @@ export type RoleRow = {
   id: number; project_id: number; name: string; summary: string; instructions: string; model: string | null
   chat_session_id: string | null; created_at: number; updated_at: number; archived: number
   autonomy: 'advisor' | 'operator'; auto_approve: string; schedule: string; triggers: string; schedule_state: string
-  paused: number; daily_limit: number; monthly_budget: number | null; last_triggered: number
+  paused: number; daily_limit: number; monthly_budget: number | null; last_triggered: number; lead: number
 }
 export type ShiftRow = {
   id: number; role_id: number; session_id: string | null; trigger: string; status: 'running' | 'done' | 'error'
-  report: string | null; started_at: number; ended_at: number | null; cost_usd: number
+  report: string | null; started_at: number; ended_at: number | null; cost_usd: number; thread_id: number | null
 }
 export type ProposalKind = 'task' | 'code' | 'goal' | 'other'
 export type ProposalRow = {
   id: number; project_id: number; role_id: number; kind: ProposalKind; title: string; why: string; payload: string
   status: 'pending' | 'approved' | 'rejected' | 'expired' | 'done'; reply: string | null; outcome: string | null
-  decided_by: number | null; decided_at: number | null; created_at: number; expires_at: number
+  decided_by: number | null; decided_at: number | null; created_at: number; expires_at: number; thread_id: number | null
   role_name: string; project_slug: string; project_name: string; decided_by_name: string | null
 }
 export type GoalRow = {
   id: number; project_id: number; title: string; measure: string; due: string | null; status: 'active' | 'done' | 'dropped'
   progress: number; note: string | null; owner_role_id: number | null; owner_name: string | null; updated_at: number
+}
+export type ThreadRow = {
+  id: number; project_id: number; title: string; owner_role_id: number | null; status: 'open' | 'resolved'; needs_people: number
+  opened_by: string; resolution: string | null; created_at: number; updated_at: number; resolved_at: number | null
+  owner_name: string | null; messages: number; last_at: number | null
+}
+export type MessageKind = 'fyi' | 'question' | 'request' | 'alert' | 'reply'
+export type MessageRow = {
+  id: number; thread_id: number; kind: MessageKind; body: string; evidence: string | null
+  author_user_id: number | null; author_role_id: number | null; author_session_id: string | null; author_label: string; created_at: number
+}
+export type SourceRow = {
+  id: number; project_id: number; name: string; kind: 'postgres' | 'sqlite' | 'http' | 'page'; description: string
+  config: string; secret: string | null; created_at: number
 }
 export type RoleSettings = {
   autonomy: 'advisor' | 'operator'; autoApprove: string[]; schedule: unknown[]; triggers: string[]
@@ -64,6 +78,45 @@ export function teamRepo(db: Db) {
     insertGoal: db.prepare(`insert into team_goals (project_id, title, measure, due, owner_role_id) values (?, ?, ?, ?, ?) returning id`),
     updateGoal: db.prepare(`update team_goals set status = coalesce(?, status), progress = coalesce(?, progress), note = coalesce(?, note),
       updated_at = unixepoch() where id = ?`),
+    setLead: db.prepare(`update team_roles set lead = (id = ?) where project_id = ?`),
+    unsetLead: db.prepare(`update team_roles set lead = 0 where id = ?`),
+    lead: db.prepare(`select * from team_roles where project_id = ? and lead = 1 and archived = 0`),
+    threads: db.prepare(`select t.*, r.name as owner_name, (select count(*) from team_messages m where m.thread_id = t.id) as messages,
+      (select max(created_at) from team_messages m where m.thread_id = t.id) as last_at
+      from team_threads t left join team_roles r on r.id = t.owner_role_id
+      where t.project_id = ?1 and (t.status = 'open' or t.updated_at > unixepoch() - 7 * 86400) order by t.status = 'open' desc, t.updated_at desc limit ?2`),
+    thread: db.prepare(`select t.*, r.name as owner_name, (select count(*) from team_messages m where m.thread_id = t.id) as messages,
+      (select max(created_at) from team_messages m where m.thread_id = t.id) as last_at
+      from team_threads t left join team_roles r on r.id = t.owner_role_id where t.id = ?`),
+    openByTitle: db.prepare(`select id from team_threads where project_id = ? and status = 'open' and lower(trim(title)) = lower(trim(?))`),
+    insertThread: db.prepare(`insert into team_threads (project_id, title, owner_role_id, opened_by) values (?, ?, ?, ?) returning id`),
+    touchThread: db.prepare(`update team_threads set updated_at = unixepoch() where id = ?`),
+    threadState: db.prepare(`update team_threads set status = ?, resolution = ?, resolved_at = case when ? = 'resolved' then unixepoch() else null end,
+      needs_people = case when ? = 'open' then 0 else needs_people end, updated_at = unixepoch() where id = ?`),
+    needsPeople: db.prepare(`update team_threads set needs_people = ? where id = ?`),
+    threadRoles: db.prepare(`select r.id, r.name, tr.seen from team_thread_roles tr join team_roles r on r.id = tr.role_id where tr.thread_id = ?`),
+    addThreadRole: db.prepare(`insert or ignore into team_thread_roles (thread_id, role_id) values (?, ?)`),
+    seen: db.prepare(`update team_thread_roles set seen = ? where thread_id = ? and role_id = ?`),
+    roleThreads: db.prepare(`select t.id, t.title, t.status, t.needs_people, t.owner_role_id, tr.seen,
+      (select max(id) from team_messages m where m.thread_id = t.id) as last_id
+      from team_thread_roles tr join team_threads t on t.id = tr.thread_id where tr.role_id = ? and t.status = 'open' order by t.updated_at desc`),
+    messages: db.prepare(`select * from team_messages where thread_id = ? order by id`),
+    insertMessage: db.prepare(`insert into team_messages (thread_id, kind, body, evidence, author_user_id, author_role_id, author_session_id, author_label)
+      values (?, ?, ?, ?, ?, ?, ?, ?) returning id`),
+    rolesSincePerson: db.prepare(`select count(*) as n from team_messages where thread_id = ?1 and author_role_id is not null
+      and id > coalesce((select max(id) from team_messages where thread_id = ?1 and author_user_id is not null), 0)`),
+    alertsToday: db.prepare(`select count(*) as n from team_messages where kind = 'alert' and author_label = ? and created_at >= ?`),
+    threadProposals: db.prepare(`select x.*, r.name as role_name, p.slug as project_slug, p.name as project_name, u.name as decided_by_name
+      from team_proposals x join team_roles r on r.id = x.role_id join projects p on p.id = x.project_id left join users u on u.id = x.decided_by
+      where x.thread_id = ? order by x.id`),
+    setProposalThread: db.prepare(`update team_proposals set thread_id = ? where id = ?`),
+    shiftThread: db.prepare(`update team_shifts set thread_id = ? where id = ?`),
+    sources: db.prepare(`select * from team_sources where project_id = ? order by name`),
+    source: db.prepare(`select * from team_sources where id = ?`),
+    sourceByName: db.prepare(`select * from team_sources where project_id = ? and lower(name) = lower(?)`),
+    insertSource: db.prepare(`insert into team_sources (project_id, name, kind, description, config, secret, created_by) values (?, ?, ?, ?, ?, ?, ?) returning id`),
+    updateSource: db.prepare(`update team_sources set name = ?, description = ?, config = ?, secret = coalesce(?, secret) where id = ?`),
+    removeSource: db.prepare(`delete from team_sources where id = ?`),
     enable: db.prepare(`insert into team_projects (project_id, runs_as) values (?, ?) on conflict(project_id) do update set runs_as = excluded.runs_as`),
     disable: db.prepare(`delete from team_projects where project_id = ?`),
     brief: db.prepare(`select b.body, b.updated_at, u.name as updated_by from team_briefs b left join users u on u.id = b.updated_by where b.project_id = ?`),
@@ -129,6 +182,37 @@ export function teamRepo(db: Db) {
       (s.insertGoal.get(projectId, g.title, g.measure, g.due, g.ownerRoleId) as { id: number }).id,
     updateGoal: (id: number, g: { status?: GoalRow['status']; progress?: number; note?: string }) =>
       void s.updateGoal.run(g.status ?? null, g.progress ?? null, g.note ?? null, id),
+    setLead: (projectId: number, roleId: number, on: boolean) => void (on ? s.setLead.run(roleId, projectId) : s.unsetLead.run(roleId)),
+    lead: (projectId: number) => plain<RoleRow>(s.lead.get(projectId)),
+    threads: (projectId: number, limit = 30) => all<ThreadRow>(s.threads.all(projectId, limit)),
+    thread: (id: number) => plain<ThreadRow>(s.thread.get(id)),
+    openByTitle: (projectId: number, title: string) => (s.openByTitle.get(projectId, title) as { id: number } | undefined)?.id,
+    insertThread: (projectId: number, title: string, ownerRoleId: number | null, openedBy: string) =>
+      (s.insertThread.get(projectId, title, ownerRoleId, openedBy) as { id: number }).id,
+    touchThread: (id: number) => void s.touchThread.run(id),
+    threadState: (id: number, status: 'open' | 'resolved', resolution: string | null) => void s.threadState.run(status, resolution, status, status, id),
+    needsPeople: (id: number, on: boolean) => void s.needsPeople.run(on ? 1 : 0, id),
+    threadRoles: (threadId: number) => all<{ id: number; name: string; seen: number }>(s.threadRoles.all(threadId)),
+    addThreadRole: (threadId: number, roleId: number) => void s.addThreadRole.run(threadId, roleId),
+    seen: (threadId: number, roleId: number, messageId: number) => void s.seen.run(messageId, threadId, roleId),
+    roleThreads: (roleId: number) =>
+      all<{ id: number; title: string; status: string; needs_people: number; owner_role_id: number | null; seen: number; last_id: number | null }>(s.roleThreads.all(roleId)),
+    messages: (threadId: number) => all<MessageRow>(s.messages.all(threadId)),
+    insertMessage: (m: { threadId: number; kind: MessageKind; body: string; evidence: string | null; userId?: number; roleId?: number; sessionId?: string; label: string }) =>
+      (s.insertMessage.get(m.threadId, m.kind, m.body, m.evidence, m.userId ?? null, m.roleId ?? null, m.sessionId ?? null, m.label) as { id: number }).id,
+    rolesSincePerson: (threadId: number) => (s.rolesSincePerson.get(threadId) as { n: number }).n,
+    alertsToday: (label: string, since: number) => (s.alertsToday.get(label, since) as { n: number }).n,
+    threadProposals: (threadId: number) => all<ProposalRow>(s.threadProposals.all(threadId)),
+    setProposalThread: (id: number, threadId: number) => void s.setProposalThread.run(threadId, id),
+    shiftThread: (shiftId: number, threadId: number) => void s.shiftThread.run(threadId, shiftId),
+    sources: (projectId: number) => all<SourceRow>(s.sources.all(projectId)),
+    source: (id: number) => plain<SourceRow>(s.source.get(id)),
+    sourceByName: (projectId: number, name: string) => plain<SourceRow>(s.sourceByName.get(projectId, name)),
+    insertSource: (projectId: number, x: { name: string; kind: string; description: string; config: string; secret: string | null }, userId: number) =>
+      (s.insertSource.get(projectId, x.name, x.kind, x.description, x.config, x.secret, userId) as { id: number }).id,
+    updateSource: (id: number, x: { name: string; description: string; config: string; secret: string | null }) =>
+      void s.updateSource.run(x.name, x.description, x.config, x.secret, id),
+    removeSource: (id: number) => void s.removeSource.run(id),
     enable: (projectId: number, userId: number) => void s.enable.run(projectId, userId),
     disable: (projectId: number) => void s.disable.run(projectId),
     brief: (projectId: number) => plain<{ body: string; updated_at: number; updated_by: string | null }>(s.brief.get(projectId)),

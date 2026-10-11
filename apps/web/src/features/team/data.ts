@@ -22,6 +22,18 @@ export const approvalsCountQuery = queryOptions({
   staleTime: 30_000,
 })
 export type Proposal = InferResponseType<typeof api.api.team.approvals['$get']>['proposals'][number]
+export const threadQuery = (id: number) => queryOptions({
+  queryKey: ['team', 'thread', id],
+  queryFn: () => unwrap(api.api.team.threads[':id'].$get({ param: { id: String(id) } })),
+})
+export type ThreadDetail = InferResponseType<typeof api.api.team.threads[':id']['$get']>
+export const MESSAGE_KINDS: Record<string, { label: string; tone: string }> = {
+  alert: { label: 'Alert', tone: 'bg-destructive/15 text-destructive' },
+  request: { label: 'Request', tone: 'bg-attention-soft text-attention-foreground dark:bg-attention/15 dark:text-attention' },
+  question: { label: 'Question', tone: 'bg-sky-500/15 text-sky-700 dark:text-sky-300' },
+  fyi: { label: 'FYI', tone: 'bg-muted text-muted-foreground' },
+  reply: { label: '', tone: '' },
+}
 
 export type Team = InferResponseType<typeof api.api.team.projects[':slug']['$get']>
 export type Role = Team['roles'][number]

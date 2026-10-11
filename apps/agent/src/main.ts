@@ -13,6 +13,7 @@ import { ops as git } from './git.ts'
 import * as files from './files.ts'
 import * as memory from './memory.ts'
 import * as mentions from './mentions.ts'
+import * as sqlite from './sqlite.ts'
 import * as gh from './gh.ts'
 import { attachPty, hasSession, listSessions, send, tmux, TMUX_CONF } from './tmux.ts'
 
@@ -79,6 +80,7 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
     }),
   }),
   'claude.files': async (r) => ({ paths: await mentions.search(str(r.cwd, 'cwd'), typeof r.q === 'string' ? r.q : '') }),
+  'sqlite.query': (r) => sqlite.query(r.path, r.sql),
   'claude.stop': async (r) => (await claude.stop(str(r.id, 'id')), { ok: true }),
   'claude.cli.open': async (r) => (await claude.openCli(r.launch as claude.Launch, Number(r.cols) || 100, Number(r.rows) || 30), { ok: true }),
   'claude.cli.close': async (r) => (await claude.closeCli(str(r.id, 'id')), { ok: true }),

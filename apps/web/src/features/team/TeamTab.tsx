@@ -15,6 +15,11 @@ import { ErrorAlert } from '../auth/LoginPage'
 import { relativeTime } from '../claude/data'
 import { firstLine, nextLabel, roleMark, roleTone, teamQuery, useLiveTeam, type Role, type Team } from './data'
 import { RoleDialog } from './RoleDialog'
+import { Sources } from './Sources'
+import { Prose } from '../claude/Prose'
+import { NativeSelect } from '@/components/app/native-select'
+import { ResponsiveDialog } from '@/components/app/responsive-dialog'
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 
 /** A project's AI team: its roles, the brief and decisions they work from, and the journal of what happened. */
 export function TeamTab({ slug }: { slug: string }) {
@@ -77,6 +82,16 @@ function TeamView({ t }: { t: Team }) {
           <Button size="sm" className="ml-auto" disabled={pause.isPending} onClick={() => pause.mutate(false)}>Resume team</Button>
         </div>
       )}
+      {t.digest && (
+        <Link to="/projects/$slug/team/$role" params={{ slug, role: String(t.digest.role.id) }} className="flex flex-col gap-2 rounded-xl border p-4 hover:bg-accent/30">
+          <div className="flex items-center gap-2.5 text-sm">
+            <RoleMark id={t.digest.role.id} name={t.digest.role.name} className="size-7 rounded-md text-[10px]" />
+            <span className="font-medium">{t.digest.role.name}'s digest</span>
+            <span className="text-muted-foreground">{relativeTime(t.digest.at)}</span>
+          </div>
+          <div className="line-clamp-6 text-sm"><Prose text={t.digest.report} /></div>
+        </Link>
+      )}
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="flex min-w-0 flex-col gap-6">
           <Block title="Roles" action={t.roles.length > 0 && <Button size="sm" variant="outline" onClick={() => setAdding(true)}><Plus />New role</Button>}>
@@ -92,6 +107,7 @@ function TeamView({ t }: { t: Team }) {
               </button>
             )}
           </Block>
+          {t.roles.length > 0 && <Threads slug={slug} threads={t.threads} roles={t.roles} />}
           <Block title="Journal" description="What happened in the project. Claude sessions get a short summary after each stretch of work.">
             {t.journal.length ? (
               <ol className="flex flex-col divide-y rounded-xl border">
@@ -112,6 +128,7 @@ function TeamView({ t }: { t: Team }) {
           <Goals slug={slug} goals={t.goals} />
           <Brief slug={slug} brief={t.brief} />
           <Decisions slug={slug} decisions={t.decisions} />
+          <Sources slug={slug} sources={t.sources} />
         </div>
       </div>
       <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -172,6 +189,60 @@ function RoleCard({ slug, r }: { slug: string; r: Role }) {
         {r.model && <span className="capitalize">{r.model}</span>}
       </p>
     </Link>
+  )
+}
+
+/** Issues the team is working through. People can open one too, for a role to pick up. */
+function Threads({ slug, threads, roles }: { slug: string; threads: Team['threads']; roles: Team['roles'] }) {
+  const navigate = useNavigate()
+  const [open, setOpen] = useState(false)
+  const [f, setF] = useState({ to: '', title: '', body: '' })
+  const start = useMutation({
+    mutationFn: () => unwrap(api.api.team.projects[':slug'].threads.$post({ param: { slug }, json: { to: f.to || undefined, title: f.title, body: f.body, kind: 'request' } })),
+    onSuccess: (r) => { setOpen(false); setF({ to: '', title: '', body: '' }); void navigate({ to: '/projects/$slug/team/threads/$thread', params: { slug, thread: String(r.thread) } }) },
+    onError: (e) => toast.error(e.message),
+  })
+  return (
+    <Block title="Threads" description="Issues roles, sessions and people raise. One owner, everyone involved in one place."
+      action={<Button size="sm" variant="ghost" onClick={() => setOpen(true)}><Plus />New</Button>}>
+      {threads.length ? (
+        <ul className="flex flex-col divide-y rounded-xl border">
+          {threads.map((x) => (
+            <li key={x.id}>
+              <Link to="/projects/$slug/team/threads/$thread" params={{ slug, thread: String(x.id) }} className={cn('flex flex-wrap items-center gap-x-3 gap-y-1 px-3.5 py-2.5 text-sm hover:bg-accent/40', x.status === 'resolved' && 'opacity-60')}>
+                <StatusLight state={x.status === 'resolved' ? 'idle' : x.needsPeople ? 'waiting' : 'live'} />
+                <span className="min-w-0 flex-1 truncate font-medium">{x.title}</span>
+                <span className="text-xs text-muted-foreground">
+                  {x.status === 'resolved' ? 'Resolved' : x.needsPeople ? 'Needs you' : x.owner ? x.owner.name : 'Nobody owns it'} · {x.messages} · {relativeTime(x.lastAt)}
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : <p className="text-sm text-muted-foreground">None yet. A role, a Claude session or you can raise one, e.g. "views but no likes on the last videos".</p>}
+      <ResponsiveDialog open={open} onOpenChange={setOpen} title="New thread" description="Raise something for a role to look into. It starts on it right away.">
+        <form className="pb-2" onSubmit={(e) => { e.preventDefault(); if (f.title.trim() && f.body.trim()) start.mutate() }}>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="th-to">For</FieldLabel>
+              <NativeSelect id="th-to" value={f.to} onChange={(e) => setF({ ...f, to: e.target.value })}>
+                <option value="">The lead</option>
+                {roles.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
+              </NativeSelect>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="th-title">What about</FieldLabel>
+              <Input id="th-title" className="h-10" value={f.title} maxLength={200} onChange={(e) => setF({ ...f, title: e.target.value })} placeholder="Sign-ups dropped this week" />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="th-body">Message</FieldLabel>
+              <Textarea id="th-body" rows={4} value={f.body} maxLength={8000} onChange={(e) => setF({ ...f, body: e.target.value })} placeholder="What you noticed, and what you want to know or done." />
+            </Field>
+            <Button type="submit" className="h-10" disabled={!f.title.trim() || !f.body.trim() || start.isPending}>Start thread</Button>
+          </FieldGroup>
+        </form>
+      </ResponsiveDialog>
+    </Block>
   )
 }
 

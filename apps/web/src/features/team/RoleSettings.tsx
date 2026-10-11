@@ -13,11 +13,11 @@ import { DAY_NAMES, nextLabel, TRIGGER_LABELS, type RoleDetail, type Slot } from
 
 type Settings = {
   autonomy: 'advisor' | 'operator'; autoApprove: ('code' | 'goal')[]; schedule: Slot[]; triggers: ('work' | 'task_done' | 'task_created')[]
-  paused: boolean; dailyLimit: number; monthlyBudget: number | null
+  paused: boolean; dailyLimit: number; monthlyBudget: number | null; lead: boolean
 }
 const pick = (r: RoleDetail['role']): Settings => ({
   autonomy: r.autonomy, autoApprove: r.autoApprove as Settings['autoApprove'], schedule: r.schedule, triggers: r.triggers as Settings['triggers'],
-  paused: r.paused, dailyLimit: r.dailyLimit, monthlyBudget: r.monthlyBudget,
+  paused: r.paused, dailyLimit: r.dailyLimit, monthlyBudget: r.monthlyBudget, lead: r.lead,
 })
 const ORDER = [1, 2, 3, 4, 5, 6, 0] // the week starts on Monday here
 
@@ -40,6 +40,10 @@ export function RoleSettings({ r, project }: { r: RoleDetail['role']; project: R
     <div className="flex max-w-2xl flex-col gap-6">
       <Row title="Works on its own" hint={s.paused ? 'Paused: no scheduled or triggered shifts. Chat and Run a shift still work.' : r.nextShiftAt ? `Next shift ${nextLabel(r.nextShiftAt)}.` : project.paused ? 'The whole team is paused.' : 'Add a time below, or a trigger.'}>
         <Switch checked={!s.paused} onCheckedChange={(v) => { const next = { ...s, paused: !v }; setS(next); save.mutate(next) }} aria-label="Works on its own" />
+      </Row>
+
+      <Row title="Team lead" hint={s.lead ? 'Gets every thread nobody owns, and its shift report goes to everyone\'s phone as the digest.' : 'The lead gets ownerless threads and sends the digest. One per team.'}>
+        <Switch checked={s.lead} onCheckedChange={(v) => set({ lead: v })} aria-label="Team lead" />
       </Row>
 
       <section className="flex flex-col gap-3">

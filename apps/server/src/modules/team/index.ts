@@ -16,6 +16,7 @@ import { teamService } from './service.ts'
 export function teamPlugin(deps: {
   db: Db; hub: Hub; agents: AgentsService; claude: ClaudeService; projects: ProjectsService; activity: ActivityService; tasks: TasksService
   notify: (userId: number, kind: NotificationKind, n: { title: string; body?: string; url?: string; tag?: string }) => Promise<void>
+  masterKey: Buffer
   mw: ReturnType<typeof authMiddleware>
 }) {
   const on = process.env.DEVDASH_TEAM !== '0'

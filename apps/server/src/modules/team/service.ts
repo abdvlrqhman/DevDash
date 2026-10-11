@@ -10,9 +10,12 @@ import type { ClaudeService, TurnEnd } from '../claude/service.ts'
 import type { NotificationKind } from '../notifications/service.ts'
 import type { ProjectsService } from '../projects/service.ts'
 import type { Priority, TasksService } from '../tasks/service.ts'
+import { seal, unseal } from '../../core/crypto.ts'
+import type { AgentsService } from '../agents/service.ts'
 import { DIGEST_SYSTEM, GENERATE_SYSTEM, generatePrompt, roleSystem, roleTools, shiftPrompt } from './prompts.ts'
-import { teamRepo, type GoalRow, type ProposalKind, type ProposalRow, type RoleRow } from './repo.ts'
+import { teamRepo, type GoalRow, type MessageKind, type ProposalKind, type ProposalRow, type RoleRow, type SourceRow, type ThreadRow } from './repo.ts'
 import { dueSlots, localParts, nextRun, slotKey, TRIGGERS, validSlots, validTz, type Slot, type Trigger } from './schedule.ts'
+import { fetchHttp, fetchPage, queryPostgres, readOnlySql, rowsText, type SourceConfig, type SourceKind } from './sources.ts'
 
 export const MODELS = ['opus', 'sonnet', 'haiku'] as const
 export const KINDS = ['task', 'code', 'goal', 'other'] as const
@@ -21,11 +24,22 @@ const STALE_SHIFT_S = 120
 const PROPOSAL_DAYS = 7 // unanswered proposals expire, so stale plans don't run weeks later
 const TRIGGER_COOLDOWN_S = 3600 // a trigger wakes a role at most once an hour
 const PRIORITIES = new Set<Priority>(['none', 'low', 'medium', 'high', 'urgent'])
+const HOP_LIMIT = 6 // role messages in a thread since a person last spoke, before it waits for people
+const ALERTS_PER_DAY = 5 // per sender, so one noisy session or role can't keep waking everyone
+export const MESSAGE_KINDS = ['fyi', 'question', 'request', 'alert', 'reply'] as const
+
+/** Who writes in a thread: a person, a role, or any Claude session in the project. */
+export type Author =
+  | { kind: 'person'; user: User }
+  | { kind: 'role'; roleId: number; sessionId?: string }
+  | { kind: 'session'; sessionId: string; title: string; owner: User }
+export type MessageInput = { thread?: number; to?: string; cc?: string[]; title?: string; kind: MessageKind; body: string; evidence?: string }
+export type SourceInput = { name: string; kind: SourceKind; description: string; config: SourceConfig; secret?: string | null }
 
 export type RoleInput = { name: string; summary: string; instructions: string; model: string | null }
 export type RoleSettingsInput = {
   autonomy: 'advisor' | 'operator'; autoApprove: string[]; schedule: unknown[]; triggers: string[]
-  paused: boolean; dailyLimit: number; monthlyBudget: number | null
+  paused: boolean; dailyLimit: number; monthlyBudget: number | null; lead?: boolean
 }
 export type ProposalInput = {
   kind: ProposalKind; title: string; why: string
@@ -75,9 +89,9 @@ export function activityTrigger(a: { kind: string; summary: string; via_claude: 
   return null
 }
 
-export function teamService({ db, hub, claude, projects, activity, tasks, notify, digestAfterMs = DIGEST_AFTER_MS, tickMs = 60_000 }: {
+export function teamService({ db, hub, claude, projects, activity, tasks, notify, agents, masterKey, digestAfterMs = DIGEST_AFTER_MS, tickMs = 60_000 }: {
   db: Db; hub: Hub; claude: ClaudeService; projects: ProjectsService; activity: ActivityService; tasks: TasksService; notify: Notify
-  digestAfterMs?: number; tickMs?: number
+  agents: AgentsService; masterKey: Buffer; digestAfterMs?: number; tickMs?: number
 }) {
   const repo = teamRepo(db)
   hub.authorize('team', () => true)
@@ -110,11 +124,14 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
     autoApprove: json<string[]>(r.auto_approve, []).filter((k) => (KINDS as readonly string[]).includes(k)),
     schedule: validSlots(json(r.schedule, [])),
     triggers: json<string[]>(r.triggers, []).filter((t): t is Trigger => (TRIGGERS as readonly string[]).includes(t)),
-    paused: !!r.paused, dailyLimit: r.daily_limit, monthlyBudget: r.monthly_budget,
+    paused: !!r.paused, dailyLimit: r.daily_limit, monthlyBudget: r.monthly_budget, lead: !!r.lead,
   })
   const sessionTools = (r: RoleRow, project: string) => {
     const s = settingsOf(r)
     return { instructions: roleSystem({ ...r, autonomy: s.autonomy, autoApprove: s.autoApprove }, project), toolPolicy: roleTools(s.autonomy) }
+  }
+  const tell = (title: string, body: string, url: string, tag: string, kind: NotificationKind = 'needs_you') => {
+    for (const uid of members()) void notify(uid, kind, { title, body, url, tag }).catch(() => {})
   }
   const monthStart = () => {
     const d = new Date()
@@ -206,7 +223,7 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
   }
   const validDue = (d: unknown) => (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null)
 
-  async function propose(roleId: number, input: ProposalInput) {
+  async function propose(roleId: number, input: ProposalInput, sessionId?: string) {
     const { r, p } = findRole(roleId)
     const { runsAs } = on(p.slug)
     const s = settingsOf(r)
@@ -214,6 +231,9 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       projectId: p.id, roleId: r.id, kind: input.kind, title: input.title.trim().slice(0, 200), why: input.why.trim().slice(0, 4000),
       payload: input, expiresAt: Math.floor(Date.now() / 1000) + PROPOSAL_DAYS * 86_400,
     })
+    // Proposed during a shift about a thread: it shows in that thread too.
+    const threadId = sessionId ? repo.shiftBySession(sessionId)?.thread_id : null
+    if (threadId) repo.setProposalThread(id, threadId)
     // What the role may do on its own goes ahead now, run as the member the team runs as; the rest waits for a person.
     const alone = (input.kind === 'task' && s.autonomy === 'operator') || s.autoApprove.includes(input.kind)
     if (alone) {
@@ -274,10 +294,10 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
     if (r.monthly_budget !== null && repo.costSince(r.id, monthStart()) >= r.monthly_budget) return 'monthly budget'
     return null
   }
-  function auto(r: RoleRow, label: string) {
+  function auto(r: RoleRow, label: string, threadId?: number) {
     const why = blocked(r)
     if (why) return false
-    void runShift(r.id, label).catch((err) => console.error(`team: ${r.name} could not start a shift:`, (err as Error).message))
+    void runShift(r.id, label, threadId).catch((err) => console.error(`team: ${r.name} could not start a shift:`, (err as Error).message))
     return true
   }
   function wake(projectId: number, trigger: Trigger, label: string) {
@@ -330,6 +350,14 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       if (shift.status === 'running') {
         const fallback = e.result?.trim() || (e.ok ? 'Finished without a report.' : 'The shift stopped with an error.')
         repo.endShift(shift.id, e.ok || e.aborted ? 'done' : 'error', shift.report ? null : fallback)
+        // The lead's report is the team's digest: it goes to everyone's phone.
+        const role = repo.role(shift.role_id)
+        const report = repo.shiftBySession(s.id)?.report
+        if (role?.lead && e.ok && report) {
+          const p = db.prepare('select slug, name from projects where id = ?').get(role.project_id) as { slug: string; name: string }
+          tell(`${p.name}: ${role.name}'s digest`, clipText(report.replace(/[#*_`>]/g, '').replace(/\s+/g, ' ').trim(), 300),
+            `/projects/${p.slug}/team/${role.id}`, `team-digest:${role.id}`, 'finished')
+        }
       }
     }
     const role = shift ? repo.role(shift.role_id) : repo.roleBySession(s.id)
@@ -339,18 +367,174 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
   const stopListening = claude.onTurnEnd(onTurnEnd)
 
   /** A shift now: the role works on its own in a Claude session nobody is typing in, and reports. */
-  async function runShift(id: number, trigger = 'manual') {
+  async function runShift(id: number, trigger = 'manual', threadId?: number) {
     const { r, p } = findRole(id)
     const { runsAs } = on(p.slug)
     if (settle(r.id)) throw new AppError(409, 'busy', `${r.name} is already on a shift.`)
     const label = trigger === 'manual' ? 'started by hand' : trigger
     const s = await claude.create(runsAs, {
-      prompt: shiftPrompt(label), images: [], cwd: '', profile: profileOf(runsAs), model: r.model, effort: null,
+      prompt: shiftPrompt(label, threadId), images: [], cwd: '', profile: profileOf(runsAs), model: r.model, effort: null,
       permissionMode: 'dontAsk', mode: 'chat', project: p.slug,
     }, { title: `${r.name}: shift`, ...sessionTools(r, p.name), listed: false, shared: true })
-    repo.insertShift(r.id, s.id, trigger)
+    const shiftId = repo.insertShift(r.id, s.id, trigger)
+    if (threadId) repo.shiftThread(shiftId, threadId)
     changed(p.id)
     return roleDto(repo.role(id)!)
+  }
+
+  // ---- Threads: one issue, one thread, between roles, Claude sessions and people ----
+
+  const threadDto = (t: ThreadRow) => ({
+    id: t.id, title: t.title, status: t.status, needsPeople: !!t.needs_people, openedBy: t.opened_by, resolution: t.resolution,
+    owner: t.owner_role_id ? { id: t.owner_role_id, name: t.owner_name } : null, messages: t.messages, lastAt: t.last_at ?? t.created_at,
+    createdAt: t.created_at, roles: repo.threadRoles(t.id).map((r) => ({ id: r.id, name: r.name })),
+  })
+  /** A role by the name someone wrote: exact first, then the one whose name starts with it or contains it. */
+  function roleNamed(projectId: number, name: string) {
+    const roles = repo.roles(projectId)
+    const n = name.trim().toLowerCase()
+    return roles.find((r) => r.name.toLowerCase() === n) ?? roles.find((r) => r.name.toLowerCase().startsWith(n)) ?? roles.find((r) => r.name.toLowerCase().includes(n))
+  }
+  const authorLabel = (a: Author) =>
+    a.kind === 'person' ? a.user.name : a.kind === 'role' ? repo.role(a.roleId)!.name : `Claude session "${clipText(a.title, 60)}" (${a.owner.name})`
+
+  /** Posts to a thread (or opens one): routes it to the right role, wakes whoever must act, and keeps roles from looping. */
+  function message(projectId: number, a: Author, input: MessageInput) {
+    const label = authorLabel(a)
+    const body = input.body.trim().slice(0, 8000)
+    const evidence = input.evidence?.trim().slice(0, 8000) || null
+    if (!body) throw new AppError(400, 'bad_args', 'Write the message.')
+    const now = Math.floor(Date.now() / 1000)
+    let kind = input.kind
+    if (kind === 'alert' && a.kind !== 'person' && repo.alertsToday(label, now - 86_400) >= ALERTS_PER_DAY) {
+      throw new AppError(429, 'alerts', `${label} sent ${ALERTS_PER_DAY} alerts today. Send this as a "request" instead; the owner sees it on its next shift.`)
+    }
+
+    let t: ThreadRow
+    if (input.thread) {
+      const found = repo.thread(input.thread)
+      if (!found || found.project_id !== projectId) throw new AppError(404, 'not_found', `There is no thread #${input.thread} in this project.`)
+      if (found.status === 'resolved') {
+        if (a.kind !== 'person') throw new AppError(409, 'resolved', `Thread #${found.id} is resolved. Open a new one if something changed.`)
+        repo.threadState(found.id, 'open', null)
+      }
+      if (a.kind === 'role' && found.needs_people) throw new AppError(409, 'waiting', `Thread #${found.id} waits for people now. Put your point in your report.`)
+      t = found
+    } else {
+      const title = input.title?.trim().slice(0, 200)
+      if (!title) throw new AppError(400, 'bad_args', 'A new thread needs a title (or pass the thread id to add to one).')
+      if (a.kind !== 'person' && !evidence) throw new AppError(400, 'evidence', 'Add the evidence: the numbers, files or links that show it.')
+      const existing = repo.openByTitle(projectId, title)
+      if (existing) t = repo.thread(existing)!
+      else {
+        // To the role it names; else the lead; else it waits for people.
+        const owner = (input.to && roleNamed(projectId, input.to)) || repo.lead(projectId) || null
+        t = repo.thread(repo.insertThread(projectId, title, owner?.id ?? null, label))!
+        if (owner) repo.addThreadRole(t.id, owner.id)
+        else repo.needsPeople(t.id, true)
+      }
+    }
+    if (kind === 'reply' && !input.thread) kind = 'fyi'
+    for (const name of [input.to, ...(input.cc ?? [])]) {
+      const r = name && roleNamed(projectId, name)
+      if (r) repo.addThreadRole(t.id, r.id)
+    }
+    if (a.kind === 'role') repo.addThreadRole(t.id, a.roleId)
+    const id = repo.insertMessage({
+      threadId: t.id, kind, body, evidence, label,
+      userId: a.kind === 'person' ? a.user.id : a.kind === 'session' ? a.owner.id : undefined,
+      roleId: a.kind === 'role' ? a.roleId : undefined, sessionId: a.kind === 'person' ? undefined : a.sessionId,
+    })
+    if (a.kind === 'role') repo.seen(t.id, a.roleId, id)
+    // A person stepped in: the roles may carry on (an ownerless thread keeps waiting for people).
+    if (a.kind === 'person' && t.needs_people && t.owner_role_id) repo.needsPeople(t.id, false)
+    repo.touchThread(t.id)
+    const p = db.prepare('select slug, name from projects where id = ?').get(projectId) as { slug: string; name: string }
+    const url = `/projects/${p.slug}/team/threads/${t.id}`
+
+    // Roles going back and forth without a person: stop and hand it to people.
+    let note = ''
+    if (a.kind === 'role' && repo.rolesSincePerson(t.id) >= HOP_LIMIT) {
+      repo.needsPeople(t.id, true)
+      tell(`${p.name}: "${t.title}" needs a person`, `${HOP_LIMIT} messages between roles without a decision.`, url, `team-thread:${t.id}`)
+      note = ' The roles have gone back and forth enough: this thread now waits for people.'
+    } else if (kind === 'alert') {
+      tell(`Alert in ${p.name}: ${t.title}`, clipText(body, 200), url, `team-thread:${t.id}`)
+    }
+    // Who must act now: the owner on an alert or a person's message (within its limits); others see it on their next shift.
+    const owner = t.owner_role_id ? repo.role(t.owner_role_id) : undefined
+    const fromOwner = a.kind === 'role' && a.roleId === owner?.id
+    if (owner && !owner.archived && !fromOwner && (kind === 'alert' || a.kind === 'person')) {
+      auto(owner, kind === 'alert' ? `an alert in thread "${clipText(t.title, 80)}"` : `${label} wrote in thread "${clipText(t.title, 80)}"`, t.id)
+    }
+    changed(projectId)
+    return { thread: t.id, message: id, note }
+  }
+
+  function resolveThread(threadId: number, by: Author, resolution: string) {
+    const t = repo.thread(threadId)
+    if (!t) throw new AppError(404, 'not_found', 'No such thread.')
+    if (by.kind === 'role' && t.owner_role_id !== by.roleId) throw new AppError(403, 'not_owner', `Only the owner (${t.owner_name ?? 'people'}) closes this thread.`)
+    repo.threadState(threadId, 'resolved', resolution.trim().slice(0, 1000) || null)
+    repo.insertMessage({
+      threadId, kind: 'fyi', body: `Resolved${resolution.trim() ? `: ${resolution.trim()}` : '.'}`, evidence: null, label: authorLabel(by),
+      userId: by.kind === 'person' ? by.user.id : undefined, roleId: by.kind === 'role' ? by.roleId : undefined,
+    })
+    changed(t.project_id)
+  }
+
+  /** A thread as a role reads it (and marks it seen). */
+  function threadText(roleId: number, threadId: number) {
+    const { p } = findRole(roleId)
+    const t = repo.thread(threadId)
+    if (!t || t.project_id !== p.id) throw new AppError(404, 'not_found', `There is no thread #${threadId} in this project.`)
+    const msgs = repo.messages(threadId)
+    if (msgs.length) repo.seen(threadId, roleId, msgs.at(-1)!.id)
+    const day = (s: number) => new Date(s * 1000).toISOString().slice(0, 16).replace('T', ' ')
+    const proposals = repo.threadProposals(threadId)
+    return [
+      `# Thread #${t.id}: ${t.title}`,
+      `Status: ${t.status}${t.needs_people ? ', waiting for people' : ''} · owner: ${t.owner_name ?? 'nobody (people decide)'} · opened by ${t.opened_by}`,
+      ...msgs.map((m) => `## ${m.author_label} · ${m.kind} · ${day(m.created_at)}\n${m.body}${m.evidence ? `\n\nEvidence:\n${m.evidence}` : ''}`),
+      proposals.length ? `## Proposals in this thread\n${proposals.map((x) => `- [${x.status}] ${x.title}${x.reply ? ` (reply: "${x.reply}")` : ''}`).join('\n')}` : '',
+    ].filter(Boolean).join('\n\n')
+  }
+
+  // ---- Data sources: read-only, keys never leave the server ----
+
+  const sourceDto = (x: SourceRow) => {
+    const c = json<SourceConfig>(x.config, {})
+    return { id: x.id, name: x.name, kind: x.kind, description: x.description, config: c, hasSecret: !!x.secret, createdAt: x.created_at }
+  }
+  const secretOf = (x: SourceRow) => (x.secret ? unseal(masterKey, x.secret, `team-source:${x.project_id}`).toString('utf8') : null)
+  function checkSource(input: SourceInput) {
+    const c = input.config
+    if (input.kind === 'sqlite' && !c.path?.startsWith('/')) throw new AppError(400, 'bad_source', 'Give the full path of the SQLite file on the server.')
+    if (input.kind === 'http') {
+      if (!/^https?:\/\//.test(c.baseUrl ?? '')) throw new AppError(400, 'bad_source', 'Give the API\'s base URL, starting with https://.')
+      if (input.secret && !c.secretName) throw new AppError(400, 'bad_source', 'Say where the key goes: a header name (e.g. Authorization) or a query parameter (e.g. key).')
+    }
+    if (input.kind === 'page' && !/^https?:\/\//.test(c.url ?? '')) throw new AppError(400, 'bad_source', 'Give the page\'s URL, starting with https://.')
+    const config: SourceConfig = input.kind === 'sqlite' ? { path: c.path } : input.kind === 'page' ? { url: c.url }
+      : input.kind === 'http' ? { baseUrl: c.baseUrl, secretIn: c.secretIn === 'query' ? 'query' : 'header', secretName: c.secretName?.trim() || undefined } : {}
+    return JSON.stringify(config)
+  }
+  /** Reads a source for a role (or a test from people). Results are text, cut to a size Claude can use. */
+  async function readSource(x: SourceRow, what: { sql?: string; path?: string }) {
+    const c = json<SourceConfig>(x.config, {})
+    if (x.kind === 'postgres') {
+      const url = secretOf(x)
+      if (!url) throw new AppError(400, 'bad_source', 'This database has no connection string.')
+      return queryPostgres(url, what.sql ?? 'select current_database(), now()')
+    }
+    if (x.kind === 'sqlite') {
+      const { runsAs } = on((db.prepare('select slug from projects where id = ?').get(x.project_id) as { slug: string }).slug)
+      const sql = readOnlySql(what.sql ?? "select name from sqlite_master where type = 'table' order by name")
+      const r = await agents.request<{ fields: string[]; rows: unknown[][]; total: number }>(runsAs.username, { op: 'sqlite.query', path: c.path, sql }, 30_000)
+      return rowsText(r.fields, r.rows, r.total)
+    }
+    if (x.kind === 'http') return fetchHttp(c, secretOf(x), what.path ?? '')
+    return fetchPage(c)
   }
 
   return {
@@ -370,7 +554,74 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
         goals: t ? repo.goals(p.id).map(goalDto) : [],
         pending: t ? repo.proposals(p.id, 'pending').length : 0,
         journal: t ? journal(p.id) : [],
+        threads: t ? repo.threads(p.id).map(threadDto) : [],
+        sources: t ? repo.sources(p.id).map(sourceDto) : [],
+        digest: (() => {
+          const lead = t && repo.lead(p.id)
+          const last = lead ? repo.shifts(lead.id, 5).find((s) => s.status === 'done' && s.report) : undefined
+          return lead && last ? { role: { id: lead.id, name: lead.name }, at: last.ended_at ?? last.started_at, report: last.report! } : null
+        })(),
       }
+    },
+
+    // ---- Threads (people) ----
+    thread(id: number) {
+      const t = repo.thread(id)
+      if (!t) throw new AppError(404, 'not_found', 'No such thread.')
+      const p = db.prepare('select slug, name from projects where id = ?').get(t.project_id) as { slug: string; name: string }
+      return {
+        thread: threadDto(t), project: { slug: p.slug, name: p.name },
+        messages: repo.messages(id).map((m) => ({
+          id: m.id, kind: m.kind, body: m.body, evidence: m.evidence, at: m.created_at, author: m.author_label,
+          role: m.author_role_id ? { id: m.author_role_id } : null, person: !!m.author_user_id && !m.author_session_id && !m.author_role_id,
+          sessionId: m.author_session_id,
+        })),
+        proposals: repo.threadProposals(id).map(proposalDto),
+        roles: repo.roles(t.project_id).map((r) => ({ id: r.id, name: r.name })),
+      }
+    },
+    postAsPerson(user: User, slug: string, input: MessageInput) {
+      const { p } = on(slug)
+      return message(p.id, { kind: 'person', user }, input)
+    },
+    resolveAsPerson(user: User, id: number, resolution: string) {
+      resolveThread(id, { kind: 'person', user }, resolution)
+    },
+    reopen(id: number) {
+      const t = repo.thread(id)
+      if (!t) throw new AppError(404, 'not_found', 'No such thread.')
+      repo.threadState(id, 'open', null)
+      changed(t.project_id)
+    },
+
+    // ---- Data sources (people) ----
+    addSource(user: User, slug: string, input: SourceInput) {
+      const { p } = on(slug)
+      if (repo.sourceByName(p.id, input.name)) throw new AppError(409, 'taken', `There is already a source called ${input.name}.`)
+      const secret = input.secret?.trim() ? seal(masterKey, Buffer.from(input.secret.trim()), `team-source:${p.id}`) : null
+      if (input.kind === 'postgres' && !secret) throw new AppError(400, 'bad_source', 'Give the connection string (postgres://user:password@host:5432/db), ideally a read-only user.')
+      repo.insertSource(p.id, { name: input.name.trim(), kind: input.kind, description: input.description.trim(), config: checkSource(input), secret }, user.id)
+      changed(p.id)
+    },
+    updateSource(id: number, input: Omit<SourceInput, 'kind'>) {
+      const x = repo.source(id)
+      if (!x) throw new AppError(404, 'not_found', 'No such source.')
+      const secret = input.secret?.trim() ? seal(masterKey, Buffer.from(input.secret.trim()), `team-source:${x.project_id}`) : null
+      repo.updateSource(id, { name: input.name.trim(), description: input.description.trim(), config: checkSource({ ...input, kind: x.kind }), secret })
+      changed(x.project_id)
+    },
+    removeSource(id: number) {
+      const x = repo.source(id)
+      if (!x) throw new AppError(404, 'not_found', 'No such source.')
+      repo.removeSource(id)
+      changed(x.project_id)
+    },
+    /** Tries a source the way a role would: a first look at what's there. */
+    async testSource(id: number) {
+      const x = repo.source(id)
+      if (!x) throw new AppError(404, 'not_found', 'No such source.')
+      const text = await readSource(x, {})
+      return { preview: text.slice(0, 2000) }
     },
 
     /** Team on for a project; its roles run as whoever turns it on (their Linux account and Claude plan). */
@@ -436,6 +687,8 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
     createRole(user: User, slug: string, input: RoleInput & { schedule?: unknown[] }) {
       const { p } = on(slug)
       const id = repo.insertRole(p.id, input, user.id)
+      // The first CEO leads unless someone else already does.
+      if (input.name.trim().toUpperCase() === 'CEO' && !repo.lead(p.id)) repo.setLead(p.id, id, true)
       if (input.schedule) {
         const r = repo.role(id)!
         repo.roleSettings(id, { ...settingsOf(r), schedule: validSlots(input.schedule) })
@@ -462,8 +715,12 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
         paused: o.paused, dailyLimit: Math.max(0, Math.min(48, Math.round(o.dailyLimit))),
         monthlyBudget: o.monthlyBudget === null ? null : Math.max(0, o.monthlyBudget),
       })
+      if (o.lead !== undefined && o.lead !== !!r.lead) repo.setLead(p.id, id, o.lead)
       const next = repo.role(id)!
-      if (r.chat_session_id && repo.session(r.chat_session_id)) claude.configure(r.chat_session_id, sessionTools(next, p.name))
+      // Every chat that's open gets its role's current instructions (being the lead changes two roles at once).
+      for (const x of repo.roles(p.id)) {
+        if (x.chat_session_id && repo.session(x.chat_session_id)) claude.configure(x.chat_session_id, sessionTools(x, p.name))
+      }
       changed(p.id)
       return roleDto(next)
     },
@@ -563,6 +820,8 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       const waiting = repo.proposals(p.id, 'pending').filter((x) => x.role_id === r.id)
       const lines = journal(p.id, since, 40)
       const latest = (x: RoleRow) => repo.shifts(x.id, 3).find((s) => s.status !== 'running' && s.report)
+      const mine = repo.roleThreads(r.id)
+      const openThreads = repo.threads(p.id).filter((t) => t.status === 'open' && !mine.some((m) => m.id === t.id))
       return [
         `# ${p.name}: team context (${day(Date.now() / 1000)} UTC)`,
         `## Brief\n${brief || '(No brief yet. Ask the team for one, or suggest one in your report.)'}`,
@@ -573,6 +832,9 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
           return `- ${x.name}${x.summary ? `: ${x.summary}` : ''}${s ? `\n  Latest report (${day(s.ended_at ?? s.started_at)}): ${clipText(s.report!.replace(/\s+/g, ' '), 600)}` : ''}`
         }).join('\n')}`.trim(),
         `## Your proposals waiting for people\n${waiting.length ? waiting.map((x) => `- [${x.kind}] ${x.title} (since ${day(x.created_at)})`).join('\n') : '(none)'}`,
+        `## Your threads\n${mine.length ? mine.map((t) => `- #${t.id} ${t.title}${t.owner_role_id === r.id ? ' (you own it)' : ''}${t.needs_people ? ' (waiting for people)' : ''}${(t.last_id ?? 0) > t.seen ? ' — NEW MESSAGES: read with team_thread' : ''}`).join('\n') : '(none)'}`,
+        `## Other open threads (add to these instead of opening the same one)\n${openThreads.length ? openThreads.map((t) => `- #${t.id} ${t.title} (owner: ${t.owner_name ?? 'people'})`).join('\n') : '(none)'}`,
+        `## Data sources\n${repo.sources(p.id).length ? repo.sources(p.id).map((x) => `- ${x.name} (${x.kind})${x.description ? `: ${x.description}` : ''}`).join('\n') : '(none yet)'}`,
         `## Your notebook, newest first\n${notes.length ? notes.map((n) => `- ${n.body}${n.source === 'person' ? ` (${n.user_name ?? 'a person'})` : ''} [${day(n.created_at)}]`).join('\n') : '(empty)'}`,
         `## What happened ${last ? `since your last shift (${day(last)})` : 'in the last 7 days'}\n${lines.length ? lines.map((l) => `- ${day(l.at)} ${l.who ? `${l.who}: ` : ''}${l.text}`).join('\n') : '(nothing recorded)'}`,
         'Tasks and notes: use tasks_list, task_get and notes_list.',
@@ -600,6 +862,45 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       })
       changed(p.id)
     },
+    roleMessage(roleId: number, sessionId: string, input: MessageInput) {
+      const { p } = findRole(roleId)
+      return message(p.id, { kind: 'role', roleId, sessionId }, input)
+    },
+    roleThread: (roleId: number, threadId: number) => threadText(roleId, threadId),
+    roleResolve(roleId: number, threadId: number, resolution: string) {
+      const { p } = findRole(roleId)
+      const t = repo.thread(threadId)
+      if (!t || t.project_id !== p.id) throw new AppError(404, 'not_found', `There is no thread #${threadId} in this project.`)
+      resolveThread(threadId, { kind: 'role', roleId }, resolution)
+    },
+    roleSources(roleId: number) {
+      const { p } = findRole(roleId)
+      const list = repo.sources(p.id)
+      if (!list.length) return 'No data sources yet. People add them on the Team tab (a read-only database, an API, a page to watch).'
+      return list.map((x) => `- ${x.name} (${x.kind === 'postgres' || x.kind === 'sqlite' ? `${x.kind} database: team_query` : x.kind === 'http' ? `API under ${json<SourceConfig>(x.config, {}).baseUrl}: team_fetch with a path` : 'public page: team_fetch'})${x.description ? `: ${x.description}` : ''}`).join('\n')
+    },
+    async roleRead(roleId: number, name: string, what: { sql?: string; path?: string }) {
+      const { p } = findRole(roleId)
+      const x = repo.sourceByName(p.id, name)
+      if (!x) throw new AppError(404, 'not_found', `There is no source called ${name}. See team_sources.`)
+      if ((x.kind === 'postgres' || x.kind === 'sqlite') && !what.sql) throw new AppError(400, 'bad_args', `${x.name} is a database: use team_query with SQL.`)
+      return readSource(x, what)
+    },
+
+    /** Team-on projects' Claude sessions (not roles) can message roles; this says whether a session may, and as whom. */
+    sessionAuthor(username: string, sessionId: string | null) {
+      if (!sessionId) return null
+      const s = repo.session(sessionId)
+      const owner = s && userById(s.owner_id)
+      if (!s?.project_id || !owner || owner.username !== username || !repo.project(s.project_id) || repo.roleBySession(sessionId)) return null
+      return { projectId: s.project_id, author: { kind: 'session' as const, sessionId, title: s.title, owner } }
+    },
+    sessionMessage(username: string, sessionId: string, input: MessageInput) {
+      const who = this.sessionAuthor(username, sessionId)
+      if (!who) throw new AppError(403, 'not_team', 'This session is not in a project with Team on.')
+      return message(who.projectId, who.author, input)
+    },
+
     /** The report of the shift this session is; returns false outside a shift. */
     shiftReport(sessionId: string, report: string) {
       const shift = repo.shiftBySession(sessionId)

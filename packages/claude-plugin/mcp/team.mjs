@@ -43,11 +43,58 @@ export const TEAM_TOOLS = [
   },
 ]
 
-/** True when DevDash says this session belongs to a team role. Any failure (Team off, older server) means no. */
-export async function isRole(call, context) {
+// Any Claude session in a project with Team on can raise something with a role; roles also use it to talk to each other.
+const MESSAGE_TOOL = {
+  name: 'team_message',
+  description: 'Tell a team role (an AI team member of this project, e.g. "Marketing", "CTO") about something it should know or act on: money, users, metrics, a broken release. Opens a thread (to + title) or adds to one (thread). Give the numbers and links as evidence. kind: "fyi", "question", "request", or "alert" (only when something is wrong and can\'t wait: it wakes the role and people\'s phones). Not for code details.',
+  inputSchema: obj({
+    to: { type: 'string', description: 'The role that should own it, by name. Omit to give it to the team lead.' },
+    title: { type: 'string', description: 'For a new thread: the issue in a few words.' },
+    thread: { type: 'integer', description: 'To add to an existing thread instead.' },
+    kind: { type: 'string', enum: ['fyi', 'question', 'request', 'alert', 'reply'] },
+    body: { type: 'string', description: 'The message. Markdown.' },
+    evidence: { type: 'string', description: 'Numbers, files, links that show it. Required for a new thread.' },
+    cc: { type: 'array', items: { type: 'string' }, description: 'Other roles to include, by name.' },
+  }, ['body']),
+}
+
+const ROLE_ONLY = [
+  {
+    name: 'team_thread',
+    description: 'Read a thread (all messages, evidence and proposals in it) before answering.',
+    inputSchema: obj({ id: { type: 'integer' } }, ['id']),
+  },
+  {
+    name: 'team_resolve',
+    description: 'Close a thread you own once it is settled, with one line on the outcome.',
+    inputSchema: obj({ id: { type: 'integer' }, resolution: { type: 'string' } }, ['id']),
+  },
+  {
+    name: 'team_sources',
+    description: 'The project\'s data sources you can read: databases, APIs and pages people connected for the team.',
+    inputSchema: obj({}),
+  },
+  {
+    name: 'team_query',
+    description: 'Run one read-only SQL query (SELECT/WITH) on a database source. Aggregate and LIMIT: results are cut at 200 rows.',
+    inputSchema: obj({ source: { type: 'string' }, sql: { type: 'string' } }, ['source', 'sql']),
+  },
+  {
+    name: 'team_fetch',
+    description: 'Read an API source (path under its base URL, e.g. "channels?part=statistics&id=…") or a page source (no path). The key is added for you.',
+    inputSchema: obj({ source: { type: 'string' }, path: { type: 'string' } }, ['source']),
+  },
+]
+
+/** The team tools this session gets: all of them in a role's own sessions, team_message in other sessions of a
+ *  project with Team on, none otherwise (or when DevDash can't tell: Team off, an older server). */
+export async function teamTools(call, context) {
   try {
-    return !!(await call('mcp.team_role', { ...context, args: {} }))
+    const who = await call('mcp.team_role', { ...context, args: {} })
+    if (who?.role) return [...TEAM_TOOLS, MESSAGE_TOOL, ...ROLE_ONLY]
+    if (who?.session) return [MESSAGE_TOOL]
   } catch {
-    return false
+    // no team here
   }
+  return []
 }

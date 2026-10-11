@@ -3,7 +3,8 @@ import { z } from 'zod'
 import { AppError, json, query } from '../../core/http.ts'
 import type { AuthEnv, authMiddleware } from '../auth/routes.ts'
 import { TRIGGERS } from './schedule.ts'
-import { MODELS, type TeamService } from './service.ts'
+import { MESSAGE_KINDS, MODELS, type TeamService } from './service.ts'
+import { SOURCE_KINDS } from './sources.ts'
 
 const RoleInput = z.object({
   name: z.string().trim().min(1).max(60),
@@ -12,6 +13,23 @@ const RoleInput = z.object({
   model: z.enum(MODELS).nullable().default(null),
 })
 const Slot = z.object({ days: z.array(z.number().int().min(0).max(6)).min(1).max(7), at: z.string().regex(/^\d{1,2}:\d{2}$/) })
+const Message = z.object({
+  kind: z.enum(MESSAGE_KINDS).default('reply'),
+  body: z.string().trim().min(1).max(8000),
+  evidence: z.string().max(8000).optional(),
+  to: z.string().max(60).optional(),
+  cc: z.array(z.string().max(60)).max(6).optional(),
+})
+const Source = z.object({
+  name: z.string().trim().min(1).max(60),
+  kind: z.enum(SOURCE_KINDS),
+  description: z.string().max(500).default(''),
+  config: z.object({
+    path: z.string().max(500).optional(), baseUrl: z.string().max(500).optional(), url: z.string().max(500).optional(),
+    secretIn: z.enum(['header', 'query']).optional(), secretName: z.string().max(60).optional(),
+  }).default({}),
+  secret: z.string().max(4000).nullable().optional(),
+})
 const Body = (max: number) => z.object({ body: z.string().trim().min(1).max(max) })
 const id = (v: string) => {
   const n = Number(v)
@@ -50,6 +68,34 @@ export function teamRoutes(team: TeamService | null, mw: ReturnType<typeof authM
       t().updateGoal(id(c.req.param('id')), c.req.valid('json'))
       return c.json({ ok: true })
     })
+    .post('/projects/:slug/threads', json(Message.extend({ title: z.string().trim().min(1).max(200) })), (c) =>
+      c.json(t().postAsPerson(c.get('user'), c.req.param('slug'), c.req.valid('json'))))
+    .get('/threads/:id', (c) => c.json(t().thread(id(c.req.param('id')))))
+    .post('/threads/:id/messages', json(Message), (c) => {
+      const th = t().thread(id(c.req.param('id')))
+      return c.json(t().postAsPerson(c.get('user'), th.project.slug, { ...c.req.valid('json'), thread: th.thread.id }))
+    })
+    .post('/threads/:id/resolve', json(z.object({ resolution: z.string().max(1000).default('') })), (c) => {
+      t().resolveAsPerson(c.get('user'), id(c.req.param('id')), c.req.valid('json').resolution)
+      return c.json({ ok: true })
+    })
+    .post('/threads/:id/reopen', (c) => {
+      t().reopen(id(c.req.param('id')))
+      return c.json({ ok: true })
+    })
+    .post('/projects/:slug/sources', json(Source), (c) => {
+      t().addSource(c.get('user'), c.req.param('slug'), c.req.valid('json'))
+      return c.json({ ok: true })
+    })
+    .put('/sources/:id', json(Source.omit({ kind: true })), (c) => {
+      t().updateSource(id(c.req.param('id')), c.req.valid('json'))
+      return c.json({ ok: true })
+    })
+    .delete('/sources/:id', (c) => {
+      t().removeSource(id(c.req.param('id')))
+      return c.json({ ok: true })
+    })
+    .post('/sources/:id/test', async (c) => c.json(await t().testSource(id(c.req.param('id')))))
     .get('/approvals', query(z.object({ status: z.enum(['pending', 'decided']).default('pending'), project: z.string().max(40).optional() })), (c) => {
       const { status, project } = c.req.valid('query')
       return c.json({ proposals: t().approvals(status, project) })
@@ -85,6 +131,7 @@ export function teamRoutes(team: TeamService | null, mw: ReturnType<typeof authM
       paused: z.boolean(),
       dailyLimit: z.number().int().min(0).max(48),
       monthlyBudget: z.number().min(0).max(100_000).nullable(),
+      lead: z.boolean().optional(),
     })), (c) => c.json({ role: t().roleSettings(id(c.req.param('id')), c.req.valid('json')) }))
     .get('/roles/:id', (c) => c.json(t().role(id(c.req.param('id')))))
     .put('/roles/:id', json(RoleInput), (c) => c.json({ role: t().updateRole(id(c.req.param('id')), c.req.valid('json')) }))
