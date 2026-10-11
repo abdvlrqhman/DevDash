@@ -63,15 +63,12 @@ function ThreadView({ slug, id }: { slug: string; id: number }) {
               {t.owner ? 'The roles went back and forth without a decision. Reply to settle it; they carry on after you.' : 'No role owns this. Reply, or resolve it.'}
             </p>
           )}
+          {/* Proposals sit where they were made, so the newest message is always the one above the reply box. */}
           <ol className="flex flex-col gap-5">
-            {messages.map((m) => <Message key={m.id} m={m} />)}
+            {[...messages.map((m) => ({ at: m.at, el: <Message key={`m${m.id}`} m={m} /> })),
+              ...proposals.map((x) => ({ at: x.createdAt, el: <li key={`p${x.id}`} className="sm:pl-11"><ProposalCard x={x} showProject={false} /></li> }))]
+              .sort((a, b) => a.at - b.at).map((i) => i.el)}
           </ol>
-          {proposals.length > 0 && (
-            <section className="flex flex-col gap-3">
-              <h2 className="text-sm font-semibold">Proposed in this thread</h2>
-              {proposals.map((x) => <ProposalCard key={x.id} x={x} showProject={false} />)}
-            </section>
-          )}
           <form className="flex items-end gap-2" onSubmit={(e) => { e.preventDefault(); if (body.trim()) reply.mutate() }}>
             <Textarea rows={2} value={body} maxLength={8000} onChange={(e) => setBody(e.target.value)} aria-label="Reply"
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer: coarse)').matches) { e.preventDefault(); if (body.trim()) reply.mutate() } }}
