@@ -12,6 +12,17 @@ export const roleQuery = (id: number) => queryOptions({
   queryFn: () => unwrap(api.api.team.roles[':id'].$get({ param: { id: String(id) } })),
 })
 
+export const approvalsQuery = (status: 'pending' | 'decided') => queryOptions({
+  queryKey: ['team', 'approvals', status],
+  queryFn: () => unwrap(api.api.team.approvals.$get({ query: { status } })),
+})
+export const approvalsCountQuery = queryOptions({
+  queryKey: ['team', 'approvals', 'count'],
+  queryFn: () => unwrap(api.api.team.approvals.count.$get()),
+  staleTime: 30_000,
+})
+export type Proposal = InferResponseType<typeof api.api.team.approvals['$get']>['proposals'][number]
+
 export type Team = InferResponseType<typeof api.api.team.projects[':slug']['$get']>
 export type Role = Team['roles'][number]
 export type RoleDetail = InferResponseType<typeof api.api.team.roles[':id']['$get']>
@@ -23,17 +34,45 @@ export function useLiveTeam() {
   useTopic('team', () => void qc.invalidateQueries({ queryKey: ['team'] }), () => void qc.invalidateQueries({ queryKey: ['team'] }))
 }
 
-/** Starting points for a new role: a name and a line; Generate writes the rest. */
-export const TEMPLATES: { name: string; summary: string }[] = [
-  { name: 'CEO', summary: 'Leads the team: decides what matters most, whether to ship, and sends the weekly summary.' },
-  { name: 'CTO', summary: 'Code health, risks and releases: how close we are to shipping and what could break.' },
-  { name: 'Product', summary: 'What users need next: turns feedback and data into a short, ordered list of work.' },
-  { name: 'Marketing – Social', summary: 'Watches our socials and competitors, and says what to post and when.' },
-  { name: 'Growth – Store listing', summary: 'App store page, screenshots, reviews and ratings, and what brings people in.' },
-  { name: 'Support', summary: 'Reads what users report, finds the patterns, and turns them into tasks.' },
-  { name: 'QA', summary: 'Checks what changed for bugs and gaps before each release.' },
-  { name: 'Finance', summary: 'Spending, revenue and costs: where money goes and what to cut or invest in.' },
+export type Slot = { days: number[]; at: string }
+const WEEKDAYS = [1, 2, 3, 4, 5]
+const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6]
+
+/** Starting points for a new role: a name, a line and a sensible schedule; Generate writes the instructions. */
+export const TEMPLATES: { name: string; summary: string; schedule: Slot[] }[] = [
+  { name: 'CEO', summary: 'Leads the team: decides what matters most, whether to ship, and sends the weekly summary.', schedule: [{ days: [1], at: '08:00' }] },
+  { name: 'CTO', summary: 'Code health, risks and releases: how close we are to shipping and what could break.', schedule: [{ days: WEEKDAYS, at: '09:00' }] },
+  { name: 'Product', summary: 'What users need next: turns feedback and data into a short, ordered list of work.', schedule: [{ days: [1, 4], at: '10:00' }] },
+  { name: 'Marketing – Social', summary: 'Watches our socials and competitors, and says what to post and when.', schedule: [{ days: EVERY_DAY, at: '10:00' }] },
+  { name: 'Growth – Store listing', summary: 'App store page, screenshots, reviews and ratings, and what brings people in.', schedule: [{ days: [2, 5], at: '11:00' }] },
+  { name: 'Support', summary: 'Reads what users report, finds the patterns, and turns them into tasks.', schedule: [{ days: WEEKDAYS, at: '12:00' }] },
+  { name: 'QA', summary: 'Checks what changed for bugs and gaps before each release.', schedule: [{ days: WEEKDAYS, at: '16:00' }] },
+  { name: 'Finance', summary: 'Spending, revenue and costs: where money goes and what to cut or invest in.', schedule: [{ days: [5], at: '17:00' }] },
 ]
+export const DEFAULT_SCHEDULE: Slot[] = [{ days: WEEKDAYS, at: '09:00' }]
+
+export const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+/** "Weekdays 09:00", "Mon and Thu 10:00", "Every day 10:00". */
+export function slotLabel(s: Slot) {
+  const d = [...s.days].sort()
+  const days = d.length === 7 ? 'Every day' : d.join() === WEEKDAYS.join() ? 'Weekdays' : d.join() === '0,6' ? 'Weekends'
+    : d.map((x) => DAY_NAMES[x]).join(d.length === 2 ? ' and ' : ', ')
+  return `${days} ${s.at}`
+}
+export const TRIGGER_LABELS: Record<string, { label: string; hint: string }> = {
+  work: { label: 'After work in the project', hint: 'A Claude session in the project finished something (from the journal).' },
+  task_done: { label: 'When a task is done', hint: 'Someone moved a task to Done, or a commit closed one.' },
+  task_created: { label: 'When someone adds a task', hint: 'A person added a task (not a role or Claude).' },
+}
+export const KIND_LABELS: Record<string, string> = { code: 'Coding job', goal: 'New goal', task: 'Tasks', other: 'For people to do' }
+
+/** "Mon 08:00" or "Tomorrow 09:00" for the next scheduled shift. */
+export function nextLabel(at: number) {
+  const d = new Date(at * 1000)
+  const days = Math.round((new Date(d).setHours(0, 0, 0, 0) - new Date().setHours(0, 0, 0, 0)) / 86_400_000)
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  return days === 0 ? `today ${time}` : days === 1 ? `tomorrow ${time}` : `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${time}`
+}
 
 const TONES = [
   'bg-sky-500/15 text-sky-700 dark:text-sky-300',

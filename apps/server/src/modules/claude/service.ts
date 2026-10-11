@@ -84,7 +84,8 @@ export type SessionExtras = {
 }
 
 /** A Claude turn ended: what features that watch sessions (e.g. a project journal) are told. */
-export type TurnEnd = { session: SessionRow; ok: boolean; aborted: boolean; result: string | null }
+/** `costUsd`: what the turn would cost on the API (Claude Code reports it on subscriptions too). */
+export type TurnEnd = { session: SessionRow; ok: boolean; aborted: boolean; result: string | null; costUsd: number }
 
 function content(text: string, images: Image[], docs: unknown[] = []) {
   return [
@@ -189,7 +190,7 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
         if (st === 'error') alert(s, 'errors', `Claude stopped with an error: ${s.title}`, typeof ev.detail === 'string' ? clip(ev.detail) : undefined)
         else if (s.mode === 'cli' && st === 'waiting' && s.status !== 'waiting') alert(s, 'needs_you', `Claude needs you: ${s.title}`, 'Waiting for you in the CLI')
         else if (s.mode === 'cli' && st === 'idle' && s.status === 'working') alert(s, 'finished', `Claude finished: ${s.title}`)
-        if (s.mode === 'cli' && s.status === 'working' && (st === 'idle' || st === 'stopped')) turnEnded({ session: s, ok: true, aborted: false, result: null })
+        if (s.mode === 'cli' && s.status === 'working' && (st === 'idle' || st === 'stopped')) turnEnded({ session: s, ok: true, aborted: false, result: null, costUsd: 0 })
         return publish(s.id)
       }
       case 'claude.context': {
@@ -203,7 +204,7 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
         return publish(s.id)
       case 'claude.msg': {
         const m = ev.msg as {
-          type?: string; subtype?: string; result?: unknown; is_error?: boolean; terminal_reason?: string
+          type?: string; subtype?: string; result?: unknown; is_error?: boolean; terminal_reason?: string; total_cost_usd?: number
           fast_mode_state?: string; fast_mode_disabled_reason?: string
         }
         if (typeof m.fast_mode_state === 'string') {
@@ -222,7 +223,7 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
         if (m.type === 'result') {
           turnEnded({
             session: s, ok: m.subtype === 'success' && !m.is_error, aborted: !!m.terminal_reason?.startsWith('aborted'),
-            result: typeof m.result === 'string' ? m.result : null,
+            result: typeof m.result === 'string' ? m.result : null, costUsd: typeof m.total_cost_usd === 'number' ? m.total_cost_usd : 0,
           })
         }
         return hub.publish(`session:${s.id}`, { type: 'msg', msg: ev.msg }, viewers)

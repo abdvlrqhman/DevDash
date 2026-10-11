@@ -1,7 +1,8 @@
 import { Hono } from 'hono'
 import { z } from 'zod'
-import { AppError, json } from '../../core/http.ts'
+import { AppError, json, query } from '../../core/http.ts'
 import type { AuthEnv, authMiddleware } from '../auth/routes.ts'
+import { TRIGGERS } from './schedule.ts'
 import { MODELS, type TeamService } from './service.ts'
 
 const RoleInput = z.object({
@@ -10,6 +11,7 @@ const RoleInput = z.object({
   instructions: z.string().max(20_000).default(''),
   model: z.enum(MODELS).nullable().default(null),
 })
+const Slot = z.object({ days: z.array(z.number().int().min(0).max(6)).min(1).max(7), at: z.string().regex(/^\d{1,2}:\d{2}$/) })
 const Body = (max: number) => z.object({ body: z.string().trim().min(1).max(max) })
 const id = (v: string) => {
   const n = Number(v)
@@ -26,10 +28,36 @@ export function teamRoutes(team: TeamService | null, mw: ReturnType<typeof authM
   return new Hono<AuthEnv>()
     .use(mw.requireUser)
     .get('/projects/:slug', (c) => c.json(t().overview(c.req.param('slug'))))
-    .put('/projects/:slug', json(z.object({ enabled: z.boolean() })), (c) => {
-      if (c.req.valid('json').enabled) t().enable(c.get('user'), c.req.param('slug'))
+    .put('/projects/:slug', json(z.object({ enabled: z.boolean(), tz: z.string().max(60).optional() })), (c) => {
+      const { enabled, tz } = c.req.valid('json')
+      if (enabled) t().enable(c.get('user'), c.req.param('slug'), tz)
       else t().disable(c.req.param('slug'))
       return c.json({ ok: true })
+    })
+    .put('/projects/:slug/settings', json(z.object({ paused: z.boolean().optional(), tz: z.string().max(60).optional() })), (c) => {
+      t().settings(c.req.param('slug'), c.req.valid('json'))
+      return c.json({ ok: true })
+    })
+    .post('/projects/:slug/goals', json(z.object({
+      title: z.string().trim().min(1).max(200), measure: z.string().trim().max(300).default(''), due: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().default(null),
+    })), (c) => {
+      t().addGoal(c.req.param('slug'), c.req.valid('json'))
+      return c.json({ ok: true })
+    })
+    .patch('/goals/:id', json(z.object({
+      status: z.enum(['active', 'done', 'dropped']).optional(), progress: z.number().int().min(0).max(100).optional(), note: z.string().max(300).optional(),
+    })), (c) => {
+      t().updateGoal(id(c.req.param('id')), c.req.valid('json'))
+      return c.json({ ok: true })
+    })
+    .get('/approvals', query(z.object({ status: z.enum(['pending', 'decided']).default('pending'), project: z.string().max(40).optional() })), (c) => {
+      const { status, project } = c.req.valid('query')
+      return c.json({ proposals: t().approvals(status, project) })
+    })
+    .get('/approvals/count', (c) => c.json({ pending: team ? team.pendingCount() : 0 }))
+    .post('/proposals/:id/decide', json(z.object({ approve: z.boolean(), reply: z.string().max(4000).default('') })), async (c) => {
+      const { approve, reply } = c.req.valid('json')
+      return c.json({ proposal: await t().decide(c.get('user'), id(c.req.param('id')), approve, reply) })
     })
     .put('/projects/:slug/brief', json(z.object({ body: z.string().max(20_000) })), (c) => {
       t().saveBrief(c.get('user'), c.req.param('slug'), c.req.valid('json').body)
@@ -47,7 +75,17 @@ export function teamRoutes(team: TeamService | null, mw: ReturnType<typeof authM
       const { name, summary } = c.req.valid('json')
       return c.json(await t().generate(c.get('user'), c.req.param('slug'), name, summary))
     })
-    .post('/projects/:slug/roles', json(RoleInput), (c) => c.json({ role: t().createRole(c.get('user'), c.req.param('slug'), c.req.valid('json')) }))
+    .post('/projects/:slug/roles', json(RoleInput.extend({ schedule: z.array(Slot).max(10).optional() })), (c) =>
+      c.json({ role: t().createRole(c.get('user'), c.req.param('slug'), c.req.valid('json')) }))
+    .put('/roles/:id/settings', json(z.object({
+      autonomy: z.enum(['advisor', 'operator']),
+      autoApprove: z.array(z.enum(['code', 'goal'])).max(2),
+      schedule: z.array(Slot).max(10),
+      triggers: z.array(z.enum(TRIGGERS)).max(TRIGGERS.length),
+      paused: z.boolean(),
+      dailyLimit: z.number().int().min(0).max(48),
+      monthlyBudget: z.number().min(0).max(100_000).nullable(),
+    })), (c) => c.json({ role: t().roleSettings(id(c.req.param('id')), c.req.valid('json')) }))
     .get('/roles/:id', (c) => c.json(t().role(id(c.req.param('id')))))
     .put('/roles/:id', json(RoleInput), (c) => c.json({ role: t().updateRole(id(c.req.param('id')), c.req.valid('json')) }))
     .delete('/roles/:id', (c) => {

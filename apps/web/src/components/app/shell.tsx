@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import {
-  Activity, ArrowLeftRight, ChevronsUpDown, Download, Ellipsis, FolderGit2, Globe, HardDrive, House, KeyRound, ListTodo, LogOut, Monitor, Moon, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Sun, Users,
+  Activity, ArrowLeftRight, ChevronsUpDown, Download, Ellipsis, FolderGit2, Globe, HardDrive, House, Inbox, KeyRound, ListTodo, LogOut, Monitor, Moon, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Sun, Users,
 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -25,6 +25,7 @@ import { useNotificationEvents } from '@/features/notifications/Notifications'
 import { initials, Logo } from './brand'
 import { useDragWidth, useStoredWidth } from './resize-handle'
 import { SearchDialog, showSearch } from './search'
+import { ApprovalsBadge } from '@/features/team/Approvals' // Team (optional): docs/REMOVING-TEAM.md
 
 type NavItem = { to: string; label: string; icon: typeof House; exact?: true }
 const NAV: { label?: string; items: NavItem[] }[] = [
@@ -33,6 +34,7 @@ const NAV: { label?: string; items: NavItem[] }[] = [
     { to: '/projects', label: 'Projects', icon: FolderGit2 },
     { to: '/tasks', label: 'Tasks', icon: ListTodo },
     { to: '/claude', label: 'Claude', icon: Sparkles },
+    { to: '/approvals', label: 'Approvals', icon: Inbox }, // Team
     { to: '/notes', label: 'Notes', icon: StickyNote },
   ] },
   { label: 'Tools', items: [
@@ -182,6 +184,7 @@ function AppSidebar({ waiting, pane }: { waiting: number; pane: ReturnType<typeo
                   <SidebarMenuButton asChild isActive={active(n.to, !!n.exact)} tooltip={n.label}>
                     <Link to={n.to}><n.icon /><span>{n.label}</span></Link>
                   </SidebarMenuButton>
+                  {n.to === '/approvals' && <ApprovalsBadge />}
                   {n.to === '/claude' && waiting > 0 && (
                     <SidebarMenuBadge className="bg-attention-soft text-attention-foreground">{waiting}</SidebarMenuBadge>
                   )}

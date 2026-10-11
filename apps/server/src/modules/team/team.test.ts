@@ -7,7 +7,10 @@ import type { AgentEvent, AgentsService } from '../agents/service.ts'
 import type { User } from '../auth/repo.ts'
 import { claudeService } from '../claude/service.ts'
 import type { ProjectsService } from '../projects/service.ts'
-import { teamService, transcriptText } from './service.ts'
+import { searchService } from '../search/service.ts'
+import { tasksService } from '../tasks/service.ts'
+import { dueSlots, nextRun } from './schedule.ts'
+import { activityTrigger, teamService, transcriptText } from './service.ts'
 
 function setup() {
   const db = openDb(':memory:')
@@ -38,11 +41,20 @@ function setup() {
   } as unknown as ProjectsService
   const hub = createHub()
   const activity = activityService({ db, hub })
+  const tasks = tasksService({ db, hub, activity, search: searchService({ db }) })
+  const notified: { userId: number; title: string }[] = []
   const claude = claudeService({ db, agents, hub, projects, notify: async () => {} })
-  const team = teamService({ db, hub, claude, projects, activity, digestAfterMs: 60_000 })
+  const team = teamService({
+    db, hub, claude, projects, activity, tasks, notify: async (userId, _k, n) => void notified.push({ userId, title: n.title }),
+    digestAfterMs: 60_000, tickMs: 3_600_000,
+  })
   const user = (id: number, name: string): User => ({ id, name, username: name === 'Youssef' ? 'youssef' : 'abdo', email: '', role: 'admin' })
-  return { db, sent, replies, claude, team, youssef: user(1, 'Youssef'), abdo: user(2, 'Abdulrahman'), event: (u: string, ev: AgentEvent) => onEvent(u, ev) }
+  return {
+    db, sent, replies, claude, team, tasks, notified, youssef: user(1, 'Youssef'), abdo: user(2, 'Abdulrahman'),
+    event: (u: string, ev: AgentEvent) => onEvent(u, ev),
+  }
 }
+const shiftsOf = (sent: Record<string, unknown>[]) => sent.filter((r) => r.op === 'claude.send' && String((r.content as { text?: string }[])[0]?.text ?? '').startsWith('Start your shift'))
 
 test('a role works a shift: its own unlisted session, read-only tools, a report, and it ends with the turn', async (t) => {
   const { team, claude, sent, youssef, abdo, event } = setup()
@@ -132,4 +144,111 @@ test('transcript text keeps what people said and what Claude did, not system rem
     { type: 'assistant', message: { content: [{ type: 'text', text: 'All tests pass.' }] } },
   ])
   assert.equal(text, 'Person: Ship it\nClaude used Bash: npm test\nClaude: All tests pass.')
+})
+
+test('schedules are read in the project time zone, run once per slot and day, and catch up after a short restart', () => {
+  const cairoMon0900 = Date.parse('2026-10-12T06:00:00Z') // Cairo is UTC+3 on this date: Monday 09:00 there
+  const slots = [{ days: [1], at: '09:00' }]
+  assert.equal(dueSlots(slots, {}, 'Africa/Cairo', cairoMon0900).length, 1)
+  assert.equal(dueSlots(slots, {}, 'Africa/Cairo', cairoMon0900 + 15 * 60_000).length, 1) // back within 20 minutes
+  assert.equal(dueSlots(slots, {}, 'Africa/Cairo', cairoMon0900 + 40 * 60_000).length, 0)
+  assert.equal(dueSlots(slots, { '1@09:00': '2026-10-12' }, 'Africa/Cairo', cairoMon0900).length, 0)
+  assert.equal(dueSlots(slots, {}, 'UTC', cairoMon0900).length, 0)
+  assert.equal(nextRun(slots, 'Africa/Cairo', cairoMon0900 - 60_000), cairoMon0900 / 1000)
+  assert.equal(nextRun(slots, 'Africa/Cairo', cairoMon0900), cairoMon0900 / 1000 + 7 * 86_400)
+  assert.equal(nextRun([{ days: [0, 1, 2, 3, 4, 5, 6], at: '07:30' }], 'Asia/Kolkata', Date.parse('2026-10-12T00:00:00Z')), Date.parse('2026-10-12T02:00:00Z') / 1000)
+})
+
+test('roles start shifts on their own: on schedule, on triggers, within their daily limit, never while paused', async (t) => {
+  const { team, sent, db, youssef } = setup()
+  t.after(() => team.stop())
+  team.enable(youssef, 'seevil', 'UTC')
+  const cto = team.createRole(youssef, 'seevil', { name: 'CTO', summary: '', instructions: '', model: null })
+  team.roleSettings(cto.id, { autonomy: 'operator', autoApprove: [], schedule: [{ days: [0, 1, 2, 3, 4, 5, 6], at: '09:00' }], triggers: ['task_done'], paused: false, dailyLimit: 2, monthlyBudget: null })
+  const nine = Date.parse('2026-10-12T09:00:00Z')
+  const text = (i: number) => String((shiftsOf(sent)[i]!.content as { text: string }[])[0]!.text)
+  const doneAll = () => db.prepare("update team_shifts set status = 'done', ended_at = unixepoch()").run()
+  const taskDone = (n: number) => db.prepare(`insert into activity (project_id, user_id, kind, summary) values (1, 1, 'task.status', 'moved seevil#${n} to Done')`).run()
+  team.tick(nine)
+  await new Promise((r) => setTimeout(r, 10))
+  assert.equal(shiftsOf(sent).length, 1)
+  assert.match(text(0), /scheduled, Mon 09:00/)
+  team.tick(nine + 60_000) // same slot, same day: not again
+  assert.equal(shiftsOf(sent).length, 1)
+
+  doneAll()
+  taskDone(3)
+  team.tick(nine + 120_000)
+  await new Promise((r) => setTimeout(r, 10))
+  assert.equal(shiftsOf(sent).length, 2)
+  assert.match(text(1), /a task was done: moved seevil#3 to Done/)
+
+  doneAll()
+  db.prepare('update team_roles set last_triggered = 0').run()
+  taskDone(4)
+  team.tick(nine + 180_000)
+  assert.equal(shiftsOf(sent).length, 2) // daily limit of 2 reached
+
+  db.prepare('update team_shifts set started_at = started_at - 86400').run() // a new day
+  team.settings('seevil', { paused: true })
+  taskDone(5)
+  team.tick(nine + 240_000)
+  assert.equal(shiftsOf(sent).length, 2) // paused team: nothing on its own
+  assert.equal(activityTrigger({ kind: 'task.created', summary: 'created x', via_claude: 1 }), null) // roles' own tasks never wake roles
+})
+
+test('proposals: an operator adds tasks itself; code waits for a person, runs as them, and the answer reaches the notebook', async (t) => {
+  const { team, sent, tasks, notified, youssef, abdo } = setup()
+  t.after(() => team.stop())
+  team.enable(youssef, 'seevil')
+  const cto = team.createRole(youssef, 'seevil', { name: 'CTO', summary: '', instructions: '', model: null })
+
+  const own = await team.propose(cto.id, { kind: 'task', title: 'Crash fixes', why: '14 crashes', tasks: [{ title: 'Fix login crash on Android 12', priority: 'high' }] })
+  assert.equal(own.status, 'done')
+  assert.equal(tasks.list({ project: 'seevil', status: 'backlog' })[0]!.title, 'Fix login crash on Android 12')
+  assert.equal(notified.length, 0)
+
+  const code = await team.propose(cto.id, {
+    kind: 'code', title: 'Add a retry button to login', why: 'Users on slow networks get stuck.',
+    prompt: 'Add a retry button to the login screen when the request times out; test it on a throttled network.',
+  })
+  assert.equal(code.status, 'pending')
+  assert.deepEqual(notified.map((n) => n.userId).sort(), [1, 2])
+  const [x] = team.approvals('pending')
+  assert.equal(x!.role.name, 'CTO')
+  const done = await team.decide(abdo, x!.id, true, 'Keep it small')
+  assert.equal(done.status, 'done')
+  assert.match(done.outcome!, /Claude started on it/)
+  const started = sent.filter((r) => r.op === 'claude.send').at(-1)!
+  assert.match(String((started.content as { text: string }[])[0]!.text), /Add a retry button.*approved by Abdulrahman/s)
+  assert.match(team.role(cto.id).notebook[0]!.body, /Approved by Abdulrahman: Add a retry button to login\. They said: "Keep it small"/)
+
+  await team.propose(cto.id, { kind: 'other', title: 'Post the release on Instagram', why: 'v1.2 is out' })
+  const other = team.approvals('pending')[0]!
+  await team.decide(youssef, other.id, false, 'not before v1')
+  assert.match(team.role(cto.id).notebook[0]!.body, /Rejected by Youssef: Post the release on Instagram\. Reason: "not before v1"/)
+  await assert.rejects(team.decide(youssef, other.id, true, ''), /Already answered/)
+})
+
+test('advisors only suggest; goals are proposed, approved and updated by the role; unanswered proposals expire', async (t) => {
+  const { team, tasks, youssef, db } = setup()
+  t.after(() => team.stop())
+  team.enable(youssef, 'seevil')
+  const ceo = team.createRole(youssef, 'seevil', { name: 'CEO', summary: '', instructions: '', model: null })
+  team.roleSettings(ceo.id, { autonomy: 'advisor', autoApprove: [], schedule: [], triggers: [], paused: false, dailyLimit: 6, monthlyBudget: null })
+  assert.equal((await team.propose(ceo.id, { kind: 'task', title: 'Write a privacy policy', why: 'Play Store requires it' })).status, 'pending')
+  assert.equal(tasks.list({ project: 'seevil' }).length, 0)
+
+  await team.propose(ceo.id, { kind: 'goal', title: 'v1 on the Play Store', why: 'Launch', goal: { title: 'v1 on the Play Store', measure: 'Live in the store', due: '2026-11-15' } })
+  const goal = team.approvals('pending').find((p) => p.kind === 'goal')!
+  await team.decide(youssef, goal.id, true, '')
+  const [g] = team.overview('seevil').goals
+  assert.deepEqual({ title: g!.title, due: g!.due, owner: g!.owner }, { title: 'v1 on the Play Store', due: '2026-11-15', owner: 'CEO' })
+  team.roleGoalUpdate(ceo.id, { id: g!.id, progress: 70, note: '7 of 10 launch checks' })
+  assert.equal(team.overview('seevil').goals[0]!.progress, 70)
+
+  db.prepare("update team_proposals set expires_at = 1 where status = 'pending'").run()
+  team.tick()
+  assert.equal(team.approvals('pending').length, 0)
+  assert.match(team.role(ceo.id).notebook[0]!.body, /Expired without an answer/)
 })

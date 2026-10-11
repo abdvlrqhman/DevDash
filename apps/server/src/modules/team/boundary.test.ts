@@ -10,6 +10,7 @@ const ALLOWED = new Set([
   'apps/server/src/app.ts',
   'apps/web/src/main.tsx',
   'apps/web/src/features/projects/ProjectPage.tsx',
+  'apps/web/src/components/app/shell.tsx',
   'packages/claude-plugin/mcp/devdash.mjs',
 ])
 // A static or dynamic import of anything under a team/ folder, or team.mjs.

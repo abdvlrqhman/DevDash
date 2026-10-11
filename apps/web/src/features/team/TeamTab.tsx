@@ -13,7 +13,7 @@ import { api, unwrap } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ErrorAlert } from '../auth/LoginPage'
 import { relativeTime } from '../claude/data'
-import { firstLine, roleMark, roleTone, teamQuery, useLiveTeam, type Role, type Team } from './data'
+import { firstLine, nextLabel, roleMark, roleTone, teamQuery, useLiveTeam, type Role, type Team } from './data'
 import { RoleDialog } from './RoleDialog'
 
 /** A project's AI team: its roles, the brief and decisions they work from, and the journal of what happened. */
@@ -28,7 +28,8 @@ export function TeamTab({ slug }: { slug: string }) {
 function TurnOn({ slug, name }: { slug: string; name: string }) {
   const qc = useQueryClient()
   const on = useMutation({
-    mutationFn: () => unwrap(api.api.team.projects[':slug'].$put({ param: { slug }, json: { enabled: true } })),
+    // Schedules read in the time zone of whoever turns Team on.
+    mutationFn: () => unwrap(api.api.team.projects[':slug'].$put({ param: { slug }, json: { enabled: true, tz: Intl.DateTimeFormat().resolvedOptions().timeZone } })),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['team'] }),
     onError: (e) => toast.error(e.message),
   })
@@ -56,8 +57,26 @@ function TeamView({ t }: { t: Team }) {
     mutationFn: () => unwrap(api.api.team.projects[':slug'].$put({ param: { slug }, json: { enabled: false } })),
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['team'] }),
   })
+  const pause = useMutation({
+    mutationFn: (paused: boolean) => unwrap(api.api.team.projects[':slug'].settings.$put({ param: { slug }, json: { paused } })),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['team'] }),
+    onError: (e) => toast.error(e.message),
+  })
   return (
     <div className="flex flex-col gap-6">
+      {t.pending > 0 && (
+        <Link to="/approvals" className="flex flex-wrap items-center gap-3 rounded-xl border border-attention/40 bg-attention-soft px-4 py-3 text-attention-foreground dark:bg-attention/10 dark:text-attention">
+          <StatusLight state="waiting" />
+          <span className="font-medium">{t.pending === 1 ? '1 thing is' : `${t.pending} things are`} waiting for your approval</span>
+          <span className="ml-auto text-sm font-medium">Review →</span>
+        </Link>
+      )}
+      {t.paused && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 text-sm">
+          <span>The team is paused: no role works on its own until you resume it. You can still chat and run shifts by hand.</span>
+          <Button size="sm" className="ml-auto" disabled={pause.isPending} onClick={() => pause.mutate(false)}>Resume team</Button>
+        </div>
+      )}
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <div className="flex min-w-0 flex-col gap-6">
           <Block title="Roles" action={t.roles.length > 0 && <Button size="sm" variant="outline" onClick={() => setAdding(true)}><Plus />New role</Button>}>
@@ -90,12 +109,14 @@ function TeamView({ t }: { t: Team }) {
           </Block>
         </div>
         <div className="flex min-w-0 flex-col gap-6">
+          <Goals slug={slug} goals={t.goals} />
           <Brief slug={slug} brief={t.brief} />
           <Decisions slug={slug} decisions={t.decisions} />
         </div>
       </div>
       <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-        <span>Roles run as {t.runsAs?.name}, on their Claude plan.</span>
+        <span>Roles run as {t.runsAs?.name}, on their Claude plan. Schedules use {t.tz.replace('_', ' ')} time.</span>
+        {!t.paused && <button className="underline-offset-2 hover:underline" disabled={pause.isPending} onClick={() => pause.mutate(true)}>Pause team</button>}
         <button className="underline-offset-2 hover:underline" disabled={off.isPending}
           onClick={() => { if (confirm('Turn off Team for this project? Roles stop working; their notes and history stay.')) off.mutate() }}>
           Turn off Team
@@ -139,14 +160,83 @@ function RoleCard({ slug, r }: { slug: string; r: Role }) {
         </div>
         {r.working
           ? <span className="flex shrink-0 items-center gap-1.5 text-xs text-live"><StatusLight state="live" />Working</span>
-          : <span className="shrink-0 text-xs text-muted-foreground">Idle</span>}
+          : <span className="shrink-0 text-xs text-muted-foreground">{r.paused ? 'Paused' : 'Idle'}</span>}
       </div>
       <p className="line-clamp-2 text-sm text-muted-foreground">
         {r.shift ? `On a shift since ${relativeTime(r.shift.startedAt)}.`
           : last ? `${relativeTime(last.at)}: ${firstLine(last.report) || (last.status === 'error' ? 'Stopped with an error.' : 'Finished.')}`
           : 'No shifts yet. Open it to run one or chat.'}
       </p>
+      <p className="mt-auto flex justify-between gap-2 text-xs text-muted-foreground">
+        <span>{r.nextShiftAt ? `Next: ${nextLabel(r.nextShiftAt)}` : r.paused ? 'Paused' : r.schedule.length ? 'Team paused' : 'No schedule'}</span>
+        {r.model && <span className="capitalize">{r.model}</span>}
+      </p>
     </Link>
+  )
+}
+
+function Goals({ slug, goals }: { slug: string; goals: Team['goals'] }) {
+  const qc = useQueryClient()
+  const [adding, setAdding] = useState(false)
+  const [g, setG] = useState({ title: '', measure: '', due: '' })
+  const refresh = () => void qc.invalidateQueries({ queryKey: ['team'] })
+  const add = useMutation({
+    mutationFn: () => unwrap(api.api.team.projects[':slug'].goals.$post({ param: { slug }, json: { title: g.title, measure: g.measure, due: g.due || null } })),
+    onSuccess: () => { setG({ title: '', measure: '', due: '' }); setAdding(false); refresh() },
+    onError: (e) => toast.error(e.message),
+  })
+  const update = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: 'done' | 'dropped' | 'active' }) => unwrap(api.api.team.goals[':id'].$patch({ param: { id: String(id) }, json: { status } })),
+    onSuccess: refresh,
+  })
+  const today = new Date().toISOString().slice(0, 10)
+  return (
+    <Block title="Goals" description="What the team works towards. Roles propose goals and report progress."
+      action={!adding && <Button size="sm" variant="ghost" onClick={() => setAdding(true)}><Plus />Add</Button>}>
+      {adding && (
+        <form className="flex flex-col gap-2 rounded-xl border p-3" onSubmit={(e) => { e.preventDefault(); if (g.title.trim()) add.mutate() }}>
+          <Input className="h-9" value={g.title} maxLength={200} onChange={(e) => setG({ ...g, title: e.target.value })} placeholder="v1 on the Play Store" aria-label="Goal" autoFocus />
+          <Input className="h-9" value={g.measure} maxLength={300} onChange={(e) => setG({ ...g, measure: e.target.value })} placeholder="How we know: live in the store" aria-label="Measure" />
+          <div className="flex gap-2">
+            <Input className="h-9" type="date" value={g.due} onChange={(e) => setG({ ...g, due: e.target.value })} aria-label="Due date" />
+            <Button size="sm" className="h-9" type="submit" disabled={!g.title.trim() || add.isPending}>Add goal</Button>
+            <Button size="sm" className="h-9" type="button" variant="ghost" onClick={() => setAdding(false)}>Cancel</Button>
+          </div>
+        </form>
+      )}
+      {goals.length ? (
+        <ul className="flex flex-col divide-y rounded-xl border">
+          {goals.map((x) => {
+            const late = x.status === 'active' && x.due && x.due < today
+            return (
+              <li key={x.id} className={cn('group flex flex-col gap-2 px-3.5 py-3 text-sm', x.status !== 'active' && 'opacity-60')}>
+                <div className="flex items-start gap-2">
+                  <span className={cn('min-w-0 flex-1 font-medium', x.status === 'done' && 'line-through')}>{x.title}</span>
+                  {x.due && <span className={cn('shrink-0 text-xs', late ? 'text-destructive' : 'text-muted-foreground')}>{late ? 'Late · ' : ''}{x.due}</span>}
+                </div>
+                {x.status === 'active' && (
+                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div className="h-full rounded-full bg-foreground" style={{ width: `${x.progress}%` }} />
+                  </div>
+                )}
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span className="min-w-0 flex-1 truncate">
+                    {x.status === 'active' ? `${x.progress}%` : x.status === 'done' ? 'Done' : 'Dropped'}
+                    {x.note ? ` · ${x.note}` : x.measure ? ` · ${x.measure}` : ''}{x.owner ? ` · ${x.owner}` : ''}
+                  </span>
+                  {x.status === 'active' ? (
+                    <span className="flex shrink-0 gap-1">
+                      <button className="hover:text-foreground hover:underline" onClick={() => update.mutate({ id: x.id, status: 'done' })}>Done</button>
+                      <button className="hover:text-foreground hover:underline" onClick={() => update.mutate({ id: x.id, status: 'dropped' })}>Drop</button>
+                    </span>
+                  ) : <button className="shrink-0 hover:text-foreground hover:underline" onClick={() => update.mutate({ id: x.id, status: 'active' })}>Reopen</button>}
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      ) : !adding && <p className="text-sm text-muted-foreground">No goals yet. Add one, or let the CEO propose some.</p>}
+    </Block>
   )
 }
 

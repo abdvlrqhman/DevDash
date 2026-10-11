@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { api, unwrap } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ErrorAlert } from '../auth/LoginPage'
-import { TEMPLATES, type Model } from './data'
+import { DEFAULT_SCHEDULE, slotLabel, TEMPLATES, type Model } from './data'
 
 type Draft = { name: string; summary: string; instructions: string; model: Model | null }
 const EMPTY: Draft = { name: '', summary: '', instructions: '', model: null }
@@ -30,6 +30,8 @@ export function RoleDialog({ open, onOpenChange, slug, role, onSaved }: {
     if (open) setD(role ? { name: role.name, summary: role.summary, instructions: role.instructions, model: (role.model as Model | null) ?? null } : EMPTY)
   }, [open, role])
   const set = (patch: Partial<Draft>) => setD((x) => ({ ...x, ...patch }))
+  // A new role starts with its template's rhythm (or weekdays at 9); change it on the role's Schedule tab.
+  const schedule = TEMPLATES.find((t) => t.name === d.name.trim())?.schedule ?? DEFAULT_SCHEDULE
 
   const generate = useMutation({
     mutationFn: () => unwrap(api.api.team.projects[':slug'].generate.$post({ param: { slug }, json: { name: d.name, summary: d.summary } })),
@@ -38,7 +40,7 @@ export function RoleDialog({ open, onOpenChange, slug, role, onSaved }: {
   const save = useMutation({
     mutationFn: () => role
       ? unwrap(api.api.team.roles[':id'].$put({ param: { id: String(role.id) }, json: d }))
-      : unwrap(api.api.team.projects[':slug'].roles.$post({ param: { slug }, json: d })),
+      : unwrap(api.api.team.projects[':slug'].roles.$post({ param: { slug }, json: { ...d, schedule } })),
     onSuccess: (r) => {
       void qc.invalidateQueries({ queryKey: ['team'] })
       onOpenChange(false)
@@ -91,6 +93,11 @@ export function RoleDialog({ open, onOpenChange, slug, role, onSaved }: {
               <option value="haiku">Haiku: quick checks, uses the least</option>
             </NativeSelect>
           </Field>
+          {!role && (
+            <p className="text-sm text-muted-foreground">
+              It will work on its own <span className="text-foreground">{schedule.map(slotLabel).join(', ')}</span>. Change that, or pause it, on its Schedule tab.
+            </p>
+          )}
           <ErrorAlert error={generate.error ?? save.error} />
           <Button type="submit" className="h-10" disabled={!d.name.trim() || save.isPending}>{role ? 'Save' : 'Create role'}</Button>
         </FieldGroup>

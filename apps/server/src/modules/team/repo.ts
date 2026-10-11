@@ -3,10 +3,27 @@ import type { Db } from '../../core/db.ts'
 export type RoleRow = {
   id: number; project_id: number; name: string; summary: string; instructions: string; model: string | null
   chat_session_id: string | null; created_at: number; updated_at: number; archived: number
+  autonomy: 'advisor' | 'operator'; auto_approve: string; schedule: string; triggers: string; schedule_state: string
+  paused: number; daily_limit: number; monthly_budget: number | null; last_triggered: number
 }
 export type ShiftRow = {
   id: number; role_id: number; session_id: string | null; trigger: string; status: 'running' | 'done' | 'error'
-  report: string | null; started_at: number; ended_at: number | null
+  report: string | null; started_at: number; ended_at: number | null; cost_usd: number
+}
+export type ProposalKind = 'task' | 'code' | 'goal' | 'other'
+export type ProposalRow = {
+  id: number; project_id: number; role_id: number; kind: ProposalKind; title: string; why: string; payload: string
+  status: 'pending' | 'approved' | 'rejected' | 'expired' | 'done'; reply: string | null; outcome: string | null
+  decided_by: number | null; decided_at: number | null; created_at: number; expires_at: number
+  role_name: string; project_slug: string; project_name: string; decided_by_name: string | null
+}
+export type GoalRow = {
+  id: number; project_id: number; title: string; measure: string; due: string | null; status: 'active' | 'done' | 'dropped'
+  progress: number; note: string | null; owner_role_id: number | null; owner_name: string | null; updated_at: number
+}
+export type RoleSettings = {
+  autonomy: 'advisor' | 'operator'; autoApprove: string[]; schedule: unknown[]; triggers: string[]
+  paused: boolean; dailyLimit: number; monthlyBudget: number | null
 }
 
 // node:sqlite rows have no prototype; plain objects compare and serialize like any other.
@@ -15,8 +32,38 @@ const all = <T>(rows: unknown[]) => rows.map((r) => ({ ...(r as object) }) as T)
 
 export function teamRepo(db: Db) {
   const s = {
-    project: db.prepare(`select t.project_id, t.runs_as, t.enabled_at, u.username, u.name from team_projects t join users u on u.id = t.runs_as
-      where t.project_id = ?`),
+    project: db.prepare(`select t.project_id, t.runs_as, t.enabled_at, t.paused, t.tz, t.activity_seen, u.username, u.name
+      from team_projects t join users u on u.id = t.runs_as where t.project_id = ?`),
+    projects: db.prepare(`select t.project_id, t.paused, t.tz, t.activity_seen, p.slug from team_projects t join projects p on p.id = t.project_id
+      where p.archived = 0`),
+    projectSettings: db.prepare(`update team_projects set paused = coalesce(?, paused), tz = coalesce(?, tz) where project_id = ?`),
+    activitySeen: db.prepare(`update team_projects set activity_seen = ? where project_id = ?`),
+    newActivity: db.prepare(`select id, kind, summary, via_claude from activity where project_id = ? and id > ? order by id limit 200`),
+    lastActivity: db.prepare(`select coalesce(max(id), 0) as id from activity`),
+    roleSettings: db.prepare(`update team_roles set autonomy = ?, auto_approve = ?, schedule = ?, triggers = ?, paused = ?, daily_limit = ?,
+      monthly_budget = ?, updated_at = unixepoch() where id = ?`),
+    scheduleState: db.prepare(`update team_roles set schedule_state = ? where id = ?`),
+    triggered: db.prepare(`update team_roles set last_triggered = ? where id = ?`),
+    autoShiftsSince: db.prepare(`select count(*) as n from team_shifts where role_id = ? and trigger != 'manual' and started_at >= ?`),
+    costSince: db.prepare(`select coalesce(sum(cost_usd), 0) as usd from team_shifts where role_id = ? and started_at >= ?`),
+    shiftCost: db.prepare(`update team_shifts set cost_usd = cost_usd + ? where id = ?`),
+    proposals: db.prepare(`select x.*, r.name as role_name, p.slug as project_slug, p.name as project_name, u.name as decided_by_name
+      from team_proposals x join team_roles r on r.id = x.role_id join projects p on p.id = x.project_id left join users u on u.id = x.decided_by
+      where (?1 is null or x.project_id = ?1) and (case when ?2 = 'pending' then x.status = 'pending' else x.status != 'pending' end)
+      order by x.id desc limit ?3`),
+    proposal: db.prepare(`select x.*, r.name as role_name, p.slug as project_slug, p.name as project_name, u.name as decided_by_name
+      from team_proposals x join team_roles r on r.id = x.role_id join projects p on p.id = x.project_id left join users u on u.id = x.decided_by
+      where x.id = ?`),
+    pendingCount: db.prepare(`select count(*) as n from team_proposals x join projects p on p.id = x.project_id where x.status = 'pending' and p.archived = 0`),
+    insertProposal: db.prepare(`insert into team_proposals (project_id, role_id, kind, title, why, payload, expires_at) values (?, ?, ?, ?, ?, ?, ?) returning id`),
+    decide: db.prepare(`update team_proposals set status = ?, reply = ?, outcome = ?, decided_by = ?, decided_at = unixepoch() where id = ? and status = 'pending'`),
+    expire: db.prepare(`update team_proposals set status = 'expired', decided_at = unixepoch() where status = 'pending' and expires_at < ? returning id, role_id, title`),
+    goals: db.prepare(`select g.*, r.name as owner_name from team_goals g left join team_roles r on r.id = g.owner_role_id
+      where g.project_id = ? and (g.status = 'active' or g.updated_at > unixepoch() - 14 * 86400) order by g.status = 'active' desc, g.due is null, g.due, g.id`),
+    goal: db.prepare(`select g.*, r.name as owner_name from team_goals g left join team_roles r on r.id = g.owner_role_id where g.id = ?`),
+    insertGoal: db.prepare(`insert into team_goals (project_id, title, measure, due, owner_role_id) values (?, ?, ?, ?, ?) returning id`),
+    updateGoal: db.prepare(`update team_goals set status = coalesce(?, status), progress = coalesce(?, progress), note = coalesce(?, note),
+      updated_at = unixepoch() where id = ?`),
     enable: db.prepare(`insert into team_projects (project_id, runs_as) values (?, ?) on conflict(project_id) do update set runs_as = excluded.runs_as`),
     disable: db.prepare(`delete from team_projects where project_id = ?`),
     brief: db.prepare(`select b.body, b.updated_at, u.name as updated_by from team_briefs b left join users u on u.id = b.updated_by where b.project_id = ?`),
@@ -52,7 +99,36 @@ export function teamRepo(db: Db) {
     session: db.prepare(`select id, status, title, owner_id, project_id, listed from claude_sessions where id = ?`),
   }
   return {
-    project: (projectId: number) => plain<{ project_id: number; runs_as: number; enabled_at: number; username: string; name: string }>(s.project.get(projectId)),
+    project: (projectId: number) => plain<{
+      project_id: number; runs_as: number; enabled_at: number; paused: number; tz: string; activity_seen: number; username: string; name: string
+    }>(s.project.get(projectId)),
+    projects: () => all<{ project_id: number; paused: number; tz: string; activity_seen: number; slug: string }>(s.projects.all()),
+    projectSettings: (projectId: number, o: { paused?: boolean; tz?: string }) =>
+      void s.projectSettings.run(o.paused === undefined ? null : o.paused ? 1 : 0, o.tz ?? null, projectId),
+    activitySeen: (projectId: number, id: number) => void s.activitySeen.run(id, projectId),
+    newActivity: (projectId: number, after: number) => all<{ id: number; kind: string; summary: string; via_claude: number }>(s.newActivity.all(projectId, after)),
+    lastActivity: () => (s.lastActivity.get() as { id: number }).id,
+    roleSettings: (id: number, o: RoleSettings) => void s.roleSettings.run(
+      o.autonomy, JSON.stringify(o.autoApprove), JSON.stringify(o.schedule), JSON.stringify(o.triggers), o.paused ? 1 : 0, o.dailyLimit, o.monthlyBudget, id),
+    scheduleState: (id: number, state: Record<string, string>) => void s.scheduleState.run(JSON.stringify(state), id),
+    triggered: (id: number, at: number) => void s.triggered.run(at, id),
+    autoShiftsSince: (roleId: number, since: number) => (s.autoShiftsSince.get(roleId, since) as { n: number }).n,
+    costSince: (roleId: number, since: number) => (s.costSince.get(roleId, since) as { usd: number }).usd,
+    addShiftCost: (shiftId: number, usd: number) => void s.shiftCost.run(usd, shiftId),
+    proposals: (projectId: number | null, status: 'pending' | 'decided', limit = 50) => all<ProposalRow>(s.proposals.all(projectId, status, limit)),
+    proposal: (id: number) => plain<ProposalRow>(s.proposal.get(id)),
+    pendingCount: () => (s.pendingCount.get() as { n: number }).n,
+    insertProposal: (p: { projectId: number; roleId: number; kind: ProposalKind; title: string; why: string; payload: object; expiresAt: number }) =>
+      (s.insertProposal.get(p.projectId, p.roleId, p.kind, p.title, p.why, JSON.stringify(p.payload), p.expiresAt) as { id: number }).id,
+    decide: (id: number, status: ProposalRow['status'], o: { reply?: string | null; outcome?: string | null; by: number | null }) =>
+      Number(s.decide.run(status, o.reply ?? null, o.outcome ?? null, o.by, id).changes) > 0,
+    expire: (now: number) => all<{ id: number; role_id: number; title: string }>(s.expire.all(now)),
+    goals: (projectId: number) => all<GoalRow>(s.goals.all(projectId)),
+    goal: (id: number) => plain<GoalRow>(s.goal.get(id)),
+    insertGoal: (projectId: number, g: { title: string; measure: string; due: string | null; ownerRoleId: number | null }) =>
+      (s.insertGoal.get(projectId, g.title, g.measure, g.due, g.ownerRoleId) as { id: number }).id,
+    updateGoal: (id: number, g: { status?: GoalRow['status']; progress?: number; note?: string }) =>
+      void s.updateGoal.run(g.status ?? null, g.progress ?? null, g.note ?? null, id),
     enable: (projectId: number, userId: number) => void s.enable.run(projectId, userId),
     disable: (projectId: number) => void s.disable.run(projectId),
     brief: (projectId: number) => plain<{ body: string; updated_at: number; updated_by: string | null }>(s.brief.get(projectId)),

@@ -18,11 +18,13 @@ Team tab says it's off. Nothing is deleted.
    - `packages/claude-plugin/mcp/team.mjs`
 3. **Delete the plug-in lines** (each is marked `Team` or `Team (optional)`):
    - `apps/server/src/app.ts`: the `teamPlugin` import, `const team = teamPlugin(…)`, `.route('/api/team', …)`
-   - `apps/web/src/main.tsx`: the `teamRole` route and its entry in the route tree
+   - `apps/web/src/main.tsx`: the `teamRole` and `approvals` routes and their entries in the route tree
    - `apps/web/src/features/projects/ProjectPage.tsx`: the `TeamTab` import, the Team tab trigger and its content
+   - `apps/web/src/components/app/shell.tsx`: the `ApprovalsBadge` import, the Approvals nav item and its badge line
+   - `apps/web/src/features/more/MorePage.tsx`: the Approvals link
    - `packages/claude-plugin/mcp/devdash.mjs`: the `team.mjs` import; `tools()` becomes `TOOLS`
 4. **Drop the tables** with a new migration: `team_projects`, `team_briefs`, `team_decisions`, `team_roles`,
-   `team_notebook`, `team_shifts`, `team_journal`.
+   `team_notebook`, `team_shifts`, `team_journal`, `team_proposals`, `team_goals`.
 5. **Optional:** archive the role sessions (`claude_sessions` where `listed = 0` and the title ends in ": shift", plus
    each role's chat).
 
@@ -31,5 +33,5 @@ Team tab says it's off. Nothing is deleted.
 These are general session features Team uses; other features can use them too:
 
 - `claude_sessions.instructions`, `tool_policy`, `listed` (migration 015) and `SessionExtras` in the Claude service
-- `claude.onTurnEnd`, `claude.transcript`, `claude.complete`, `claude.configure`
+- `claude.onTurnEnd` (with each turn's cost), `claude.transcript`, `claude.complete`, `claude.configure`
 - the agent's `claude.complete` op and the `instructions` / `toolPolicy` launch options

@@ -15,9 +15,11 @@ import { api, unwrap } from '@/lib/api'
 import { ErrorAlert } from '../auth/LoginPage'
 import { relativeTime } from '../claude/data'
 import { Prose } from '../claude/Prose'
-import { roleQuery, useLiveTeam, type RoleDetail } from './data'
+import { nextLabel, roleQuery, useLiveTeam, type RoleDetail } from './data'
 import { RoleDialog } from './RoleDialog'
 import { RoleMark } from './TeamTab'
+import { ProposalCard } from './Approvals'
+import { RoleSettings } from './RoleSettings'
 
 const TRIGGER: Record<string, string> = { manual: 'Started by hand' }
 const minutes = (from: number, to: number | null) => {
@@ -55,14 +57,14 @@ function RoleView({ slug, id }: { slug: string; id: number }) {
 
   if (q.error) return <><PageHeader title="Role" back={`/projects/${slug}`} /><PageBody><ErrorAlert error={q.error} /></PageBody></>
   if (!q.data) return <><PageHeader title="Role" back={`/projects/${slug}`} /><PageBody><Skeleton className="h-64" /></PageBody></>
-  const { role: r, project, shifts, notebook } = q.data
+  const { role: r, project, shifts, notebook, proposals } = q.data
 
   return (
     <>
       <PageHeader back={`/projects/${slug}`}
         title={<span className="flex items-center gap-2.5"><RoleMark id={r.id} name={r.name} className="size-7 rounded-md text-[10px]" />{r.name}</span>}
         description={<span className="flex items-center gap-1.5">
-          {r.working ? <><StatusLight state="live" />Working</> : <>Idle</>}
+          {r.working ? <><StatusLight state="live" />Working</> : r.paused ? <>Paused</> : r.nextShiftAt ? <>Next shift {nextLabel(r.nextShiftAt)}</> : <>Idle</>}
           <span className="truncate">· {project.name}{r.model ? ` · ${r.model[0]!.toUpperCase()}${r.model.slice(1)}` : ''}</span>
         </span>}
         actions={<>
@@ -80,6 +82,12 @@ function RoleView({ slug, id }: { slug: string; id: number }) {
         </>} />
       <PageBody>
         {r.summary && <p className="text-sm text-muted-foreground">{r.summary}</p>}
+        {proposals.length > 0 && (
+          <section className="flex flex-col gap-3">
+            <h2 className="text-sm font-semibold">Waiting for your approval</h2>
+            {proposals.map((x) => <ProposalCard key={x.id} x={x} showProject={false} />)}
+          </section>
+        )}
         {r.shift && (
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-live/40 p-4">
             <StatusLight state="live" />
@@ -94,10 +102,12 @@ function RoleView({ slug, id }: { slug: string; id: number }) {
           <TabsList variant="line">
             <TabsTrigger value="shifts">Shifts{shifts.length > 0 && <TabCount>{shifts.length}</TabCount>}</TabsTrigger>
             <TabsTrigger value="notebook">Notebook{notebook.length > 0 && <TabCount>{notebook.length}</TabCount>}</TabsTrigger>
+            <TabsTrigger value="schedule">Schedule</TabsTrigger>
             <TabsTrigger value="instructions">Instructions</TabsTrigger>
           </TabsList>
           <TabsContent value="shifts"><Shifts shifts={shifts} onRun={() => shift.mutate()} canRun={!r.shift} /></TabsContent>
           <TabsContent value="notebook"><Notebook id={id} notes={notebook} /></TabsContent>
+          <TabsContent value="schedule"><RoleSettings r={r} project={project} /></TabsContent>
           <TabsContent value="instructions">
             <div className="flex flex-col gap-3">
               <div className="flex justify-end"><Button size="sm" variant="outline" onClick={() => setEditing(true)}><Pencil />Edit</Button></div>
@@ -129,7 +139,7 @@ function Shifts({ shifts, onRun, canRun }: { shifts: RoleDetail['shifts']; onRun
         <li key={s.id} className="flex flex-col gap-2 rounded-xl border p-4">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
             <span className="font-medium">{new Date(s.startedAt * 1000).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</span>
-            <span className="text-muted-foreground">{TRIGGER[s.trigger] ?? s.trigger}</span>
+            <span className="text-muted-foreground">{TRIGGER[s.trigger] ?? `${s.trigger[0]!.toUpperCase()}${s.trigger.slice(1)}`}{s.costUsd > 0 ? ` · $${s.costUsd.toFixed(2)}` : ''}</span>
             <span className="ml-auto flex items-center gap-1.5 text-muted-foreground">
               {s.status === 'running' ? <><StatusLight state="live" />Running, {minutes(s.startedAt, null)}</>
                 : s.status === 'error' ? <span className="text-destructive">Stopped with an error</span> : minutes(s.startedAt, s.endedAt)}

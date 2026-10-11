@@ -87,7 +87,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   const builds = buildsService({ db, agents, projects, shares })
   const vault = vaultService({ db })
   const browser = browserService({ db, runDir: config.runDir, dataDir: config.dataDir, masterKey: config.masterKey, origin: config.origin })
-  const team = teamPlugin({ db, hub, agents, claude, projects, activity, mw }) // Team
+  const team = teamPlugin({ db, hub, agents, claude, projects, activity, tasks, notify: notifications.notify, mw }) // Team
   const status = statusService({ db, agents, services, browser, runDir: config.runDir, dataDir: config.dataDir, version: config.version })
   const app = new Hono()
     // Requests from the services site (port 8443) are proxied to services, never mixed with DevDash's routes.

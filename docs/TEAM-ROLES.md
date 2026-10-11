@@ -1,6 +1,6 @@
 # Team roles: AI team members for each project
 
-Status: phase 1 built (brief, decisions, journal, roles with Generate, chat, shifts by hand, notebook); phases 2 and 3 proposed.
+Status: phases 1 and 2 built (brief, decisions, journal, roles with Generate, chat, notebook; schedules, triggers, approvals, goals, limits, pause); phase 3 proposed.
 
 ## 1. The problem and the idea
 

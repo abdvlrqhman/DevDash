@@ -6,13 +6,16 @@ import type { ActivityService } from '../activity/service.ts'
 import type { AgentsService } from '../agents/service.ts'
 import type { authMiddleware } from '../auth/routes.ts'
 import type { ClaudeService } from '../claude/service.ts'
+import type { NotificationKind } from '../notifications/service.ts'
 import type { ProjectsService } from '../projects/service.ts'
+import type { TasksService } from '../tasks/service.ts'
 import { registerTeamMcp } from './mcp.ts'
 import { teamRoutes } from './routes.ts'
 import { teamService } from './service.ts'
 
 export function teamPlugin(deps: {
-  db: Db; hub: Hub; agents: AgentsService; claude: ClaudeService; projects: ProjectsService; activity: ActivityService
+  db: Db; hub: Hub; agents: AgentsService; claude: ClaudeService; projects: ProjectsService; activity: ActivityService; tasks: TasksService
+  notify: (userId: number, kind: NotificationKind, n: { title: string; body?: string; url?: string; tag?: string }) => Promise<void>
   mw: ReturnType<typeof authMiddleware>
 }) {
   const on = process.env.DEVDASH_TEAM !== '0'
