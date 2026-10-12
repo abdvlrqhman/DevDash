@@ -19,6 +19,7 @@ import { api, meQuery, spaceQuery } from '@/lib/api'
 import { APP_DOWNLOADS, inShell, openExternal } from '@/lib/shell'
 import { useMotion } from '@/lib/motion'
 import { setTheme, useTheme, type ThemePref } from '@/lib/theme'
+import { useUpdateCheck } from '@/lib/update'
 import { cn } from '@/lib/utils'
 import { sessionsQuery, useLiveSessions } from '@/features/claude/data'
 import { useNotificationEvents } from '@/features/notifications/Notifications'
@@ -94,6 +95,7 @@ const storedOpen = () => {
 export function AppShell() {
   usePinToVisualViewport()
   useNotificationEvents()
+  useUpdateCheck()
   const waiting = useWaitingCount()
   const pane = useStoredWidth('sidebar', 256, 200, 400)
   const [open, setOpen] = useState(storedOpen)
