@@ -103,7 +103,7 @@ export function SessionChips({ s, isOwner, canSend, working, onUpdate, onCompact
       {ctx && (
         <Popover>
           <Chip label={`Context ${ctx.percent}% used`} tone={ctx.percent >= 90 ? 'destructive' : ctx.percent >= 75 ? 'attention' : undefined}>
-            <Ring percent={ctx.percent} />{ctx.percent}% context
+            <Ring percent={ctx.percent} />{ctx.percent}%<span className="max-sm:hidden">&nbsp;context</span>
           </Chip>
           <PopoverContent align="start" className="w-72 text-sm">
             <div className="flex items-baseline justify-between"><span className="font-medium">Context used</span><span className="tabular-nums">{ctx.percent}%</span></div>

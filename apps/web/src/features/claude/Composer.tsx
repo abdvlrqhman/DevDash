@@ -219,8 +219,10 @@ export function Composer({ sessionId, profile, working, disabledReason, footer, 
         </div>
       )}
       <ErrorAlert error={error} />
+      {/* One card: what you attach, what you write, and a row inside it with attach, the session's status and Stop/Send. */}
+      <div className="flex flex-col gap-1 rounded-[22px] border bg-background px-2.5 pt-2 pb-1.5 shadow-xs transition-[box-shadow,border-color] focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/30 dark:bg-input/20">
       {(images.length > 0 || files.length > 0) && (
-        <div className="flex flex-wrap gap-2 pl-12">
+        <div className="flex flex-wrap gap-2 px-1 pt-1">
           {images.map((img, i) => (
             <div key={`i${i}`} className="relative">
               <img src={`data:${img.mediaType};base64,${img.data}`} alt="" className="size-14 rounded-md border object-cover" />
@@ -239,26 +241,26 @@ export function Composer({ sessionId, profile, working, disabledReason, footer, 
           ))}
         </div>
       )}
-      {/* Attach on the left, the message in the middle, send (and stop) on the right: one compact row. */}
-      <div className="flex items-end gap-2">
-        <Button size="icon" variant="ghost" className="size-10 shrink-0 rounded-full text-muted-foreground" aria-label="Attach files" title="Attach images, PDFs or any file" onClick={() => picker.current?.click()}><Paperclip /></Button>
+      <Textarea ref={area} value={text} rows={1} onKeyDown={onKey} onPaste={onPaste} aria-label="Message Claude"
+        onChange={(e) => { setText(e.target.value); setCaret(e.target.selectionStart) }}
+        onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+        placeholder={working ? 'Add a message for Claude' : 'Message Claude, @ to mention a file'}
+        className="max-h-[40vh] min-h-9 resize-none rounded-none border-0 bg-transparent px-1.5 py-1 text-base leading-6 shadow-none [field-sizing:content] placeholder:truncate focus-visible:ring-0 md:text-sm md:leading-6 dark:bg-transparent" />
+      <div className="flex items-center gap-1">
+        <Button size="icon" variant="ghost" className="size-9 shrink-0 rounded-full text-muted-foreground" aria-label="Attach files" title="Attach images, PDFs or any file" onClick={() => picker.current?.click()}><Paperclip /></Button>
         <input ref={picker} type="file" multiple hidden onChange={(e) => { if (e.target.files) void add(e.target.files); e.target.value = '' }} />
-        <Textarea ref={area} value={text} rows={1} onKeyDown={onKey} onPaste={onPaste} aria-label="Message Claude"
-          onChange={(e) => { setText(e.target.value); setCaret(e.target.selectionStart) }}
-          onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
-          placeholder={working ? 'Add a message for Claude' : 'Message Claude, @ to mention a file'}
-          className="max-h-[40vh] min-h-10 flex-1 resize-none rounded-[20px] px-4 py-2 text-base leading-6 [field-sizing:content] placeholder:truncate md:text-sm md:leading-6" />
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-0.5">{footer}</div>
         {/* Stop is always there while Claude works; Send joins it once something is typed (it waits for Claude). */}
         {working && (
-          <Button size="icon" variant="secondary" className="size-10 shrink-0 rounded-full" aria-label="Stop Claude" title="Stop (Esc)" onClick={onStop}>
+          <Button size="icon" variant="secondary" className="size-9 shrink-0 rounded-full" aria-label="Stop Claude" title="Stop (Esc)" onClick={onStop}>
             <Square className="fill-current" />
           </Button>
         )}
         {(!working || !empty) && (
-          <Button size="icon" className="size-10 shrink-0 rounded-full" aria-label={working ? 'Send after Claude finishes' : 'Send'} disabled={sending || empty} onClick={() => void submit()}><ArrowUp /></Button>
+          <Button size="icon" className="size-9 shrink-0 rounded-full" aria-label={working ? 'Send after Claude finishes' : 'Send'} disabled={sending || empty} onClick={() => void submit()}><ArrowUp /></Button>
         )}
       </div>
-      {footer && <div className="flex min-h-6 flex-wrap items-center gap-1 pl-12">{footer}</div>}
+      </div>
     </div>
   )
 }
