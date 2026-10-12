@@ -30,3 +30,6 @@ apps/shell/src-tauri/gen/
 
 .DS_Store
 Thumbs.db
+
+# Local agent worktrees (per-session, never committed)
+.claude/
