@@ -112,7 +112,12 @@ Three options, easy→stable, chosen path is #1 first:
 3. **`sshd` + `frida-server` under their own launchd daemon** regardless of 1/2 —
    device-side, solid, independent of the Tailscale app. Runbook in `docs/`.
 
-**Plan: ship #1, keep #3; escalate to #2 only if #1 is too flaky in real use.**
+**Decision (Youssef): go straight to #2 — native daemon, NOT the app.** Stability
+over ease; the App Store app's NE suspension is a dealbreaker for him. #2's gate is
+confirming a `tailscaled` binary runs on the jailbroken-iOS env (darwin/arm64 build,
+fakesigned with ldid if needed; userspace-networking + SOCKS, or TUN since rooted),
+run as a launchd daemon with a watchdog that re-ups on flaps. Keep #3 regardless.
+Being worked by a hands-on Claude session on his PC; report blockers to adjust here.
 
 ## The hard part to settle in a spike (½ day)
 
