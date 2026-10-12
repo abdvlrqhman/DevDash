@@ -66,8 +66,13 @@ const ROLE_ONLY = [
   },
   {
     name: 'team_resolve',
-    description: 'Close a thread you own once it is settled, with one line on the outcome.',
-    inputSchema: obj({ id: { type: 'integer' }, resolution: { type: 'string' } }, ['id']),
+    description: 'Close a thread. The owner closes it as "done" once it is settled, with one line on the outcome. Any role in the thread may decline it instead of arguing there: "declined" (not ours to do, or another role already has it), "duplicate" (give duplicate_of), "not_needed" (it doesn\'t fit this project) or "elsewhere" (already handled somewhere else), always with one line of why. People see it and can reopen it.',
+    inputSchema: obj({
+      id: { type: 'integer' },
+      as: { type: 'string', enum: ['done', 'declined', 'duplicate', 'not_needed', 'elsewhere'], description: 'How it ends. Default "done" (owner only).' },
+      resolution: { type: 'string', description: 'One line: the outcome, or why you decline it (required to decline).' },
+      duplicate_of: { type: 'integer', description: 'For "duplicate": the thread id it duplicates.' },
+    }, ['id']),
   },
   {
     name: 'team_sources',

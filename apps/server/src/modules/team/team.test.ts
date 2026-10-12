@@ -1,4 +1,5 @@
 import { test } from 'node:test'
+import { Hono, type Context, type Next } from 'hono'
 import assert from 'node:assert/strict'
 import { openDb } from '../../core/db.ts'
 import { createHub } from '../../core/hub.ts'
@@ -11,6 +12,7 @@ import { searchService } from '../search/service.ts'
 import { tasksService } from '../tasks/service.ts'
 import { dueSlots, nextRun } from './schedule.ts'
 import { fetchHttp, readOnlySql } from './sources.ts'
+import { teamRoutes } from './routes.ts'
 import { activityTrigger, teamService, transcriptText } from './service.ts'
 
 function setup() {
@@ -192,6 +194,80 @@ test('threads: a session raises an alert with a role, the owner wakes, people he
   // Five alerts a day per sender, then requests.
   for (let i = 0; i < 4; i++) team.sessionMessage('youssef', s.id, { to: 'finance', title: `alert ${i}`, kind: 'alert', body: 'x', evidence: 'y' })
   assert.throws(() => team.sessionMessage('youssef', s.id, { to: 'finance', title: 'alert 5', kind: 'alert', body: 'x', evidence: 'y' }), /5 alerts today/)
+})
+
+test('closing threads: the owner as done, a role in it declines with a reason, people see it quietly, reopen it and list them all', async (t) => {
+  const { team, notified, db, youssef } = setup()
+  t.after(() => team.stop())
+  team.enable(youssef, 'seevil')
+  const ceo = team.createRole(youssef, 'seevil', { name: 'CEO', summary: '', instructions: '', model: null })
+  const cto = team.createRole(youssef, 'seevil', { name: 'CTO', summary: '', instructions: '', model: null })
+  const mkt = team.createRole(youssef, 'seevil', { name: 'Marketing', summary: '', instructions: '', model: null })
+  const fin = team.createRole(youssef, 'seevil', { name: 'Finance', summary: '', instructions: '', model: null })
+  const a = team.roleMessage(ceo.id, 'x', { to: 'marketing', cc: ['cto'], title: 'Post the v1 release on TikTok', kind: 'request', body: 'v1 is out.', evidence: 'tag v1.0.0' })
+
+  assert.throws(() => team.roleResolve(fin.id, a.thread, 'Not mine.', 'declined'), /not in thread #\d+/) // not in it
+  assert.throws(() => team.roleResolve(cto.id, a.thread, 'Posted.'), /Only the owner \(Marketing\) closes this thread as done/)
+  assert.throws(() => team.roleResolve(cto.id, a.thread, '  ', 'not_needed'), /Say why/)
+  const quiet = notified.length
+  team.roleResolve(cto.id, a.thread, 'Our app isn\'t for the TikTok crowd.', 'not_needed')
+  let th = team.thread(a.thread)
+  assert.equal(th.thread.status, 'resolved')
+  assert.equal(th.thread.closedAs, 'not_needed')
+  assert.equal(th.thread.closedBy, 'CTO')
+  assert.equal(th.messages.at(-1)!.body, 'Closed as not needed: Our app isn\'t for the TikTok crowd.')
+  assert.equal(notified.length, quiet) // nobody's phone goes off for a decline
+  assert.match(team.context(ceo.id), /closed since your last shift[^]*#\d+ Post the v1 release on TikTok: closed as not needed by CTO/)
+  assert.throws(() => team.roleMessage(ceo.id, 'x', { thread: a.thread, kind: 'reply', body: 'But…' }), /is resolved/)
+  assert.throws(() => team.roleResolve(mkt.id, a.thread, 'Posted.'), /already closed/)
+
+  // A person replying reopens it and clears how it was closed; then the owner closes it as done (no `as`: done).
+  db.prepare("update team_shifts set status = 'done', ended_at = unixepoch()").run()
+  team.postAsPerson(youssef, 'seevil', { thread: a.thread, kind: 'reply', body: 'We are on TikTok now. Post it.' })
+  th = team.thread(a.thread)
+  assert.deepEqual([th.thread.status, th.thread.closedAs, th.thread.closedBy], ['open', null, null])
+  team.roleResolve(mkt.id, a.thread, 'Posted.')
+  assert.deepEqual([team.thread(a.thread).thread.closedAs, team.thread(a.thread).thread.resolution], ['done', 'Posted.'])
+
+  // A duplicate points at the other thread; Reopen says who reopened it.
+  const b = team.roleMessage(ceo.id, 'x', { to: 'marketing', title: 'TikTok post for v1', kind: 'request', body: 'Post it.', evidence: 'tag v1.0.0' })
+  assert.throws(() => team.roleResolve(ceo.id, b.thread, 'Same.', 'duplicate', 9999), /no other thread #9999/)
+  team.roleResolve(ceo.id, b.thread, 'Same request.', 'duplicate', a.thread)
+  th = team.thread(b.thread)
+  assert.equal(th.thread.resolution, `Duplicate of #${a.thread} (Post the v1 release on TikTok): Same request.`)
+  assert.match(th.messages.at(-1)!.body, new RegExp(`^Closed as a duplicate of #${a.thread} `))
+  team.reopen(youssef, b.thread)
+  th = team.thread(b.thread)
+  assert.deepEqual([th.thread.status, th.thread.closedAs, th.messages.at(-1)!.body], ['open', null, 'Reopened by Youssef.'])
+
+  // Waiting for people: no role closes it.
+  const c = team.roleMessage(ceo.id, 'x', { to: 'finance', title: 'Cloud bill doubled', kind: 'fyi', body: 'See the invoice.', evidence: '$80 → $160' })
+  db.prepare('update team_threads set needs_people = 1 where id = ?').run(c.thread)
+  assert.throws(() => team.roleResolve(fin.id, c.thread, 'Fine.'), /waits for people/)
+
+  // The full list: waiting first, then open, then closed; filters by status, outcome, role and title.
+  const ids = (r: ReturnType<typeof team.threads>) => r.threads.map((x) => x.id)
+  assert.deepEqual(ids(team.threads('seevil', { status: 'all' })), [c.thread, b.thread, a.thread])
+  assert.deepEqual(ids(team.threads('seevil', { status: 'open' })), [c.thread, b.thread])
+  assert.deepEqual(ids(team.threads('seevil', { status: 'waiting' })), [c.thread])
+  assert.deepEqual(ids(team.threads('seevil', { status: 'closed' })), [a.thread])
+  assert.deepEqual(ids(team.threads('seevil', { status: 'all', outcome: 'done' })), [a.thread])
+  assert.deepEqual(ids(team.threads('seevil', { status: 'all', outcome: 'declined' })), [])
+  assert.deepEqual(ids(team.threads('seevil', { status: 'all', role: cto.id })), [a.thread])
+  assert.deepEqual(ids(team.threads('seevil', { status: 'all', q: 'tiktok' })), [b.thread, a.thread])
+  assert.deepEqual(team.threads('seevil', { status: 'all' }).counts, { open: 2, waiting: 1, closed: 1, all: 3 })
+  for (let i = 0; i < 30; i++) team.roleMessage(ceo.id, 'x', { to: 'cto', title: `Check ${i}`, kind: 'fyi', body: 'x', evidence: 'y' })
+  const page = team.threads('seevil', { status: 'all' })
+  assert.equal(page.threads.length, 30)
+  assert.equal(page.next, 30)
+  const rest = team.threads('seevil', { status: 'all' }, page.next!)
+  assert.equal(rest.next, null)
+  assert.equal(rest.threads.at(-1)!.id, a.thread) // closed ones last
+
+  // Over HTTP: the query string is checked and numbers come through.
+  const app = new Hono().route('/', teamRoutes(team, { requireUser: async (cx: Context, next: Next) => { cx.set('user', youssef); await next() } } as never))
+  const res = await app.request(`/projects/seevil/threads?status=closed&outcome=done&role=${cto.id}&q=TikTok&offset=0`)
+  assert.deepEqual((await res.json() as { threads: { id: number }[] }).threads.map((x) => x.id), [a.thread])
 })
 
 test('the lead\'s shift report goes to everyone as the digest', async (t) => {

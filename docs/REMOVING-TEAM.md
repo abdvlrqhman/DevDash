@@ -18,7 +18,7 @@ Team tab says it's off. Nothing is deleted.
    - `packages/claude-plugin/mcp/team.mjs`
 3. **Delete the plug-in lines** (each is marked `Team` or `Team (optional)`):
    - `apps/server/src/app.ts`: the `teamPlugin` import, `const team = teamPlugin(…)`, `.route('/api/team', …)`
-   - `apps/web/src/main.tsx`: the `teamRole`, `teamThread` and `approvals` routes and their entries in the route tree
+   - `apps/web/src/main.tsx`: the `teamRole`, `teamThreads`, `teamThread` and `approvals` routes and their entries in the route tree
    - `apps/web/src/features/projects/ProjectPage.tsx`: the `TeamTab` import, the Team tab trigger and its content
    - `apps/web/src/components/app/shell.tsx`: the `ApprovalsBadge` import, the Approvals nav item and its badge line
    - `apps/web/src/features/more/MorePage.tsx`: the Approvals link

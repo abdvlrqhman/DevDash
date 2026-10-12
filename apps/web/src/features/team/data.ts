@@ -1,4 +1,4 @@
-import { queryOptions, useQueryClient } from '@tanstack/react-query'
+import { infiniteQueryOptions, queryOptions, useQueryClient } from '@tanstack/react-query'
 import type { InferResponseType } from 'hono/client'
 import { api, unwrap } from '@/lib/api'
 import { useTopic } from '@/lib/live'
@@ -27,6 +27,28 @@ export const threadQuery = (id: number) => queryOptions({
   queryFn: () => unwrap(api.api.team.threads[':id'].$get({ param: { id: String(id) } })),
 })
 export type ThreadDetail = InferResponseType<typeof api.api.team.threads[':id']['$get']>
+export type ThreadStatus = 'open' | 'waiting' | 'closed' | 'all'
+export type ThreadFilter = { status: ThreadStatus; outcome?: CloseAs; role?: number; q?: string }
+/** All of a project's threads, open and closed, a page at a time. */
+export const threadsQuery = (slug: string, f: ThreadFilter) => infiniteQueryOptions({
+  queryKey: ['team', 'threads', slug, f],
+  queryFn: ({ pageParam }) => unwrap(api.api.team.projects[':slug'].threads.$get({
+    param: { slug },
+    query: { status: f.status, outcome: f.outcome, role: f.role, q: f.q || undefined, offset: String(pageParam) },
+  })),
+  initialPageParam: 0,
+  getNextPageParam: (last) => last.next ?? undefined,
+})
+export type ThreadItem = InferResponseType<typeof api.api.team.projects[':slug']['threads']['$get']>['threads'][number]
+export type CloseAs = 'done' | 'declined' | 'duplicate' | 'not_needed' | 'elsewhere'
+/** How a thread ended, in words, with a calm color each. */
+export const CLOSED_AS: Record<CloseAs, { label: string; tone: string }> = {
+  done: { label: 'Done', tone: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300' },
+  declined: { label: 'Declined', tone: 'bg-amber-500/15 text-amber-800 dark:text-amber-300' },
+  duplicate: { label: 'Duplicate', tone: 'bg-violet-500/15 text-violet-700 dark:text-violet-300' },
+  not_needed: { label: 'Not needed', tone: 'bg-slate-500/15 text-slate-700 dark:text-slate-300' },
+  elsewhere: { label: 'Handled elsewhere', tone: 'bg-sky-500/15 text-sky-700 dark:text-sky-300' },
+}
 export const MESSAGE_KINDS: Record<string, { label: string; tone: string }> = {
   alert: { label: 'Alert', tone: 'bg-destructive/15 text-destructive' },
   request: { label: 'Request', tone: 'bg-attention-soft text-attention-foreground dark:bg-attention/15 dark:text-attention' },

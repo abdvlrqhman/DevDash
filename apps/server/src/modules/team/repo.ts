@@ -24,8 +24,12 @@ export type GoalRow = {
 export type ThreadRow = {
   id: number; project_id: number; title: string; owner_role_id: number | null; status: 'open' | 'resolved'; needs_people: number
   opened_by: string; resolution: string | null; created_at: number; updated_at: number; resolved_at: number | null
-  owner_name: string | null; messages: number; last_at: number | null
+  closed_as: CloseAs | null; closed_by: string | null; owner_name: string | null; messages: number; last_at: number | null
 }
+/** How a thread was closed: done by its owner, or declined by a role in it (with a reason). */
+export const CLOSE_AS = ['done', 'declined', 'duplicate', 'not_needed', 'elsewhere'] as const
+export type CloseAs = typeof CLOSE_AS[number]
+export type ThreadFilter = { status: 'open' | 'waiting' | 'closed' | 'all'; outcome?: CloseAs; role?: number; q?: string }
 export type MessageKind = 'fyi' | 'question' | 'request' | 'alert' | 'reply'
 export type MessageRow = {
   id: number; thread_id: number; kind: MessageKind; body: string; evidence: string | null
@@ -88,11 +92,23 @@ export function teamRepo(db: Db) {
     thread: db.prepare(`select t.*, r.name as owner_name, (select count(*) from team_messages m where m.thread_id = t.id) as messages,
       (select max(created_at) from team_messages m where m.thread_id = t.id) as last_at
       from team_threads t left join team_roles r on r.id = t.owner_role_id where t.id = ?`),
+    // Everything in a project, people's list: waiting for people first, then open, then closed, each newest first.
+    threadList: db.prepare(`select t.*, r.name as owner_name, (select count(*) from team_messages m where m.thread_id = t.id) as messages,
+      (select max(created_at) from team_messages m where m.thread_id = t.id) as last_at
+      from team_threads t left join team_roles r on r.id = t.owner_role_id
+      where t.project_id = ?1 and (case ?2 when 'open' then t.status = 'open' when 'waiting' then t.status = 'open' and t.needs_people = 1
+        when 'closed' then t.status = 'resolved' else 1 end)
+      and (?3 is null or t.closed_as = ?3)
+      and (?4 is null or t.owner_role_id = ?4 or exists (select 1 from team_thread_roles tr where tr.thread_id = t.id and tr.role_id = ?4))
+      and (?5 is null or instr(lower(t.title), lower(?5)) > 0)
+      order by case when t.status = 'resolved' then 2 when t.needs_people then 0 else 1 end, t.updated_at desc, t.id desc limit ?6 offset ?7`),
+    threadCounts: db.prepare(`select count(*) filter (where status = 'open') as open, count(*) filter (where status = 'open' and needs_people = 1) as waiting,
+      count(*) filter (where status = 'resolved') as closed, count(*) as "all" from team_threads where project_id = ?`),
     openByTitle: db.prepare(`select id from team_threads where project_id = ? and status = 'open' and lower(trim(title)) = lower(trim(?))`),
     insertThread: db.prepare(`insert into team_threads (project_id, title, owner_role_id, opened_by) values (?, ?, ?, ?) returning id`),
     touchThread: db.prepare(`update team_threads set updated_at = unixepoch() where id = ?`),
-    threadState: db.prepare(`update team_threads set status = ?, resolution = ?, resolved_at = case when ? = 'resolved' then unixepoch() else null end,
-      needs_people = case when ? = 'open' then 0 else needs_people end, updated_at = unixepoch() where id = ?`),
+    threadState: db.prepare(`update team_threads set status = ?1, resolution = ?2, resolved_at = case when ?1 = 'resolved' then unixepoch() else null end,
+      needs_people = case when ?1 = 'open' then 0 else needs_people end, closed_as = ?3, closed_by = ?4, updated_at = unixepoch() where id = ?5`),
     needsPeople: db.prepare(`update team_threads set needs_people = ? where id = ?`),
     threadRoles: db.prepare(`select r.id, r.name, tr.seen from team_thread_roles tr join team_roles r on r.id = tr.role_id where tr.thread_id = ?`),
     addThreadRole: db.prepare(`insert or ignore into team_thread_roles (thread_id, role_id) values (?, ?)`),
@@ -100,6 +116,8 @@ export function teamRepo(db: Db) {
     roleThreads: db.prepare(`select t.id, t.title, t.status, t.needs_people, t.owner_role_id, tr.seen,
       (select max(id) from team_messages m where m.thread_id = t.id) as last_id
       from team_thread_roles tr join team_threads t on t.id = tr.thread_id where tr.role_id = ? and t.status = 'open' order by t.updated_at desc`),
+    roleClosed: db.prepare(`select t.id, t.title, t.closed_as, t.closed_by, t.resolution from team_thread_roles tr join team_threads t on t.id = tr.thread_id
+      where tr.role_id = ? and t.status = 'resolved' and t.resolved_at >= ? order by t.resolved_at desc limit 20`),
     messages: db.prepare(`select * from team_messages where thread_id = ? order by id`),
     insertMessage: db.prepare(`insert into team_messages (thread_id, kind, body, evidence, author_user_id, author_role_id, author_session_id, author_label)
       values (?, ?, ?, ?, ?, ?, ?, ?) returning id`),
@@ -190,13 +208,20 @@ export function teamRepo(db: Db) {
     insertThread: (projectId: number, title: string, ownerRoleId: number | null, openedBy: string) =>
       (s.insertThread.get(projectId, title, ownerRoleId, openedBy) as { id: number }).id,
     touchThread: (id: number) => void s.touchThread.run(id),
-    threadState: (id: number, status: 'open' | 'resolved', resolution: string | null) => void s.threadState.run(status, resolution, status, status, id),
+    threadList: (projectId: number, f: ThreadFilter, limit: number, offset: number) =>
+      all<ThreadRow>(s.threadList.all(projectId, f.status, f.outcome ?? null, f.role ?? null, f.q || null, limit, offset)),
+    threadCounts: (projectId: number) => plain<{ open: number; waiting: number; closed: number; all: number }>(s.threadCounts.get(projectId))!,
+    /** Open clears how it was closed; closing says how and who. */
+    threadState: (id: number, status: 'open' | 'resolved', resolution: string | null, closed?: { as: CloseAs; by: string }) =>
+      void s.threadState.run(status, resolution, closed?.as ?? null, closed?.by ?? null, id),
     needsPeople: (id: number, on: boolean) => void s.needsPeople.run(on ? 1 : 0, id),
     threadRoles: (threadId: number) => all<{ id: number; name: string; seen: number }>(s.threadRoles.all(threadId)),
     addThreadRole: (threadId: number, roleId: number) => void s.addThreadRole.run(threadId, roleId),
     seen: (threadId: number, roleId: number, messageId: number) => void s.seen.run(messageId, threadId, roleId),
     roleThreads: (roleId: number) =>
       all<{ id: number; title: string; status: string; needs_people: number; owner_role_id: number | null; seen: number; last_id: number | null }>(s.roleThreads.all(roleId)),
+    roleClosed: (roleId: number, since: number) =>
+      all<{ id: number; title: string; closed_as: CloseAs | null; closed_by: string | null; resolution: string | null }>(s.roleClosed.all(roleId, since)),
     messages: (threadId: number) => all<MessageRow>(s.messages.all(threadId)),
     insertMessage: (m: { threadId: number; kind: MessageKind; body: string; evidence: string | null; userId?: number; roleId?: number; sessionId?: string; label: string }) =>
       (s.insertMessage.get(m.threadId, m.kind, m.body, m.evidence, m.userId ?? null, m.roleId ?? null, m.sessionId ?? null, m.label) as { id: number }).id,

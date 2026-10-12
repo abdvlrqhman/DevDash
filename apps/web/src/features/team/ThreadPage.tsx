@@ -15,8 +15,8 @@ import { ErrorAlert } from '../auth/LoginPage'
 import { relativeTime } from '../claude/data'
 import { Prose } from '../claude/Prose'
 import { ProposalCard } from './Approvals'
-import { MESSAGE_KINDS, threadQuery, useLiveTeam, type ThreadDetail } from './data'
-import { RoleMark } from './TeamTab'
+import { CLOSED_AS, MESSAGE_KINDS, threadQuery, useLiveTeam, type ThreadDetail } from './data'
+import { OutcomeBadge, RoleMark } from './TeamTab'
 
 export function ThreadPage() {
   const { slug, thread } = useParams({ from: '/app/projects/$slug/team/threads/$thread' })
@@ -35,7 +35,7 @@ function ThreadView({ slug, id }: { slug: string; id: number }) {
     onError: (e) => toast.error(e.message),
   })
   const resolve = useMutation({
-    mutationFn: () => unwrap(api.api.team.threads[':id'].resolve.$post({ param: { id: String(id) }, json: { resolution: '' } })),
+    mutationFn: () => unwrap(api.api.team.threads[':id'].resolve.$post({ param: { id: String(id) }, json: { resolution: '', as: 'done' } })),
     onSuccess: refresh,
   })
   const reopen = useMutation({ mutationFn: () => unwrap(api.api.team.threads[':id'].reopen.$post({ param: { id: String(id) } })), onSuccess: refresh })
@@ -44,24 +44,35 @@ function ThreadView({ slug, id }: { slug: string; id: number }) {
   if (!q.data) return <><PageHeader title="Thread" back={`/projects/${slug}`} /><PageBody><Skeleton className="h-64" /></PageBody></>
   const { thread: t, messages, proposals } = q.data
   const open = t.status === 'open'
+  const declined = !open && !!t.closedAs && t.closedAs !== 'done'
 
   return (
     <>
       <PageHeader back={`/projects/${slug}`} title={t.title}
         description={<span className="flex items-center gap-1.5">
           <StatusLight state={!open ? 'idle' : t.needsPeople ? 'waiting' : 'live'} />
-          {!open ? 'Resolved' : t.needsPeople ? 'Waiting for people' : 'Open'}
+          {!open ? (declined ? CLOSED_AS[t.closedAs!].label : 'Resolved') : t.needsPeople ? 'Waiting for people' : 'Open'}
           <span className="truncate">· {t.owner ? `${t.owner.name} owns it` : 'Nobody owns it'}{t.roles.length > 1 ? ` · with ${t.roles.filter((r) => r.id !== t.owner?.id).map((r) => r.name).join(', ')}` : ''}</span>
         </span>}
         actions={open
           ? <Button size="sm" variant="outline" disabled={resolve.isPending} onClick={() => resolve.mutate()}><CheckCheck />Resolve</Button>
-          : <Button size="sm" variant="outline" disabled={reopen.isPending} onClick={() => reopen.mutate()}><RotateCcw />Reopen</Button>} />
+          : !declined && <Button size="sm" variant="outline" disabled={reopen.isPending} onClick={() => reopen.mutate()}><RotateCcw />Reopen</Button>} />
       <PageBody>
         <div className="flex max-w-3xl flex-col gap-5">
           {open && t.needsPeople && (
             <p className="rounded-xl border border-attention/40 bg-attention-soft px-4 py-3 text-sm text-attention-foreground dark:bg-attention/10 dark:text-attention">
               {t.owner ? 'The roles went back and forth without a decision. Reply to settle it; they carry on after you.' : 'No role owns this. Reply, or resolve it.'}
             </p>
+          )}
+          {declined && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border bg-muted/40 px-4 py-3 text-sm">
+              <OutcomeBadge as={t.closedAs} />
+              <p className="min-w-0 flex-1">
+                <span className="font-medium">{t.closedBy ?? 'A role'}</span> closed this{t.resolvedAt ? ` ${relativeTime(t.resolvedAt)}` : ''}{t.resolution ? <>: <span className="text-muted-foreground">{t.resolution}</span></> : '.'}
+                <span className="block text-xs text-muted-foreground">If it's needed after all, reopen it or reply below: replying reopens it.</span>
+              </p>
+              <Button size="sm" variant="outline" disabled={reopen.isPending} onClick={() => reopen.mutate()}><RotateCcw />Reopen</Button>
+            </div>
           )}
           {/* Proposals sit where they were made, so the newest message is always the one above the reply box. */}
           <ol className="flex flex-col gap-5">
@@ -72,12 +83,15 @@ function ThreadView({ slug, id }: { slug: string; id: number }) {
           <form className="flex items-end gap-2" onSubmit={(e) => { e.preventDefault(); if (body.trim()) reply.mutate() }}>
             <Textarea rows={2} value={body} maxLength={8000} onChange={(e) => setBody(e.target.value)} aria-label="Reply"
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer: coarse)').matches) { e.preventDefault(); if (body.trim()) reply.mutate() } }}
-              placeholder={t.owner ? `Reply to everyone here. ${t.owner.name} picks it up right away.` : 'Reply to everyone here.'}
+              placeholder={!open ? 'Reply to reopen it.' : t.owner ? `Reply to everyone here. ${t.owner.name} picks it up right away.` : 'Reply to everyone here.'}
               className="max-h-48 min-h-11 flex-1 resize-none [field-sizing:content]" />
             <Button type="submit" size="icon" className="size-11 shrink-0" aria-label="Send" disabled={!body.trim() || reply.isPending}><SendHorizontal /></Button>
           </form>
-          {t.resolution && <p className="text-sm text-muted-foreground">Outcome: {t.resolution}</p>}
-          <p className="text-xs text-muted-foreground">Opened by {t.openedBy}, {relativeTime(t.createdAt)}. <Link to="/projects/$slug" params={{ slug }} className="hover:underline">Back to the team</Link></p>
+          {t.resolution && !declined && <p className="text-sm text-muted-foreground">Outcome: {t.resolution}{t.closedBy ? ` (${t.closedBy})` : ''}</p>}
+          <p className="text-xs text-muted-foreground">
+            Opened by {t.openedBy}, {relativeTime(t.createdAt)}. <Link to="/projects/$slug/team/threads" params={{ slug }} className="hover:underline">All threads</Link>
+            {' · '}<Link to="/projects/$slug" params={{ slug }} className="hover:underline">Back to the team</Link>
+          </p>
         </div>
       </PageBody>
     </>

@@ -13,7 +13,7 @@ import type { Priority, TasksService } from '../tasks/service.ts'
 import { seal, unseal } from '../../core/crypto.ts'
 import type { AgentsService } from '../agents/service.ts'
 import { DIGEST_SYSTEM, GENERATE_SYSTEM, generatePrompt, roleSystem, roleTools, shiftPrompt } from './prompts.ts'
-import { teamRepo, type GoalRow, type MessageKind, type ProposalKind, type ProposalRow, type RoleRow, type SourceRow, type ThreadRow } from './repo.ts'
+import { teamRepo, type CloseAs, type GoalRow, type MessageKind, type ProposalKind, type ProposalRow, type RoleRow, type SourceRow, type ThreadFilter, type ThreadRow } from './repo.ts'
 import { dueSlots, localParts, nextRun, slotKey, TRIGGERS, validSlots, validTz, type Slot, type Trigger } from './schedule.ts'
 import { fetchHttp, fetchPage, queryPostgres, readOnlySql, rowsText, type SourceConfig, type SourceKind } from './sources.ts'
 
@@ -27,6 +27,12 @@ const PRIORITIES = new Set<Priority>(['none', 'low', 'medium', 'high', 'urgent']
 const HOP_LIMIT = 6 // role messages in a thread since a person last spoke, before it waits for people
 const ALERTS_PER_DAY = 5 // per sender, so one noisy session or role can't keep waking everyone
 export const MESSAGE_KINDS = ['fyi', 'question', 'request', 'alert', 'reply'] as const
+export { CLOSE_AS, type CloseAs } from './repo.ts'
+const THREADS_PAGE = 30
+/** The closing line in the thread, before the reason. */
+const CLOSED_LINE: Record<CloseAs, string> = {
+  done: 'Resolved', declined: 'Declined', duplicate: 'Closed as a duplicate', not_needed: 'Closed as not needed', elsewhere: 'Closed: handled elsewhere',
+}
 
 /** Who writes in a thread: a person, a role, or any Claude session in the project. */
 export type Author =
@@ -386,6 +392,7 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
 
   const threadDto = (t: ThreadRow) => ({
     id: t.id, title: t.title, status: t.status, needsPeople: !!t.needs_people, openedBy: t.opened_by, resolution: t.resolution,
+    closedAs: t.closed_as, closedBy: t.closed_by, resolvedAt: t.resolved_at,
     owner: t.owner_role_id ? { id: t.owner_role_id, name: t.owner_name } : null, messages: t.messages, lastAt: t.last_at ?? t.created_at,
     createdAt: t.created_at, roles: repo.threadRoles(t.id).map((r) => ({ id: r.id, name: r.name })),
   })
@@ -471,13 +478,38 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
     return { thread: t.id, message: id, note }
   }
 
-  function resolveThread(threadId: number, by: Author, resolution: string) {
+  /**
+   * Closes a thread. The owner (or a person) closes it as done or declines it; any other role in it may only decline it
+   * (not ours, a duplicate, not needed, handled elsewhere), always with a reason. People see it in the thread and the list,
+   * without their phones going off, and can reopen it.
+   */
+  function closeThread(threadId: number, by: Author, o: { as: CloseAs; reason: string; duplicateOf?: number }) {
     const t = repo.thread(threadId)
     if (!t) throw new AppError(404, 'not_found', 'No such thread.')
-    if (by.kind === 'role' && t.owner_role_id !== by.roleId) throw new AppError(403, 'not_owner', `Only the owner (${t.owner_name ?? 'people'}) closes this thread.`)
-    repo.threadState(threadId, 'resolved', resolution.trim().slice(0, 1000) || null)
+    if (t.status === 'resolved') throw new AppError(409, 'closed', `Thread #${t.id} is already closed.`)
+    const reason = o.reason.trim().replace(/\s+/g, ' ').slice(0, 1000)
+    if (by.kind === 'role') {
+      const owner = t.owner_role_id === by.roleId
+      if (!owner && !repo.threadRoles(t.id).some((r) => r.id === by.roleId)) {
+        throw new AppError(403, 'not_in_thread', `You're not in thread #${t.id}: only its owner and the roles in it close it.`)
+      }
+      if (t.needs_people) throw new AppError(409, 'waiting', `Thread #${t.id} waits for people now. Put your point in your report.`)
+      if (!owner && o.as === 'done') {
+        throw new AppError(403, 'not_owner', `Only the owner (${t.owner_name ?? 'people'}) closes this thread as done. If it isn't yours or isn't needed, decline it (as: declined, duplicate, not_needed or elsewhere) and say why.`)
+      }
+    }
+    if (o.as !== 'done' && !reason) throw new AppError(400, 'reason', 'Say why in one line: who has it, what it duplicates, or why it isn\'t needed.')
+    let dup = ''
+    if (o.as === 'duplicate' && o.duplicateOf) {
+      const other = repo.thread(o.duplicateOf)
+      if (!other || other.project_id !== t.project_id || other.id === t.id) throw new AppError(404, 'not_found', `There is no other thread #${o.duplicateOf} in this project.`)
+      dup = ` of #${other.id} (${clipText(other.title, 80)})`
+    }
+    const label = authorLabel(by)
+    const outcome = dup ? `Duplicate${dup}${reason ? `: ${reason}` : ''}` : reason
+    repo.threadState(threadId, 'resolved', outcome.slice(0, 1000) || null, { as: o.as, by: label })
     repo.insertMessage({
-      threadId, kind: 'fyi', body: `Resolved${resolution.trim() ? `: ${resolution.trim()}` : '.'}`, evidence: null, label: authorLabel(by),
+      threadId, kind: 'fyi', body: `${CLOSED_LINE[o.as]}${dup}${reason ? `: ${reason}` : '.'}`, evidence: null, label,
       userId: by.kind === 'person' ? by.user.id : undefined, roleId: by.kind === 'role' ? by.roleId : undefined,
     })
     changed(t.project_id)
@@ -494,7 +526,7 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
     const proposals = repo.threadProposals(threadId)
     return [
       `# Thread #${t.id}: ${t.title}`,
-      `Status: ${t.status}${t.needs_people ? ', waiting for people' : ''} · owner: ${t.owner_name ?? 'nobody (people decide)'} · opened by ${t.opened_by}`,
+      `Status: ${t.status === 'resolved' ? `closed (${t.closed_as ?? 'done'}) by ${t.closed_by ?? 'someone'}` : 'open'}${t.needs_people ? ', waiting for people' : ''} · owner: ${t.owner_name ?? 'nobody (people decide)'} · opened by ${t.opened_by}`,
       ...msgs.map((m) => `## ${m.author_label} · ${m.kind} · ${day(m.created_at)}\n${m.body}${m.evidence ? `\n\nEvidence:\n${m.evidence}` : ''}`),
       proposals.length ? `## Proposals in this thread\n${proposals.map((x) => `- [${x.status}] ${x.title}${x.reply ? ` (reply: "${x.reply}")` : ''}`).join('\n')}` : '',
     ].filter(Boolean).join('\n\n')
@@ -600,14 +632,28 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       const { p } = on(slug)
       return message(p.id, { kind: 'person', user }, input)
     },
-    resolveAsPerson(user: User, id: number, resolution: string) {
-      resolveThread(id, { kind: 'person', user }, resolution)
+    resolveAsPerson(user: User, id: number, resolution: string, as: CloseAs = 'done', duplicateOf?: number) {
+      closeThread(id, { kind: 'person', user }, { as, reason: resolution, duplicateOf })
     },
-    reopen(id: number) {
+    reopen(user: User, id: number) {
       const t = repo.thread(id)
       if (!t) throw new AppError(404, 'not_found', 'No such thread.')
+      if (t.status === 'open') return
       repo.threadState(id, 'open', null)
+      repo.insertMessage({ threadId: id, kind: 'fyi', body: `Reopened by ${user.name}.`, evidence: null, label: user.name, userId: user.id })
       changed(t.project_id)
+    },
+    /** All of a project's threads, open and closed, a page at a time (`offset` is the cursor `next` gave). */
+    threads(slug: string, f: ThreadFilter, offset = 0) {
+      const p = projects.bySlug(slug)
+      const rows = repo.threadList(p.id, f, THREADS_PAGE + 1, offset)
+      return {
+        project: { slug: p.slug, name: p.name },
+        threads: rows.slice(0, THREADS_PAGE).map(threadDto),
+        next: rows.length > THREADS_PAGE ? offset + THREADS_PAGE : null,
+        counts: repo.threadCounts(p.id),
+        roles: repo.roles(p.id).map((r) => ({ id: r.id, name: r.name })),
+      }
     },
 
     // ---- Data sources (people) ----
@@ -840,6 +886,7 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       const latest = (x: RoleRow) => repo.shifts(x.id, 3).find((s) => s.status !== 'running' && s.report)
       const mine = repo.roleThreads(r.id)
       const openThreads = repo.threads(p.id).filter((t) => t.status === 'open' && !mine.some((m) => m.id === t.id))
+      const closed = repo.roleClosed(r.id, since)
       return [
         `# ${p.name}: team context (${day(Date.now() / 1000)} UTC)`,
         `## Brief\n${brief || '(No brief yet. Ask the team for one, or suggest one in your report.)'}`,
@@ -850,7 +897,8 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
           return `- ${x.name}${x.summary ? `: ${x.summary}` : ''}${s ? `\n  Latest report (${day(s.ended_at ?? s.started_at)}): ${clipText(s.report!.replace(/\s+/g, ' '), 600)}` : ''}`
         }).join('\n')}`.trim(),
         `## Your proposals waiting for people\n${waiting.length ? waiting.map((x) => `- [${x.kind}] ${x.title} (since ${day(x.created_at)})`).join('\n') : '(none)'}`,
-        `## Your threads\n${mine.length ? mine.map((t) => `- #${t.id} ${t.title}${t.owner_role_id === r.id ? ' (you own it)' : ''}${t.needs_people ? ' (waiting for people)' : ''}${(t.last_id ?? 0) > t.seen ? ' — NEW MESSAGES: read with team_thread' : ''}`).join('\n') : '(none)'}`,
+        `## Your threads\n${mine.length ? mine.map((t) => `- #${t.id} ${t.title}${t.owner_role_id === r.id ? ' (you own it)' : ' (you\'re in it: you may decline it)'}${t.needs_people ? ' (waiting for people)' : ''}${(t.last_id ?? 0) > t.seen ? ' — NEW MESSAGES: read with team_thread' : ''}`).join('\n') : '(none)'}`,
+        ...(closed.length ? [`## Your threads closed since your last shift (people may reopen them)\n${closed.map((t) => `- #${t.id} ${t.title}: ${t.closed_as === 'done' || !t.closed_as ? 'resolved' : `closed as ${t.closed_as.replace('_', ' ')}`} by ${t.closed_by ?? 'someone'}${t.resolution ? ` (${clipText(t.resolution, 200)})` : ''}`).join('\n')}`] : []),
         `## Other open threads (add to these instead of opening the same one)\n${openThreads.length ? openThreads.map((t) => `- #${t.id} ${t.title} (owner: ${t.owner_name ?? 'people'})`).join('\n') : '(none)'}`,
         `## Data sources\n${repo.sources(p.id).length ? repo.sources(p.id).map((x) => `- ${x.name} (${x.kind})${x.description ? `: ${x.description}` : ''}`).join('\n') : '(none yet)'}`,
         `## Your notebook, newest first\n${notes.length ? notes.map((n) => `- ${n.body}${n.source === 'person' ? ` (${n.user_name ?? 'a person'})` : ''} [${day(n.created_at)}]`).join('\n') : '(empty)'}`,
@@ -885,11 +933,11 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       return message(p.id, { kind: 'role', roleId, sessionId }, input)
     },
     roleThread: (roleId: number, threadId: number) => threadText(roleId, threadId),
-    roleResolve(roleId: number, threadId: number, resolution: string) {
+    roleResolve(roleId: number, threadId: number, resolution: string, as: CloseAs = 'done', duplicateOf?: number) {
       const { p } = findRole(roleId)
       const t = repo.thread(threadId)
       if (!t || t.project_id !== p.id) throw new AppError(404, 'not_found', `There is no thread #${threadId} in this project.`)
-      resolveThread(threadId, { kind: 'role', roleId }, resolution)
+      closeThread(threadId, { kind: 'role', roleId }, { as, reason: resolution, duplicateOf })
     },
     roleSources(roleId: number) {
       const { p } = findRole(roleId)

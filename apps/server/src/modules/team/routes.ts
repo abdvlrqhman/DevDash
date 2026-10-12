@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { AppError, json, query } from '../../core/http.ts'
 import type { AuthEnv, authMiddleware } from '../auth/routes.ts'
 import { TRIGGERS } from './schedule.ts'
-import { MESSAGE_KINDS, MODELS, type TeamService } from './service.ts'
+import { CLOSE_AS, MESSAGE_KINDS, MODELS, type TeamService } from './service.ts'
 import { SOURCE_KINDS } from './sources.ts'
 
 const RoleInput = z.object({
@@ -70,17 +70,27 @@ export function teamRoutes(team: TeamService | null, mw: ReturnType<typeof authM
     })
     .post('/projects/:slug/threads', json(Message.extend({ title: z.string().trim().min(1).max(200) })), (c) =>
       c.json(t().postAsPerson(c.get('user'), c.req.param('slug'), c.req.valid('json'))))
+    .get('/projects/:slug/threads', query(z.object({
+      status: z.enum(['open', 'waiting', 'closed', 'all']).default('all'), outcome: z.enum(CLOSE_AS).optional(),
+      role: z.coerce.number().int().min(1).optional(), q: z.string().trim().max(200).optional(), offset: z.coerce.number().int().min(0).default(0),
+    })), (c) => {
+      const { offset, ...f } = c.req.valid('query')
+      return c.json(t().threads(c.req.param('slug'), f, offset))
+    })
     .get('/threads/:id', (c) => c.json(t().thread(id(c.req.param('id')))))
     .post('/threads/:id/messages', json(Message), (c) => {
       const th = t().thread(id(c.req.param('id')))
       return c.json(t().postAsPerson(c.get('user'), th.project.slug, { ...c.req.valid('json'), thread: th.thread.id }))
     })
-    .post('/threads/:id/resolve', json(z.object({ resolution: z.string().max(1000).default('') })), (c) => {
-      t().resolveAsPerson(c.get('user'), id(c.req.param('id')), c.req.valid('json').resolution)
+    .post('/threads/:id/resolve', json(z.object({
+      resolution: z.string().max(1000).default(''), as: z.enum(CLOSE_AS).default('done'), duplicateOf: z.number().int().min(1).optional(),
+    })), (c) => {
+      const { resolution, as, duplicateOf } = c.req.valid('json')
+      t().resolveAsPerson(c.get('user'), id(c.req.param('id')), resolution, as, duplicateOf)
       return c.json({ ok: true })
     })
     .post('/threads/:id/reopen', (c) => {
-      t().reopen(id(c.req.param('id')))
+      t().reopen(c.get('user'), id(c.req.param('id')))
       return c.json({ ok: true })
     })
     .post('/projects/:slug/sources', json(Source), (c) => {

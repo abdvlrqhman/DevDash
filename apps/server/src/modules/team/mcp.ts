@@ -1,6 +1,6 @@
 import { AppError } from '../../core/http.ts'
 import type { AgentsService } from '../agents/service.ts'
-import { KINDS, MESSAGE_KINDS, type MessageInput, type ProposalInput, type TeamService } from './service.ts'
+import { CLOSE_AS, KINDS, MESSAGE_KINDS, type CloseAs, type MessageInput, type ProposalInput, type TeamService } from './service.ts'
 import { SOURCE_KINDS, type SourceConfig, type SourceKind } from './sources.ts'
 
 type Ctx = { sessionId?: string | null; args?: Record<string, unknown> }
@@ -120,8 +120,12 @@ export function registerTeamMcp(agents: AgentsService, team: TeamService) {
   agents.onRpc('mcp.team_resolve', (username, params) => {
     const c = role(username, params)
     if (!Number.isInteger(c.args.id)) throw new AppError(400, 'bad_args', 'Give the thread id.')
-    team.roleResolve(c.r.id, c.args.id as number, typeof c.args.resolution === 'string' ? c.args.resolution : '')
-    return `Thread #${c.args.id} resolved.`
+    // No `as`: done, as before (only the owner may). Any other role in the thread may decline it, with the reason.
+    const as = String(c.args.as ?? 'done')
+    if (!(CLOSE_AS as readonly string[]).includes(as)) throw new AppError(400, 'bad_args', `as is one of: ${CLOSE_AS.join(', ')}.`)
+    team.roleResolve(c.r.id, c.args.id as number, typeof c.args.resolution === 'string' ? c.args.resolution : '', as as CloseAs,
+      Number.isInteger(c.args.duplicate_of) ? (c.args.duplicate_of as number) : undefined)
+    return as === 'done' ? `Thread #${c.args.id} resolved.` : `Thread #${c.args.id} closed (${as.replace('_', ' ')}). People see why and can reopen it.`
   })
   agents.onRpc('mcp.team_sources', (username, params) => team.roleSources(role(username, params).r.id))
   agents.onRpc('mcp.team_query', (username, params) => {

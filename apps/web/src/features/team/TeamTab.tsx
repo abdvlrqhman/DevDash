@@ -13,7 +13,7 @@ import { api, unwrap } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ErrorAlert } from '../auth/LoginPage'
 import { relativeTime } from '../claude/data'
-import { firstLine, nextLabel, roleMark, roleTone, teamQuery, useLiveTeam, type Role, type Team } from './data'
+import { CLOSED_AS, firstLine, nextLabel, roleMark, roleTone, teamQuery, useLiveTeam, type CloseAs, type Role, type Team } from './data'
 import { RoleDialog } from './RoleDialog'
 import { Sources } from './Sources'
 import { Prose } from '../claude/Prose'
@@ -164,6 +164,12 @@ export function RoleMark({ id, name, className }: { id: number; name: string; cl
   return <div aria-hidden className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg text-xs font-semibold', roleTone(id), className)}>{roleMark(name)}</div>
 }
 
+/** How a closed thread ended: Done, Declined, Duplicate, Not needed, Handled elsewhere. */
+export function OutcomeBadge({ as, className }: { as: CloseAs | null; className?: string }) {
+  const o = CLOSED_AS[as ?? 'done']
+  return <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium', o.tone, className)}>{o.label}</span>
+}
+
 function RoleCard({ slug, r }: { slug: string; r: Role }) {
   const last = r.lastShift
   return (
@@ -204,7 +210,10 @@ function Threads({ slug, threads, roles }: { slug: string; threads: Team['thread
   })
   return (
     <Block title="Threads" description="Issues roles, sessions and people raise. One owner, everyone involved in one place."
-      action={<Button size="sm" variant="ghost" onClick={() => setOpen(true)}><Plus />New</Button>}>
+      action={<div className="flex gap-1">
+        <Button size="sm" variant="ghost" asChild><Link to="/projects/$slug/team/threads" params={{ slug }}>All threads</Link></Button>
+        <Button size="sm" variant="ghost" onClick={() => setOpen(true)}><Plus />New</Button>
+      </div>}>
       {threads.length ? (
         <ul className="flex flex-col divide-y rounded-xl border">
           {threads.map((x) => (
@@ -212,8 +221,9 @@ function Threads({ slug, threads, roles }: { slug: string; threads: Team['thread
               <Link to="/projects/$slug/team/threads/$thread" params={{ slug, thread: String(x.id) }} className={cn('flex flex-wrap items-center gap-x-3 gap-y-1 px-3.5 py-2.5 text-sm hover:bg-accent/40', x.status === 'resolved' && 'opacity-60')}>
                 <StatusLight state={x.status === 'resolved' ? 'idle' : x.needsPeople ? 'waiting' : 'live'} />
                 <span className="min-w-0 flex-1 truncate font-medium">{x.title}</span>
+                {x.status === 'resolved' && <OutcomeBadge as={x.closedAs} />}
                 <span className="text-xs text-muted-foreground">
-                  {x.status === 'resolved' ? 'Resolved' : x.needsPeople ? 'Needs you' : x.owner ? x.owner.name : 'Nobody owns it'} · {x.messages} · {relativeTime(x.lastAt)}
+                  {x.status === 'resolved' ? (x.closedBy ? `By ${x.closedBy}` : 'Closed') : x.needsPeople ? 'Needs you' : x.owner ? x.owner.name : 'Nobody owns it'} · {x.messages} · {relativeTime(x.lastAt)}
                 </span>
               </Link>
             </li>
