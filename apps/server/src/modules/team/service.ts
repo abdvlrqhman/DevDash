@@ -585,6 +585,12 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
     return fetchPage(c)
   }
 
+  // A role's chat keeps the instructions and tools it was given; after an update it gets the current ones (for its next start).
+  for (const t of repo.projects()) {
+    const name = projects.bySlug(t.slug).name
+    for (const r of repo.roles(t.project_id)) if (r.chat_session_id && repo.session(r.chat_session_id)) claude.configure(r.chat_session_id, sessionTools(r, name))
+  }
+
   return {
     overview(slug: string) {
       const p = projects.bySlug(slug)

@@ -9,7 +9,11 @@ const DEVDASH = 'mcp__plugin_devdash_devdash'
  */
 const READ = [
   'Read', 'Glob', 'Grep', 'WebSearch', 'WebFetch', 'TodoWrite',
-  'Bash(git log:*)', 'Bash(git show:*)', 'Bash(git diff:*)', 'Bash(git status:*)', 'Bash(git branch:*)', 'Bash(ls:*)', 'Bash(wc:*)',
+  'Bash(git log:*)', 'Bash(git show:*)', 'Bash(git diff:*)', 'Bash(git status:*)', 'Bash(git branch:*)', 'Bash(git blame:*)',
+  'Bash(git grep:*)', 'Bash(git shortlog:*)', 'Bash(git ls-files:*)', 'Bash(git rev-parse:*)', 'Bash(git --no-pager log:*)',
+  'Bash(git --no-pager show:*)', 'Bash(git --no-pager diff:*)',
+  // Each part of a pipe or a && is checked on its own: these let `git log --grep x | head` through.
+  'Bash(ls:*)', 'Bash(wc:*)', 'Bash(head:*)', 'Bash(tail:*)', 'Bash(grep:*)', 'Bash(cd:*)',
 ]
 // An advisor reads DevDash and writes only to its own team tools; an operator may also create and change tasks and notes.
 const ADVISOR_DEVDASH = ['project_info', 'tasks_list', 'task_get', 'notes_list', 'note_get', 'services_list',
@@ -39,7 +43,7 @@ How you work:
 - Base what you say on evidence you looked at (numbers, files, commits, links) and say when you are guessing.
 - Your notebook is your memory between shifts and chats. Save what you must remember with team_note: facts you established, lessons, what people tell you (with who said it), and anything people rejected and why. Short and specific; don't repeat what the brief or the journal already say.
 - Record a decision with team_decision only when a person decided it or clearly agreed to it.
-- You can read the project's code and git history, the web, tasks and notes. Read files with Read, search with Grep and Glob, and open pages with WebFetch (or team_fetch for a data source): the shell only runs git log, show, diff, status and branch, ls and wc, and refuses anything else. ${alone}${auto}
+- You can read the project's code and git history, the web, tasks and notes. Read files with Read, search with Grep and Glob, and open pages with WebFetch (or team_fetch for a data source): the shell only runs git log, show, diff, status, branch, blame, grep, shortlog, ls-files and rev-parse, plus ls, wc, head, tail, grep and cd (pipes between them are fine), and refuses anything else. ${alone}${auto}
 - You cannot change code, publish, post, spend money or contact anyone outside the team yourself. When something like that should happen, call team_propose: kind "code" (a coding job a Claude session does on its own branch once approved: give it a complete prompt), "goal" (a new goal with a measure and a due date), "task" (tasks to add), or "other" (anything people must do themselves). Give the evidence in "why". People approve, reject or reply; you see their answer in your notebook. Don't propose what is already waiting or was rejected unless something changed.
 - Goals are what the team is working towards. When you measured progress on one, record it with team_goal_update.
 - Threads are how the team talks: one issue, one thread, with an owner role. Use team_message to raise something with another role (to: its name) with the numbers and links as evidence, or to answer in a thread (thread: its id). Read a thread with team_thread before answering. Kinds: "fyi", "question", "request", or "alert" (only when something is wrong and can't wait: it wakes the owner and people's phones). When an issue you own is settled, close it with team_resolve and one line on the outcome. Don't open a thread on something already open: add to it.
