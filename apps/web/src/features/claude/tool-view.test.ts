@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { buildTranscript, type Raw, type ToolBlock } from './transcript.ts'
-import { diff, mcpName, toolView } from './tool-view.ts'
+import { diff, mcpName, toolFile, toolView } from './tool-view.ts'
 
 const tool = (name: string, input: Record<string, unknown>, result?: string, extra: Partial<ToolBlock['result']> = {}): ToolBlock =>
   ({ kind: 'tool', key: 'k', id: 'i', name, input, children: [], result: result === undefined ? undefined : { text: result, isError: false, images: [], ...extra } })
@@ -40,6 +40,16 @@ test('each tool reads as what it did', () => {
   const asked = toolView(tool('AskUserQuestion', { questions: [{ question: 'Which DB?' }] }, 'User has answered your questions: "Which DB?"="Postgres". You can now continue.'))
   assert.deepEqual(asked.inline, { kind: 'fields', fields: [['Which DB?', 'Postgres']] })
   assert.equal(toolView(tool('SomethingNew', { a: 1 }, 'done')).verb, 'Something New', 'tools nobody has seen yet still read')
+})
+
+test('steps on a file know which file, so it can open in the viewer', () => {
+  assert.deepEqual(toolFile(tool('Read', { file_path: '/srv/app/a.ts', offset: 120, limit: 40 })), { file: '/srv/app/a.ts', line: 120 })
+  assert.deepEqual(toolFile(tool('Edit', { file_path: '/srv/app/a.ts', old_string: 'a', new_string: 'b' })), { file: '/srv/app/a.ts', line: undefined })
+  assert.equal(toolFile(tool('NotebookEdit', { notebook_path: '/srv/n.ipynb', new_source: 'x' })).file, '/srv/n.ipynb')
+  assert.equal(toolView(tool('Write', { file_path: '/a/new.md', content: 'x' })).file, '/a/new.md')
+  assert.equal(toolView(tool('mcp__x__save', { file_path: '/a/out.csv' })).file, '/a/out.csv')
+  assert.equal(toolView(tool('Grep', { pattern: 'x', path: '/srv/app' })).file, undefined, 'folders are not files')
+  assert.equal(toolView(tool('Bash', { command: 'ls' })).file, undefined)
 })
 
 test('diffs keep two lines of context and only the change', () => {

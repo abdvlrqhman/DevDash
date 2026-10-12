@@ -18,6 +18,7 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { api, meQuery, unwrap } from '@/lib/api'
 import { ErrorAlert } from '../auth/LoginPage'
+import { FileViewerProvider } from '../files/FileViewer'
 import { KeyBar } from '../terminal/KeyBar'
 import { TerminalView, type Mods, type Status as TermStatus, type TerminalHandle } from '../terminal/TerminalView'
 import { ModelChoices } from './ModelChoices'
@@ -225,7 +226,9 @@ function SessionView({ id }: { id: string }) {
   const showComments = s.shared || commentCount > 0
 
 
+  // File paths in the conversation open in the file viewer, relative ones from the session's folder.
   return (
+    <FileViewerProvider cwd={s.cwd} username={s.owner.username}>
     <div className="flex h-full flex-col">
       <PageHeader back="/claude" backOnSmall
         title={s.title}
@@ -292,6 +295,7 @@ function SessionView({ id }: { id: string }) {
         </ResponsiveDialog>
       )}
     </div>
+    </FileViewerProvider>
   )
 }
 

@@ -43,5 +43,18 @@ export function agentFile(sock: Socket): Promise<{ name: string; size: number; b
   })
 }
 
+/** A file's bytes as text, or null when it looks binary (a NUL byte early on, or not UTF-8). */
+export function asText(buf: Uint8Array) {
+  if (buf.subarray(0, 8000).includes(0)) return null
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buf) } catch { return null }
+}
+
+/** A whole (already size-checked) body in memory. */
+export async function readAll(body: ReadableStream<Uint8Array>) {
+  const parts: Uint8Array[] = []
+  for await (const chunk of body) parts.push(chunk)
+  return Buffer.concat(parts)
+}
+
 /** RFC 6266 attachment header that survives any file name. */
 export const attachment = (name: string) => `attachment; filename="${name.replace(/[^\x20-\x7e]|["\\]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(name)}`
