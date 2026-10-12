@@ -88,6 +88,14 @@ test('a session in DevDash\'s own project asks; admins hear; an admin deploys; t
   await assert.rejects(deploys.request(abdo, {}), /4444444 is already live/)
 })
 
+test('a deploy that went live counts as done even after systemd forgot its unit (the new server resumes watching it)', async () => {
+  const { deploys, unit, until, status, youssef } = setup()
+  unit.push(...Array(40).fill({ state: 'inactive', result: 'success', ran: false }))
+  const d = await deploys.start(youssef, {})
+  await until(() => status(d.id).status !== 'running')
+  assert.deepEqual({ ...status(d.id) }, { status: 'done', log: null })
+})
+
 test('a failed deploy keeps its output; admins decline requests; older commits stay as rollback requests', async () => {
   const { deploys, notified, unit, until, status, youssef, abdo, main } = setup()
   await assert.rejects(deploys.request(abdo, { commit: 'zz' }), /Give a commit id/)

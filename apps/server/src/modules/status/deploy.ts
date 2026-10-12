@@ -136,9 +136,11 @@ export function deployService({ db, agents, projects, notify, runDir, repo, live
         }
         if (!s) continue
         if (s.state === 'activating' || s.state === 'active' || s.state === 'reloading') continue
+        // systemd forgets a finished one-shot unit (it then reads as never run), so the live release is the proof it worked.
+        const isLive = live()?.id === r.sha.slice(0, 12)
         // The unit hasn't started yet (or systemd forgot it): give it a minute before calling it lost.
-        if (!s.ran && s.state !== 'failed' && Date.now() - began < 12 * pollMs) continue
-        const ok = s.ran && s.result === 'success' && live()?.id === r.sha.slice(0, 12)
+        if (!s.ran && !isLive && s.state !== 'failed' && Date.now() - began < 12 * pollMs) continue
+        const ok = isLive && (s.ran ? s.result === 'success' : s.state !== 'failed')
         q.finish.run(ok ? 'done' : 'failed', ok ? null : (s.log?.trim() || (s.ran ? 'The deploy failed.' : 'The deploy never started.')), id)
         tell([r.requested_by, r.decided_by], ok
           ? { title: `DevDash updated to ${short(r.sha)}`, body: 'The new version is live.' }
