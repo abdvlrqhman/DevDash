@@ -15,6 +15,8 @@ Needs a fresh Ubuntu 24.04 server and a domain proxied by Cloudflare.
 
 TLS: until `/etc/caddy/certs/origin.crt` (a Cloudflare Origin CA certificate) exists, Caddy serves an internal certificate. Re-run step 2 after adding it.
 
+Updates: after the first deploy, admins can also deploy from the Server page. It lists new commits on GitHub `main` and requests from members (and from Claude sessions in DevDash's own project, which can ask but never deploy themselves); the server fetches the commit, builds it, restarts and rolls back if it's unhealthy. A fork sets `DEVDASH_REPO=owner/name` in `/etc/devdash/devdash.env`.
+
 ## Develop
 
 ```sh

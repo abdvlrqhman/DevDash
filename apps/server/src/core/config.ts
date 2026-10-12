@@ -15,11 +15,18 @@ export type Config = {
   /** Port of the services site (https://<space>:<port>/service/<name>/), a separate origin from DevDash. */
   servicesPort: number
   version: string
+  /** DevDash's own GitHub repository ("owner/name"): what the Server page offers to deploy. */
+  repo: string
 }
 
 function need(name: string): string {
   const v = process.env[name]
   if (!v) throw new Error(`missing environment variable ${name} (see .env.example)`)
+  return v
+}
+
+function repo(v: string) {
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(v)) throw new Error('DEVDASH_REPO must be owner/name of a GitHub repository')
   return v
 }
 
@@ -42,5 +49,6 @@ export function loadConfig(): Config {
     projectsRoot: process.env.DEVDASH_PROJECTS_ROOT || '/srv/devdash',
     servicesPort: Number(process.env.DEVDASH_SERVICES_PORT || 8443),
     version: pkg.version,
+    repo: repo(process.env.DEVDASH_REPO || 'abdvlrqhman/DevDash'),
   }
 }

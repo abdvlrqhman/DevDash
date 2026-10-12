@@ -85,6 +85,8 @@ export function statusService({ db, agents, services, browser, runDir, dataDir, 
   }
 
   return {
+    release,
+
     async get(admin: boolean) {
       const [agentStates, browserState] = await Promise.all([
         Promise.all((members.all() as { username: string; name: string }[]).map(async (m) => {

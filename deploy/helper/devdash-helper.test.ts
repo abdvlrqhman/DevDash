@@ -61,6 +61,22 @@ test('set-password: validated, sent to chpasswd on stdin (never on the command l
   assert.match(call({ cmd: 'set-password', args: { username: 'alice', password: 'long enough pw' } }, { DEVDASH_HELPER_FAKE_UID: '33' }).error!, /refused: not a member/)
 })
 
+test('deploy: only full commit ids, one at a time, in the background', () => {
+  const sha = 'a'.repeat(40)
+  const r = call({ cmd: 'deploy', args: { sha } })
+  assert.equal(r.ok, true)
+  assert.equal(r.planned.at(-1), `systemctl start --no-block devdash-deploy@${sha}.service`)
+  assert.ok(r.planned[0].startsWith('systemctl list-units'), 'checks for a running deploy first')
+  for (const bad of ['main', 'a'.repeat(12), 'A'.repeat(40), `${'a'.repeat(39)};`, `${'a'.repeat(40)} x`, 42]) {
+    assert.match(call({ cmd: 'deploy', args: { sha: bad } }).error!, /refused: not a full commit id/, String(bad))
+    assert.match(call({ cmd: 'deploy-status', args: { sha: bad } }).error!, /refused: not a full commit id/, String(bad))
+  }
+  const s = call({ cmd: 'deploy-status', args: { sha } }) as unknown as { ok: boolean; ran: boolean; planned: string[] }
+  assert.equal(s.ok, true)
+  assert.equal(s.ran, false)
+  assert.deepEqual(s.planned, [])
+})
+
 test('claude-update starts the update unit without waiting; its status is read-only', () => {
   const r = call({ cmd: 'claude-update' })
   assert.equal(r.ok, true)

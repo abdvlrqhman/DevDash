@@ -47,8 +47,15 @@ function call(method, params) {
   })
 }
 
+// Updating DevDash itself: only in sessions of DevDash's own project (its GitHub repository), asked once at start.
+const DEPLOY_TOOLS = [
+  { name: 'devdash_deploy_status', description: "This DevDash server's own version: the live commit, commits on GitHub main not deployed yet, a deploy running or how the last one went (with its output if it failed), and requests waiting for an admin.", inputSchema: obj({}) },
+  { name: 'devdash_deploy_request', description: "Ask the admins to deploy DevDash on this server: the newest commit on GitHub main, or `commit`. Push to main first; only commits on main can be deployed. An admin approves with one tap on the Server page, then the server builds, restarts and health-checks itself (rolling back if unhealthy). Ask only when the person wants it live. You can't deploy any other way: there is no sudo or root SSH.", inputSchema: obj({ commit: { type: 'string', description: 'A commit id on main. Omit for the newest.' }, note: { type: 'string', description: 'What it brings, in a line or two, for the admin who approves.' } }) },
+]
+const deployTools = () => call('mcp.devdash_here', { ...context, args: {} }).then((r) => (r?.here ? DEPLOY_TOOLS : []), () => [])
+
 let listed
-const tools = () => (listed ??= teamTools(call, context).then((team) => [...TOOLS, ...team]))
+const tools = () => (listed ??= Promise.all([teamTools(call, context), deployTools()]).then(([team, deploy]) => [...TOOLS, ...deploy, ...team]))
 
 const send = (msg) => process.stdout.write(JSON.stringify(msg) + '\n')
 

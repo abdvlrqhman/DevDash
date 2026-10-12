@@ -19,6 +19,7 @@ import { browserService } from './modules/browser/service.ts'
 import { statusRoutes } from './modules/status/routes.ts'
 import { servicePages } from './modules/previews/service.ts'
 import { statusService } from './modules/status/service.ts'
+import { deployService } from './modules/status/deploy.ts'
 import { vaultService } from './modules/vault/service.ts'
 import { buildsService } from './modules/builds/service.ts'
 import { notesRoutes } from './modules/notes/routes.ts'
@@ -89,6 +90,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   const browser = browserService({ db, runDir: config.runDir, dataDir: config.dataDir, masterKey: config.masterKey, origin: config.origin })
   const team = teamPlugin({ db, hub, agents, claude, projects, activity, tasks, notify: notifications.notify, masterKey: config.masterKey, mw }) // Team
   const status = statusService({ db, agents, services, browser, runDir: config.runDir, dataDir: config.dataDir, version: config.version })
+  const deploys = deployService({ db, agents, projects, notify: notifications.notify, runDir: config.runDir, repo: config.repo, live: status.release })
   const app = new Hono()
     // Requests from the services site (port 8443) are proxied to services, never mixed with DevDash's routes.
     .use('*', previews.middleware)
@@ -115,7 +117,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     .route('/api/builds', buildsRoutes(builds, mw))
     .route('/api/vault', vaultRoutes(vault, mw))
     .route('/api/browser', browserRoutes(browser, mw))
-    .route('/api/status', statusRoutes(status, mw))
+    .route('/api/status', statusRoutes(status, deploys, mw))
     .route('/api/team', team.routes) // Team
     .route('/api', searchRoutes({ db, search, notes, projects, claude, services, activity }, mw))
 
@@ -127,6 +129,8 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   })
 
   registerMcp({ db, agents, projects, tasks, notes, services })
+  deploys.registerMcp()
+  deploys.resume()
   projects.start()
   return { app, auth, provisioning, terms, agents, claude, services, projects, tasks, notes, hub, previews }
 }

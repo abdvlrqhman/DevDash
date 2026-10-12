@@ -1,6 +1,7 @@
 import { AppError } from '../../core/http.ts'
 import type { AgentsService } from '../agents/service.ts'
 import { KINDS, MESSAGE_KINDS, type MessageInput, type ProposalInput, type TeamService } from './service.ts'
+import { SOURCE_KINDS, type SourceConfig, type SourceKind } from './sources.ts'
 
 type Ctx = { sessionId?: string | null; args?: Record<string, unknown> }
 
@@ -46,10 +47,10 @@ export function registerTeamMcp(agents: AgentsService, team: TeamService) {
     const found = team.roleOf(username, c.sessionId ?? null)
     return sent(found ? team.roleMessage(found.r.id, c.sessionId!, input) : team.sessionMessage(username, c.sessionId ?? '', input))
   })
-  // Managing roles: a person's own sessions only. A role is a member of the team, not its manager.
+  // Managing roles and data sources: a person's own sessions only. A role is a member of the team, not its manager.
   const personSession = (username: string, params: unknown) => {
     const c = (params ?? {}) as Ctx
-    if (team.roleOf(username, c.sessionId ?? null)) throw new AppError(403, 'role', 'Roles can\'t create or change roles. Suggest it to people in your report.')
+    if (team.roleOf(username, c.sessionId ?? null)) throw new AppError(403, 'role', 'Roles can\'t change the team\'s setup (roles, data sources). Suggest it to people in your report.')
     return { sessionId: c.sessionId ?? '', args: c.args ?? {} }
   }
   agents.onRpc('mcp.team_roles', (username, params) => team.sessionRoles(username, personSession(username, params).sessionId))
@@ -75,6 +76,41 @@ export function registerTeamMcp(agents: AgentsService, team: TeamService) {
       autonomy: typeof a.autonomy === 'string' ? a.autonomy : undefined,
       paused: typeof a.paused === 'boolean' ? a.paused : undefined, lead: typeof a.lead === 'boolean' ? a.lead : undefined,
     })
+  })
+  // Data sources: a person's own sessions too ("connect our database for the team"). Keys are best pasted on the Team tab.
+  const sourceRef = (a: Record<string, unknown>) => {
+    if (typeof a.source === 'number' || (typeof a.source === 'string' && a.source.trim())) return a.source as string | number
+    throw new AppError(400, 'bad_args', 'Give the source (its name or #id, see team_source_list).')
+  }
+  const opt = (v: unknown) => (typeof v === 'string' ? v : undefined)
+  const sourceConfig = (a: Record<string, unknown>): SourceConfig => ({
+    path: opt(a.path), baseUrl: opt(a.base_url), url: opt(a.url), secretName: opt(a.key_name),
+    secretIn: a.key_in === 'query' || a.key_in === 'header' ? a.key_in : undefined,
+  })
+  agents.onRpc('mcp.team_source_list', (username, params) => team.sessionSources(username, personSession(username, params).sessionId))
+  agents.onRpc('mcp.team_source_add', (username, params) => {
+    const c = personSession(username, params)
+    const a = c.args
+    if (!(SOURCE_KINDS as readonly string[]).includes(String(a.kind))) throw new AppError(400, 'bad_args', `kind is one of: ${SOURCE_KINDS.join(', ')}.`)
+    return team.sessionAddSource(username, c.sessionId, {
+      name: text(a.name, 'source name').trim().slice(0, 60), kind: a.kind as SourceKind, description: (opt(a.description) ?? '').slice(0, 500),
+      config: sourceConfig(a), secret: opt(a.key) ?? null,
+    })
+  })
+  agents.onRpc('mcp.team_source_update', (username, params) => {
+    const c = personSession(username, params)
+    const a = c.args
+    return team.sessionUpdateSource(username, c.sessionId, sourceRef(a), {
+      name: opt(a.name)?.slice(0, 60), description: opt(a.description)?.slice(0, 500), config: sourceConfig(a), secret: opt(a.key) || undefined,
+    })
+  })
+  agents.onRpc('mcp.team_source_remove', (username, params) => {
+    const c = personSession(username, params)
+    return team.sessionRemoveSource(username, c.sessionId, sourceRef(c.args))
+  })
+  agents.onRpc('mcp.team_source_test', (username, params) => {
+    const c = personSession(username, params)
+    return team.sessionTestSource(username, c.sessionId, sourceRef(c.args))
   })
   agents.onRpc('mcp.team_thread', (username, params) => {
     const c = role(username, params)

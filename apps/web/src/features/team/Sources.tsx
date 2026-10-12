@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Database, FileText, Globe, Plug, Plus, Trash2 } from 'lucide-react'
+import { Database, FileText, Globe, KeyRound, Plug, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { NativeSelect } from '@/components/app/native-select'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
@@ -25,6 +25,7 @@ export function Sources({ slug, sources }: { slug: string; sources: Team['source
   const qc = useQueryClient()
   const [adding, setAdding] = useState(false)
   const [preview, setPreview] = useState<{ name: string; text: string } | null>(null)
+  const [keyFor, setKeyFor] = useState<Team['sources'][number] | null>(null)
   const test = useMutation({
     mutationFn: (id: number) => unwrap(api.api.team.sources[':id'].test.$post({ param: { id: String(id) } })),
     onSuccess: (r, id) => setPreview({ name: sources.find((s) => s.id === id)?.name ?? '', text: r.preview }),
@@ -51,10 +52,16 @@ export function Sources({ slug, sources }: { slug: string; sources: Team['source
               <li key={s.id} className="flex items-center gap-3 px-3.5 py-2.5 text-sm">
                 <K.icon className="size-4 shrink-0 text-muted-foreground" />
                 <div className="min-w-0 flex-1">
-                  <div className="truncate font-medium">{s.name}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="truncate font-medium">{s.name}</span>
+                    {needsKey(s) && <span className="shrink-0 rounded-full bg-attention-soft px-1.5 py-px text-[11px] font-medium text-attention-foreground">Needs its key</span>}
+                  </div>
                   <div className="truncate text-xs text-muted-foreground">{s.description || K.label}</div>
                 </div>
-                <Button size="sm" variant="ghost" disabled={test.isPending} onClick={() => test.mutate(s.id)}>{test.isPending && test.variables === s.id ? <Spinner /> : 'Test'}</Button>
+                {(s.kind === 'postgres' || s.kind === 'http') && (
+                  <Button size="sm" variant={needsKey(s) ? 'outline' : 'ghost'} onClick={() => setKeyFor(s)} title={s.hasSecret ? 'Replace the key' : 'Add the key'}><KeyRound />Key</Button>
+                )}
+                <Button size="sm" variant="ghost" disabled={test.isPending || needsKey(s)} onClick={() => test.mutate(s.id)}>{test.isPending && test.variables === s.id ? <Spinner /> : 'Test'}</Button>
                 <Button size="icon" variant="ghost" className="size-7" aria-label={`Remove ${s.name}`}
                   onClick={() => { if (confirm(`Remove ${s.name}? Roles stop seeing it.`)) remove.mutate(s.id) }}><Trash2 /></Button>
               </li>
@@ -63,10 +70,52 @@ export function Sources({ slug, sources }: { slug: string; sources: Team['source
         </ul>
       ) : <p className="text-sm text-muted-foreground">None yet. Connect the app's database, an analytics or YouTube API, or pages to watch, so roles work from real numbers.</p>}
       <AddSource open={adding} onOpenChange={setAdding} slug={slug} />
+      <SourceKey source={keyFor} onClose={() => setKeyFor(null)} />
       <ResponsiveDialog open={!!preview} onOpenChange={(v) => !v && setPreview(null)} title={`What roles see in ${preview?.name ?? ''}`} description="The start of a first look, as a role would read it.">
         <pre className="max-h-[50vh] overflow-auto rounded-lg bg-muted/40 p-3 font-mono text-xs whitespace-pre-wrap">{preview?.text}</pre>
       </ResponsiveDialog>
     </section>
+  )
+}
+
+// A database without its connection string, or an API that names where its key goes but has none (added by Claude, say).
+const needsKey = (s: Team['sources'][number]) => !s.hasSecret && (s.kind === 'postgres' || (s.kind === 'http' && !!s.config.secretName))
+
+/** Adds or replaces a source's key: typed here, it goes straight to the server, encrypted, and is never shown again. */
+function SourceKey({ source, onClose }: { source: Team['sources'][number] | null; onClose: () => void }) {
+  const qc = useQueryClient()
+  const [secret, setSecret] = useState('')
+  const save = useMutation({
+    mutationFn: (s: NonNullable<typeof source>) => unwrap(api.api.team.sources[':id'].$put({
+      param: { id: String(s.id) },
+      json: { name: s.name, description: s.description, config: s.config, secret },
+    })),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['team'] })
+      toast.success('Key saved')
+      setSecret('')
+      onClose()
+    },
+  })
+  const db = source?.kind === 'postgres'
+  return (
+    <ResponsiveDialog open={!!source} onOpenChange={(v) => { if (!v) { setSecret(''); save.reset(); onClose() } }}
+      title={`${source?.hasSecret ? 'Replace' : 'Add'} the ${db ? 'connection string' : 'key'} for ${source?.name ?? ''}`}
+      description="Stored encrypted on the server. Nobody sees it again, roles and Claude included.">
+      <form className="pb-2" onSubmit={(e) => { e.preventDefault(); if (source && secret.trim()) save.mutate(source) }}>
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="src-key-only">{db ? 'Connection string' : 'Key'}</FieldLabel>
+            <Input id="src-key-only" className="h-10 font-mono" type="password" autoComplete="off" autoFocus value={secret} onChange={(e) => setSecret(e.target.value)}
+              placeholder={db ? 'postgres://reader:…@host:5432/app' : source?.config.secretIn === 'query' ? 'AIza…' : 'Bearer …'} />
+            {db && <FieldDescription>Ideally a database user that can only read. Every query runs read-only, 15 seconds at most.</FieldDescription>}
+            {!db && source?.config.secretName && <FieldDescription>Sent in the {source.config.secretIn === 'query' ? 'URL parameter' : 'header'} {source.config.secretName}.</FieldDescription>}
+          </Field>
+          <ErrorAlert error={save.error} />
+          <Button type="submit" className="h-10" disabled={!secret.trim() || save.isPending}>{save.isPending && <Spinner />}Save</Button>
+        </FieldGroup>
+      </form>
+    </ResponsiveDialog>
   )
 }
 

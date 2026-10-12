@@ -519,6 +519,22 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       : input.kind === 'http' ? { baseUrl: c.baseUrl, secretIn: c.secretIn === 'query' ? 'query' : 'header', secretName: c.secretName?.trim() || undefined } : {}
     return JSON.stringify(config)
   }
+  const where = (x: SourceRow) => {
+    const c = json<SourceConfig>(x.config, {})
+    return x.kind === 'postgres' ? 'Postgres database' : x.kind === 'sqlite' ? `SQLite file ${c.path}`
+      : x.kind === 'http' ? `API under ${c.baseUrl}${c.secretName ? `, key in ${c.secretIn === 'query' ? 'parameter' : 'header'} ${c.secretName}` : ''}` : `page ${c.url}`
+  }
+  // A database without its connection string, or an API that names where its key goes but has none.
+  const needsKey = (x: SourceRow) => !x.secret && (x.kind === 'postgres' || (x.kind === 'http' && !!json<SourceConfig>(x.config, {}).secretName))
+  const keyLater = (x: SourceRow, person: string) =>
+    `It has no ${x.kind === 'postgres' ? 'connection string' : 'key'} yet: ask ${person} to paste it on the Team tab (Data sources → ${x.name} → Key). It goes straight to the server, encrypted; nobody sees it again, Claude included.`
+  function sourceRef(projectId: number, ref: string | number) {
+    const id = typeof ref === 'number' ? ref : /^#?\d+$/.test(ref.trim()) ? Number(ref.trim().replace('#', '')) : null
+    const x = id !== null ? repo.source(id) : repo.sourceByName(projectId, String(ref).trim())
+    if (!x || x.project_id !== projectId) throw new AppError(404, 'not_found', `There is no source ${ref} in this project. See team_source_list.`)
+    return x
+  }
+
   /** Reads a source for a role (or a test from people). Results are text, cut to a size Claude can use. */
   async function readSource(x: SourceRow, what: { sql?: string; path?: string }) {
     const c = json<SourceConfig>(x.config, {})
@@ -595,13 +611,15 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
     },
 
     // ---- Data sources (people) ----
-    addSource(user: User, slug: string, input: SourceInput) {
+    /** keyLater: a Claude session adds it and the person pastes the key on the Team tab, so it never passes through the chat. */
+    addSource(user: User, slug: string, input: SourceInput, o: { keyLater?: boolean } = {}) {
       const { p } = on(slug)
       if (repo.sourceByName(p.id, input.name)) throw new AppError(409, 'taken', `There is already a source called ${input.name}.`)
       const secret = input.secret?.trim() ? seal(masterKey, Buffer.from(input.secret.trim()), `team-source:${p.id}`) : null
-      if (input.kind === 'postgres' && !secret) throw new AppError(400, 'bad_source', 'Give the connection string (postgres://user:password@host:5432/db), ideally a read-only user.')
-      repo.insertSource(p.id, { name: input.name.trim(), kind: input.kind, description: input.description.trim(), config: checkSource(input), secret }, user.id)
+      if (input.kind === 'postgres' && !secret && !o.keyLater) throw new AppError(400, 'bad_source', 'Give the connection string (postgres://user:password@host:5432/db), ideally a read-only user.')
+      const id = repo.insertSource(p.id, { name: input.name.trim(), kind: input.kind, description: input.description.trim(), config: checkSource(input), secret }, user.id)
       changed(p.id)
+      return id
     },
     updateSource(id: number, input: Omit<SourceInput, 'kind'>) {
       const x = repo.source(id)
@@ -955,6 +973,62 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
         paused: input.paused ?? s.paused, lead: input.lead,
       })
       return `Updated ${repo.role(r.id)!.name}.`
+    },
+
+    // ---- Data sources from a person's own Claude session ("connect our database for the team"). Never from a role's. ----
+
+    /** The project's sources for a session: where each reads from and whether its key is set (never the key). */
+    sessionSources(username: string, sessionId: string) {
+      const who = this.sessionAuthor(username, sessionId)
+      if (!who) throw new AppError(403, 'not_team', 'This session is not in a project with Team on.')
+      const list = repo.sources(who.projectId)
+      if (!list.length) return 'No data sources yet. Add one with team_source_add.'
+      return list.map((x) => `- #${x.id} ${x.name} (${x.kind}): ${where(x)}${needsKey(x) ? '; NO KEY YET' : x.secret ? '; key set' : ''}${x.description ? `\n  ${x.description}` : ''}`).join('\n')
+    },
+
+    /** Adds a source as the session's owner (the same as on the Team tab), with or without its key. */
+    sessionAddSource(username: string, sessionId: string, input: SourceInput) {
+      const who = this.sessionAuthor(username, sessionId)
+      if (!who) throw new AppError(403, 'not_team', 'This session is not in a project with Team on.')
+      const p = db.prepare('select slug, name from projects where id = ?').get(who.projectId) as { slug: string; name: string }
+      const owner = who.author.owner
+      const id = this.addSource(owner, p.slug, input, { keyLater: true })
+      const x = repo.source(id)!
+      tell(`${p.name}: ${owner.name}'s Claude added a data source`, `${x.name} (${x.kind}): ${where(x)}`, `/projects/${p.slug}`, `team-source:${id}`, 'shared')
+      return [`Added #${id} ${x.name}. Roles see it in team_sources now.`, needsKey(x) ? keyLater(x, owner.name) : ''].filter(Boolean).join(' ')
+    },
+
+    /** Changes a source from a person's session: its name, description, where it reads from, or its key. */
+    sessionUpdateSource(username: string, sessionId: string, ref: string | number, input: { name?: string; description?: string; config?: SourceConfig; secret?: string | null }) {
+      const who = this.sessionAuthor(username, sessionId)
+      if (!who) throw new AppError(403, 'not_team', 'This session is not in a project with Team on.')
+      const x = sourceRef(who.projectId, ref)
+      const name = input.name?.trim() || x.name
+      if (name.toLowerCase() !== x.name.toLowerCase() && repo.sourceByName(who.projectId, name)) throw new AppError(409, 'taken', `There is already a source called ${name}.`)
+      this.updateSource(x.id, {
+        name, description: input.description ?? x.description,
+        config: { ...json<SourceConfig>(x.config, {}), ...Object.fromEntries(Object.entries(input.config ?? {}).filter(([, v]) => v !== undefined)) },
+        secret: input.secret,
+      })
+      const y = repo.source(x.id)!
+      return [`Updated ${y.name}.`, needsKey(y) ? keyLater(y, who.author.owner.name) : ''].filter(Boolean).join(' ')
+    },
+
+    sessionRemoveSource(username: string, sessionId: string, ref: string | number) {
+      const who = this.sessionAuthor(username, sessionId)
+      if (!who) throw new AppError(403, 'not_team', 'This session is not in a project with Team on.')
+      const x = sourceRef(who.projectId, ref)
+      this.removeSource(x.id)
+      return `Removed ${x.name}. Roles no longer see it.`
+    },
+
+    /** A first look at a source, as a role would get it, to check it works. */
+    async sessionTestSource(username: string, sessionId: string, ref: string | number) {
+      const who = this.sessionAuthor(username, sessionId)
+      if (!who) throw new AppError(403, 'not_team', 'This session is not in a project with Team on.')
+      const x = sourceRef(who.projectId, ref)
+      if (needsKey(x)) return keyLater(x, who.author.owner.name)
+      return (await this.testSource(x.id)).preview
     },
 
     sessionMessage(username: string, sessionId: string, input: MessageInput) {

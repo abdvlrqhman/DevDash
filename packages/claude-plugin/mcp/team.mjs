@@ -86,7 +86,7 @@ const ROLE_ONLY = [
   },
 ]
 
-// A person's own sessions can set up the team when the person asks; roles can't.
+// A person's own sessions can set up the team (roles, data sources) when the person asks; roles can't.
 const slot = obj({ days: { type: 'array', items: { type: 'integer', minimum: 0, maximum: 6 }, description: '0 = Sunday … 6 = Saturday' }, at: { type: 'string', description: 'HH:MM in the project\'s time zone' } }, ['days', 'at'])
 const MANAGE = [
   {
@@ -117,6 +117,45 @@ const MANAGE = [
       autonomy: { type: 'string', enum: ['advisor', 'operator'] },
       paused: { type: 'boolean' }, lead: { type: 'boolean' },
     }, ['role']),
+  },
+  {
+    name: 'team_source_list',
+    description: 'The project\'s data sources for the roles (databases, APIs, pages): where each reads from and whether its key is set. Keys are never shown.',
+    inputSchema: obj({}),
+  },
+  {
+    name: 'team_source_add',
+    description: 'Connect a read-only data source for the roles, when the person asks. kind "postgres": a database (key = connection string, ideally a read-only user). "sqlite": a database file on this server (path). "http": an API (base_url; roles read only under it; key_in + key_name say where the key goes). "page": a public page to watch (url).',
+    inputSchema: obj({
+      name: { type: 'string', description: 'Short, e.g. "App database", "YouTube".' },
+      kind: { type: 'string', enum: ['postgres', 'sqlite', 'http', 'page'] },
+      description: { type: 'string', description: 'What is in it, so roles know when to look (e.g. "sign-ups, shops, orders; no personal data").' },
+      path: { type: 'string', description: 'sqlite: full path of the file on the server.' },
+      base_url: { type: 'string', description: 'http: e.g. https://www.googleapis.com/youtube/v3/' },
+      key_in: { type: 'string', enum: ['header', 'query'] },
+      key_name: { type: 'string', description: 'http: the header (e.g. Authorization) or URL parameter (e.g. key) the key goes in.' },
+      url: { type: 'string', description: 'page: the URL.' },
+      key: { type: 'string', description: 'The connection string or API key, only one the person gave you for this or pointed you to. Otherwise leave it out: they paste it on the Team tab, so it never passes through the chat.' },
+    }, ['name', 'kind']),
+  },
+  {
+    name: 'team_source_update',
+    description: 'Change a data source when the person asks: its name, description, where it reads from, or its key (same fields as team_source_add).',
+    inputSchema: obj({
+      source: { type: ['string', 'integer'], description: 'Its name or #id (see team_source_list).' },
+      name: { type: 'string' }, description: { type: 'string' }, path: { type: 'string' }, base_url: { type: 'string' },
+      key_in: { type: 'string', enum: ['header', 'query'] }, key_name: { type: 'string' }, url: { type: 'string' }, key: { type: 'string' },
+    }, ['source']),
+  },
+  {
+    name: 'team_source_test',
+    description: 'A first look at a data source, as a role would get it, to check it works.',
+    inputSchema: obj({ source: { type: ['string', 'integer'] } }, ['source']),
+  },
+  {
+    name: 'team_source_remove',
+    description: 'Remove a data source, only when the person asks. Roles stop seeing it.',
+    inputSchema: obj({ source: { type: ['string', 'integer'] } }, ['source']),
   },
 ]
 

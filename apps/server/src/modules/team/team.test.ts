@@ -292,6 +292,41 @@ test('a person\'s Claude session can create and change roles when asked; a role\
   assert.throws(() => team.sessionRoles('youssef', shiftSession), /not in a project with Team on/)
 })
 
+test('a person\'s Claude session connects data sources (the key can come later, from the person); a role\'s can\'t', async (t) => {
+  const { team, claude, notified, youssef, replies } = setup()
+  t.after(() => team.stop())
+  team.enable(youssef, 'seevil')
+  const s = await claude.create(youssef, { prompt: 'Connect our database', images: [], cwd: '', profile: 'default', model: null, effort: null, permissionMode: 'default', mode: 'chat', project: 'seevil' })
+  assert.equal(team.sessionSources('youssef', s.id), 'No data sources yet. Add one with team_source_add.')
+
+  // A database without its connection string: added, and the person is told where to paste it.
+  const added = team.sessionAddSource('youssef', s.id, { name: 'App DB', kind: 'postgres', description: 'Sign-ups and shops', config: {} })
+  assert.match(added, /Added #\d+ App DB\. .*ask Youssef to paste it on the Team tab \(Data sources → App DB → Key\)/)
+  assert.ok(notified.some((n) => n.title === 'Seevil: Youssef\'s Claude added a data source'))
+  assert.match(team.sessionSources('youssef', s.id), /#\d+ App DB \(postgres\): Postgres database; NO KEY YET\n {2}Sign-ups and shops/)
+  assert.match(await team.sessionTestSource('youssef', s.id, 'app db'), /has no connection string yet/)
+
+  team.sessionAddSource('youssef', s.id, { name: 'YouTube', kind: 'http', description: '', config: { baseUrl: 'https://www.googleapis.com/youtube/v3/', secretIn: 'query', secretName: 'key' }, secret: 'AIza-from-the-person' })
+  assert.match(team.sessionSources('youssef', s.id), /YouTube \(http\): API under https:\/\/www\.googleapis\.com\/youtube\/v3\/, key in parameter key; key set/)
+  assert.ok(!team.sessionSources('youssef', s.id).includes('AIza'), 'keys never come back')
+
+  // Changing where it reads keeps the key; a new name can't take another source's.
+  assert.equal(team.sessionUpdateSource('youssef', s.id, 'YouTube', { description: 'Our channel', config: { baseUrl: 'https://www.googleapis.com/youtube/v3/' } }), 'Updated YouTube.')
+  assert.equal(team.overview('seevil').sources.find((x) => x.name === 'YouTube')!.hasSecret, true)
+  assert.throws(() => team.sessionUpdateSource('youssef', s.id, 'YouTube', { name: 'app db' }), /already a source called/)
+  replies['sqlite.query'] = { fields: ['name'], rows: [['users']], total: 1 }
+  team.sessionAddSource('youssef', s.id, { name: 'Local', kind: 'sqlite', description: '', config: { path: '/srv/devdash/projects/seevil/app.db' } })
+  assert.equal(await team.sessionTestSource('youssef', s.id, 'Local'), '["name"]\n["users"]')
+  assert.equal(team.sessionRemoveSource('youssef', s.id, 'Local'), 'Removed Local. Roles no longer see it.')
+  assert.throws(() => team.sessionRemoveSource('youssef', s.id, 'Local'), /no source Local/)
+
+  // A role's own session is not a person's: it can't change the team's setup.
+  const role = team.createRole(youssef, 'seevil', { name: 'CTO', summary: '', instructions: '', model: null })
+  await team.runShift(role.id)
+  const shiftSession = team.role(role.id).shifts[0]!.sessionId!
+  assert.throws(() => team.sessionAddSource('youssef', shiftSession, { name: 'X', kind: 'page', description: '', config: { url: 'https://x.io' } }), /not in a project with Team on/)
+})
+
 test('schedules are read in the project time zone, run once per slot and day, and catch up after a short restart', () => {
   const cairoMon0900 = Date.parse('2026-10-12T06:00:00Z') // Cairo is UTC+3 on this date: Monday 09:00 there
   const slots = [{ days: [1], at: '09:00' }]

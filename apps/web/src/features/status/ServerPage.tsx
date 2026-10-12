@@ -15,6 +15,7 @@ import { relativeTime } from '../claude/data'
 import { describeMemory } from '../claude/memory'
 import { bytes } from '../files/FilesPage'
 import { Progress } from '../files/Progress'
+import { Updates } from './Updates'
 
 const duration = (s: number) => {
   const d = Math.floor(s / 86400)
@@ -39,6 +40,7 @@ export function ServerPage() {
         <ErrorAlert error={q.error} />
         {!d ? <Skeleton className="h-64" /> : (
           <div className="grid gap-4 md:grid-cols-2">
+            <Updates />
             <Card title="Health">
               <Meter label="Memory" used={d.host.memory ? d.host.memory.total - d.host.memory.available : 0} total={d.host.memory?.total ?? 0} />
               <Meter label="Disk" used={d.host.disk ? d.host.disk.total - d.host.disk.free : 0} total={d.host.disk?.total ?? 0} />
