@@ -84,3 +84,69 @@ test('fast mode and Remote Control: fast is for anyone who can send, Remote Cont
   assert.deepEqual(sent.filter((r) => r.op === 'claude.set').map((r) => [r.key, r.value]), [['fast', true]])
   await assert.rejects(claude.update(bob, 's1', { remoteControl: true }), /Only the owner/)
 })
+
+function inProject(sharing: 'private' | 'shared' | 'shared_can_send' = 'private') {
+  const db = openDb(':memory:')
+  const add = db.prepare("insert into users (id, email, username, name, password_hash, totp_secret, role) values (?, ?, ?, ?, 'x', 'x', 'member')")
+  add.run(1, 'a@x.io', 'ann', 'Ann Lee')
+  add.run(2, 'b@x.io', 'bob', 'Bob Day')
+  add.run(3, 'c@x.io', 'cat', 'Cat Moe')
+  db.prepare("insert into projects (id, slug, name, created_by) values (1, 'app', 'App', 1), (2, 'site', 'Site', 1)").run()
+  const project = { id: 1, slug: 'app', name: 'App', session_sharing: sharing }
+  const projects = {
+    bySlug: () => project, path: () => '/srv/devdash/projects/app', forPath: () => project,
+  } as unknown as ProjectsService
+  const agents = { onEvent: () => {}, request: async () => ({ ok: true }) } as unknown as AgentsService
+  const claude = claudeService({ db, agents, hub: createHub(), projects, notify: async () => {} })
+  const user = (id: number, name: string): User => ({ id, name, username: name.toLowerCase(), email: '', role: 'member' })
+  return { db, claude, ann: user(1, 'Ann'), bob: user(2, 'Bob'), cat: user(3, 'Cat') }
+}
+
+test('a project\'s sessions: yours, teammates\' shared ones and the roles\' unlisted ones; others\' private ones only counted', () => {
+  const { db, claude, ann, bob } = inProject()
+  const session = db.prepare(`insert into claude_sessions (id, owner_id, title, cwd, shared, listed, archived, status, project_id, last_activity_at)
+    values (?, ?, ?, '/x', ?, ?, ?, ?, ?, ?)`)
+  session.run('a1', 1, 'Ann private', 0, 1, 0, 'idle', 1, 100)
+  session.run('b1', 2, 'Bob shared', 1, 1, 0, 'idle', 1, 300)
+  session.run('b2', 2, 'Bob private', 0, 1, 0, 'idle', 1, 400)
+  session.run('b3', 2, 'Bob private too', 0, 1, 0, 'working', 1, 50)
+  session.run('c1', 3, 'Cat private', 0, 1, 0, 'idle', 1, 10)
+  session.run('r1', 2, 'CTO', 1, 0, 0, 'idle', 1, 200) // a role's chat, run as Bob
+  session.run('r2', 2, 'CTO: shift', 1, 0, 0, 'idle', 1, 250)
+  session.run('x1', 1, 'Ann archived', 0, 1, 1, 'idle', 1, 999)
+  session.run('o1', 1, 'Elsewhere', 1, 1, 0, 'idle', 2, 999)
+  claude.labelSessions(() => new Map([
+    ['r1', { kind: 'role' as const, role: { id: 7, name: 'CTO' } }], ['r2', { kind: 'shift' as const, role: { id: 7, name: 'CTO' } }],
+  ]))
+
+  const mine = claude.inProject(ann, 'app', false)
+  assert.deepEqual(mine.sessions.map((s) => [s.id, s.kind, s.role?.name ?? null]), [
+    ['b1', 'shared', null], ['r2', 'shift', 'CTO'], ['r1', 'role', 'CTO'], ['a1', 'mine', null],
+  ])
+  assert.deepEqual(mine.hidden, { count: 3, people: ['Bob Day', 'Cat Moe'] })
+  const bobs = claude.inProject(bob, 'app', false)
+  assert.deepEqual(bobs.sessions.map((s) => s.id).sort(), ['b1', 'b2', 'b3', 'r1', 'r2'])
+  assert.deepEqual(bobs.hidden, { count: 2, people: ['Ann Lee', 'Cat Moe'] })
+  assert.deepEqual(claude.inProject(ann, 'app', true).sessions.map((s) => s.id), ['x1'])
+})
+
+test('new sessions in a project start out as the project says, unless the person or the feature chose', async () => {
+  const base = { prompt: '', images: [], cwd: '', profile: 'default', model: null, effort: null, permissionMode: 'bypassPermissions', mode: 'chat' as const, project: 'app' }
+  const sharing = (s: { shared: boolean; sharedCanSend: boolean }) => [s.shared, s.sharedCanSend]
+
+  const priv = inProject('private')
+  assert.deepEqual(sharing(await priv.claude.create(priv.ann, base)), [false, false])
+  assert.deepEqual(sharing(await priv.claude.create(priv.ann, { ...base, shared: true })), [true, false])
+
+  const open = inProject('shared_can_send')
+  assert.deepEqual(sharing(await open.claude.create(open.ann, base)), [true, true])
+  assert.deepEqual(sharing(await open.claude.create(open.ann, { ...base, shared: false })), [false, false])
+  assert.deepEqual(sharing(await open.claude.create(open.ann, { ...base, shared: true, sharedCanSend: false })), [true, false])
+  // A team role's shift keeps its own: shared to watch, nobody types in it.
+  assert.deepEqual(sharing(await open.claude.create(open.ann, base, { listed: false, shared: true })), [true, false])
+  const s = await open.claude.create(open.ann, base)
+  assert.deepEqual(sharing(await open.claude.update(open.ann, s.id, { shared: false })), [false, true]) // still the owner's to change
+
+  const watch = inProject('shared')
+  assert.deepEqual(sharing(await watch.claude.create(watch.ann, base)), [true, false])
+})

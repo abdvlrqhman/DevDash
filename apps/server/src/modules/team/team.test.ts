@@ -9,6 +9,7 @@ import { claudeService } from '../claude/service.ts'
 import type { ProjectsService } from '../projects/service.ts'
 import { searchService } from '../search/service.ts'
 import { tasksService } from '../tasks/service.ts'
+import { roleSessions } from './index.ts'
 import { dueSlots, nextRun } from './schedule.ts'
 import { fetchHttp, readOnlySql } from './sources.ts'
 import { activityTrigger, teamService, transcriptText } from './service.ts'
@@ -432,4 +433,16 @@ test('advisors only suggest; goals are proposed, approved and updated by the rol
   team.tick()
   assert.equal(team.approvals('pending').length, 0)
   assert.match(team.role(ceo.id).notebook[0]!.body, /Expired without an answer/)
+})
+
+test('a project\'s Claude page shows each role\'s chat and shifts, unlisted as they are, named after the role', async (t) => {
+  const { team, db, claude, youssef, abdo } = setup()
+  t.after(() => team.stop())
+  claude.labelSessions(roleSessions(db))
+  team.enable(youssef, 'seevil')
+  const cto = team.createRole(youssef, 'seevil', { name: 'CTO', summary: '', instructions: '', model: null })
+  await team.runShift(cto.id)
+  const { sessionId } = await team.chat(cto.id)
+  const { sessions } = claude.inProject(abdo, 'seevil', false)
+  assert.deepEqual(sessions.map((s) => [s.kind, s.role?.name, s.id === sessionId]).sort(), [['role', 'CTO', true], ['shift', 'CTO', false]])
 })

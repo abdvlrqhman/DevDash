@@ -101,6 +101,10 @@ export type SessionExtras = {
   sharedCanSend?: boolean
 }
 
+/** What a feature that starts sessions says about them on a project's page (a team role's chat or one of its shifts). */
+export type SessionLabel = { kind: 'role' | 'shift'; role: { id: number; name: string } }
+export type SessionKind = 'mine' | 'shared' | SessionLabel['kind']
+
 /** A Claude turn ended: what features that watch sessions (e.g. a project journal) are told. */
 /** `costUsd`: what the turn would cost on the API (Claude Code reports it on subscriptions too). */
 export type TurnEnd = { session: SessionRow; ok: boolean; aborted: boolean; result: string | null; costUsd: number }
@@ -171,6 +175,18 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
     timestamp: new Date(t.created_at * 1000).toISOString(),
   })
   const turnEnds = new Set<(t: TurnEnd) => void>()
+  const labellers = new Set<(projectId: number) => Map<string, SessionLabel>>()
+  function labels(projectId: number) {
+    const all = new Map<string, SessionLabel>()
+    for (const fn of labellers) {
+      try {
+        for (const [id, l] of fn(projectId)) all.set(id, l)
+      } catch (err) {
+        console.error('session labels:', err)
+      }
+    }
+    return all
+  }
   const turnEnded = (t: TurnEnd) => {
     for (const fn of turnEnds) {
       try {
@@ -438,6 +454,27 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
   return {
     list: (user: User, archived: boolean) => repo.visible(user.id, archived).map(toDto),
 
+    /**
+     * Every session in a project the member may open, unlisted ones included, each saying whose it is: theirs, a
+     * teammate's shared one, or a team role's. Other people's private sessions are only counted, with their names.
+     */
+    inProject(user: User, slug: string, archived: boolean) {
+      const p = projects.bySlug(slug)
+      const label = labels(p.id)
+      const sessions = repo.inProject(p.id, user.id, archived).map((s) => {
+        const l = label.get(s.id)
+        return { ...toDto(s), kind: (l?.kind ?? (s.owner_id === user.id ? 'mine' : 'shared')) as SessionKind, role: l?.role ?? null }
+      })
+      const hidden = repo.hiddenInProject(p.id, user.id, archived)
+      return { sessions, hidden: { count: hidden.reduce((n, h) => n + h.n, 0), people: hidden.map((h) => h.name) } }
+    },
+
+    /** A feature names the sessions it started in a project (see `inProject`). Returns a function that stops it. */
+    labelSessions(fn: (projectId: number) => Map<string, SessionLabel>) {
+      labellers.add(fn)
+      return () => void labellers.delete(fn)
+    },
+
     async get(user: User, id: string) {
       const s = find(user, id)
       const pending = s.mode === 'chat'
@@ -453,6 +490,7 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
     async create(user: User, input: {
       prompt: string; images: Image[]; cwd: string; profile: string; model: string | null; effort: string | null
       permissionMode: string; mode: 'chat' | 'cli'; cols?: number; rows?: number; project?: string; worktree?: boolean
+      shared?: boolean; sharedCanSend?: boolean
     }, extra: SessionExtras = {}) {
       if (!PROFILE_RE.test(input.profile)) throw new AppError(400, 'bad_profile', 'Unknown profile.')
       const home = `/home/${user.username}`
@@ -471,11 +509,16 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
         model: input.model, effort: input.effort, permission_mode: input.permissionMode,
       })
       if (project) repo.setProject(id, project.id, wt?.path ?? null)
+      // Sharing: what the feature or the person chose, else how the project's new sessions start out.
+      const chosen = extra.shared !== undefined ? { shared: extra.shared, canSend: !!extra.sharedCanSend }
+        : input.shared !== undefined ? { shared: input.shared, canSend: !!input.sharedCanSend } : null
+      const def = project?.session_sharing ?? 'private'
+      const sharing = chosen ?? { shared: def !== 'private', canSend: def === 'shared_can_send' }
       repo.patch(id, {
         title: extra.title?.slice(0, 120), title_custom: extra.title ? 1 : undefined,
         instructions: extra.instructions, tool_policy: extra.toolPolicy ? JSON.stringify(extra.toolPolicy) : undefined,
         listed: extra.listed === false ? 0 : undefined,
-        shared: extra.shared ? 1 : undefined, shared_can_send: extra.sharedCanSend ? 1 : undefined,
+        shared: sharing.shared ? 1 : undefined, shared_can_send: sharing.shared && sharing.canSend ? 1 : undefined,
       })
       const s = repo.byId(id)!
       try {

@@ -54,6 +54,11 @@ export function claudeRepo(db: Db) {
   const s = {
     byId: db.prepare(`${SELECT} where s.id = ?`),
     visible: db.prepare(`${SELECT} where (s.owner_id = ?1 or s.shared = 1) and s.archived = ?2 and s.listed = 1 order by s.last_activity_at desc limit 200`),
+    // Unlisted ones too (a team role's chat and shifts): a project's page shows everything in it the member may open.
+    inProject: db.prepare(`${SELECT} where s.project_id = ?1 and s.archived = ?2 and (s.owner_id = ?3 or s.shared = 1)
+      order by s.last_activity_at desc limit 500`),
+    hiddenInProject: db.prepare(`select u.name, count(*) as n from claude_sessions s join users u on u.id = s.owner_id
+      where s.project_id = ?1 and s.archived = ?2 and s.owner_id != ?3 and s.shared = 0 group by u.id order by n desc, u.name`),
     ownedActive: db.prepare(`${SELECT} where u.username = ? and s.archived = 0`),
     insert: db.prepare(`insert into claude_sessions (id, owner_id, profile, title, cwd, mode, model, effort, permission_mode)
       values (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
@@ -81,6 +86,10 @@ export function claudeRepo(db: Db) {
   return {
     byId: (id: string) => s.byId.get(id) as SessionRow | undefined,
     visible: (userId: number, archived: boolean) => s.visible.all(userId, archived ? 1 : 0) as SessionRow[],
+    inProject: (projectId: number, userId: number, archived: boolean) => s.inProject.all(projectId, archived ? 1 : 0, userId) as SessionRow[],
+    /** Other people's private sessions in a project: how many, by whom. */
+    hiddenInProject: (projectId: number, userId: number, archived: boolean) =>
+      (s.hiddenInProject.all(projectId, archived ? 1 : 0, userId) as { name: string; n: number }[]).map(({ name, n }) => ({ name, n })),
     ownedActive: (username: string) => s.ownedActive.all(username) as SessionRow[],
     insert: (r: Pick<SessionRow, 'id' | 'owner_id' | 'profile' | 'title' | 'cwd' | 'mode' | 'model' | 'effort' | 'permission_mode'>) =>
       void s.insert.run(r.id, r.owner_id, r.profile, r.title, r.cwd, r.mode, r.model, r.effort, r.permission_mode),

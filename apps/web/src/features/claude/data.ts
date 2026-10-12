@@ -44,6 +44,32 @@ export function useLiveSessions() {
   }, () => void qc.invalidateQueries({ queryKey: ['claude', 'sessions'] }))
 }
 
+export type ProjectSession = InferResponseType<(typeof api.api.claude.projects)[':slug']['sessions']['$get']>['sessions'][number]
+/** Every session in a project you may open (the roles' too), and how many private ones of others there are. */
+export const projectSessionsQuery = (slug: string, archived = false) => queryOptions({
+  queryKey: ['claude', 'sessions', 'project', slug, archived],
+  queryFn: () => unwrap(api.api.claude.projects[':slug'].sessions.$get({ param: { slug }, query: { archived: archived ? '1' : '0' } })),
+})
+
+/** Keeps a project's session lists in step: status changes in place; new, archived and others' private sessions refetch. */
+export function useLiveProjectSessions(slug: string) {
+  const qc = useQueryClient()
+  useTopic('sessions', (e) => {
+    if (e.type !== 'session') return
+    const s = e.session as Session
+    if (s.project?.slug !== slug) return
+    for (const archived of [false, true]) {
+      const key = projectSessionsQuery(slug, archived).queryKey
+      const old = qc.getQueryData(key)
+      const had = old?.sessions.some((x) => x.id === s.id)
+      if (old && had && s.archived === archived) qc.setQueryData(key, { ...old, sessions: old.sessions.map((x) => (x.id === s.id ? { ...x, ...s } : x)) })
+      else if (had || s.archived === archived) void qc.invalidateQueries({ queryKey: key })
+    }
+  })
+  // The project's live counters moved: someone's private session may have started or ended.
+  useTopic('projects', () => void qc.invalidateQueries({ queryKey: ['claude', 'sessions', 'project', slug] }))
+}
+
 export const STATUS_LABEL: Record<Session['status'], string> = {
   working: 'Working', waiting: 'Needs you', idle: 'Idle', stopped: 'Stopped', error: 'Error',
 }

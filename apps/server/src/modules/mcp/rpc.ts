@@ -48,7 +48,7 @@ export function registerMcp({ db, agents, projects, tasks, notes, services }: {
   })
 
   on('project_info', (c) => ({
-    project: c.slug ? projects.get(c.slug) : null,
+    project: c.slug ? projects.get(c.slug, c.user.id) : null,
     projects: projects.list().map((p) => ({ slug: p.slug, name: p.name, openTasks: p.openTasks })),
   }))
   on('tasks_list', (c) => {

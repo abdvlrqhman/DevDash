@@ -13,14 +13,19 @@ const FETCH_EVERY_MS = 5 * 60_000
 type Row = {
   id: number; slug: string; name: string; repo_url: string | null; default_branch: string; created_by: number; created_at: number
   fetched_at: number | null; fetch_error: string | null; archived: number; creator_username: string; creator_name: string
+  session_sharing: SessionSharing
   open_tasks: number; sessions: number; working: number; waiting: number; active_people: string; last_session_at: number | null
 }
 
+export const SESSION_SHARING = ['private', 'shared', 'shared_can_send'] as const
+export type SessionSharing = (typeof SESSION_SHARING)[number]
+
+// `sessions` is what the member asking ($me) can open: their own and everyone's shared ones, team roles' included.
 // Live Claude work counts every session in the project, private ones too, but only as numbers and owners' names:
 // people see that someone's Claude is in the shared checkout, never what it is doing.
 const SELECT = `select p.*, u.username as creator_username, u.name as creator_name,
   (select count(*) from tasks t where t.project_id = p.id and t.status != 'done') as open_tasks,
-  (select count(*) from claude_sessions s where s.project_id = p.id and s.archived = 0) as sessions,
+  (select count(*) from claude_sessions s where s.project_id = p.id and s.archived = 0 and (s.owner_id = $me or s.shared = 1)) as sessions,
   (select count(*) from claude_sessions s where s.project_id = p.id and s.archived = 0 and s.status = 'working') as working,
   (select count(*) from claude_sessions s where s.project_id = p.id and s.archived = 0 and s.status = 'waiting') as waiting,
   (select json_group_array(distinct o.name) from claude_sessions s join users o on o.id = s.owner_id
@@ -44,7 +49,7 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
     bySlug: db.prepare(`${SELECT} where p.slug = ?`),
     byId: db.prepare(`${SELECT} where p.id = ?`),
     insert: db.prepare('insert into projects (slug, name, repo_url, default_branch, created_by) values (?, ?, ?, ?, ?) returning id'),
-    patch: db.prepare('update projects set name = ?, archived = ? where id = ?'),
+    patch: db.prepare('update projects set name = ?, archived = ?, session_sharing = ? where id = ?'),
     fetched: db.prepare('update projects set fetched_at = unixepoch(), fetch_error = ?, default_branch = coalesce(?, default_branch) where id = ?'),
     refs: db.prepare('select ref, sha from project_refs where project_id = ?'),
     putRef: db.prepare('insert into project_refs (project_id, ref, sha) values (?, ?, ?) on conflict(project_id, ref) do update set sha = excluded.sha'),
@@ -57,10 +62,13 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
     slug: p.slug, name: p.name, repoUrl: p.repo_url, defaultBranch: p.default_branch, path: path(p.slug), createdAt: p.created_at,
     fetchedAt: p.fetched_at, fetchError: p.fetch_error, archived: p.archived === 1, openTasks: p.open_tasks, sessions: p.sessions,
     live: { working: p.working, waiting: p.waiting, people: JSON.parse(p.active_people || '[]') as string[] }, lastSessionAt: p.last_session_at,
-    creator: { username: p.creator_username, name: p.creator_name },
+    creator: { username: p.creator_username, name: p.creator_name }, sessionSharing: p.session_sharing,
   })
-  function find(slug: string) {
-    const p = q.bySlug.get(slug) as Row | undefined
+  // Who is asking, for the session count (0: nobody's own, shared sessions only).
+  const me = (userId = 0) => ({ me: userId })
+  const byId = (id: number, userId?: number) => q.byId.get(me(userId), id) as Row | undefined
+  function find(slug: string, userId?: number) {
+    const p = q.bySlug.get(me(userId), slug) as Row | undefined
     if (!p) throw new AppError(404, 'not_found', `There is no project ${slug}.`)
     return p
   }
@@ -115,7 +123,7 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
     } catch (err) {
       q.fetched.run((err as Error).message.slice(0, 500), null, p.id)
     }
-    await scan(q.byId.get(p.id) as Row).catch((err) => console.error(`scan ${p.slug}:`, (err as Error).message))
+    await scan(byId(p.id)!).catch((err) => console.error(`scan ${p.slug}:`, (err as Error).message))
     changed()
   }
 
@@ -124,7 +132,7 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
     if (fetching) return
     fetching = true
     try {
-      for (const p of q.all.all(0) as Row[]) if (p.repo_url) await fetchOne(p)
+      for (const p of q.all.all(me(), 0) as Row[]) if (p.repo_url) await fetchOne(p)
     } finally {
       fetching = false
     }
@@ -133,14 +141,14 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
 
   return {
     path,
-    list: (archived = false) => (q.all.all(archived ? 1 : 0) as Row[]).map(dto),
-    get: (slug: string) => dto(find(slug)),
+    list: (archived = false, userId?: number) => (q.all.all(me(userId), archived ? 1 : 0) as Row[]).map(dto),
+    get: (slug: string, userId?: number) => dto(find(slug, userId)),
     idOf: (slug: string) => find(slug).id,
     bySlug: (slug: string) => find(slug),
     /** The project a folder belongs to (a checkout or one of its worktrees), if any. */
     forPath(cwd: string) {
       const m = cwd.match(new RegExp(`^${root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/(?:projects|worktrees)/([a-z0-9][a-z0-9-]{0,39})(?:/|$)`))
-      return m ? ((q.bySlug.get(m[1]!) as Row | undefined) ?? null) : null
+      return m ? ((q.bySlug.get(me(), m[1]!) as Row | undefined) ?? null) : null
     },
 
     async create(user: User, input: { name: string; slug?: string; repoUrl?: string }) {
@@ -149,37 +157,37 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
       if (!name) throw new AppError(400, 'bad_name', 'Give the project a name.')
       const slug = input.slug?.trim() || slugify(name)
       if (!SLUG_RE.test(slug)) throw new AppError(400, 'bad_slug', 'The short name uses lowercase letters, digits and dashes (up to 40).')
-      if (q.bySlug.get(slug)) throw new AppError(409, 'taken', `A project called ${slug} already exists.`)
+      if (q.bySlug.get(me(), slug)) throw new AppError(409, 'taken', `A project called ${slug} already exists.`)
       const r = await agents.request<{ defaultBranch: string }>(user.username,
         repoUrl ? { op: 'git.clone', path: path(slug), url: repoUrl } : { op: 'git.init', path: path(slug) }, 16 * 60_000)
       await gitSafeDir(path(slug))
       const { id } = q.insert.get(slug, name, repoUrl, r.defaultBranch || 'main', user.id) as { id: number }
-      const p = q.byId.get(id) as Row
-      await scan(p).catch(() => {})
+      await scan(byId(id)!).catch(() => {})
       q.fetched.run(null, null, id)
       activity.record({ projectId: id, userId: user.id, kind: 'project.created', summary: `added project ${name}`, url: `/projects/${slug}` })
       changed()
-      return dto(q.byId.get(id) as Row)
+      return dto(byId(id, user.id)!)
     },
 
-    update(user: User, slug: string, patch: { name?: string; archived?: boolean }) {
+    /** Any member renames it or sets how new sessions start out; archiving is for whoever added it, or an admin. */
+    update(user: User, slug: string, patch: { name?: string; archived?: boolean; sessionSharing?: SessionSharing }) {
       const p = find(slug)
       if (patch.archived !== undefined && user.role !== 'admin' && user.id !== p.created_by) {
         throw new AppError(403, 'forbidden', 'Only the person who added it or an admin can archive a project.')
       }
-      q.patch.run(patch.name?.trim() || p.name, patch.archived === undefined ? p.archived : patch.archived ? 1 : 0, p.id)
+      q.patch.run(patch.name?.trim() || p.name, patch.archived === undefined ? p.archived : patch.archived ? 1 : 0, patch.sessionSharing ?? p.session_sharing, p.id)
       changed()
-      return dto(find(slug))
+      return dto(find(slug, user.id))
     },
 
-    async fetch(slug: string) {
+    async fetch(slug: string, userId?: number) {
       await fetchOne(find(slug))
-      return dto(find(slug))
+      return dto(find(slug, userId))
     },
 
     /** Rescan for new local commits (e.g. after a Claude session in the project went quiet). */
     rescan: (projectId: number) => {
-      const p = q.byId.get(projectId) as Row | undefined
+      const p = byId(projectId)
       if (p) void scan(p).catch((err) => console.error(`scan ${p.slug}:`, (err as Error).message))
     },
 

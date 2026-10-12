@@ -36,5 +36,6 @@ Team tab says it's off. Nothing is deleted.
 These are general session features Team uses; other features can use them too:
 
 - `claude_sessions.instructions`, `tool_policy`, `listed` (migration 015) and `SessionExtras` in the Claude service
-- `claude.onTurnEnd` (with each turn's cost), `claude.transcript`, `claude.complete`, `claude.configure`
+- `claude.onTurnEnd` (with each turn's cost), `claude.transcript`, `claude.complete`, `claude.configure`, `claude.labelSessions`
+  (what names role sessions on a project's Claude tab; without Team they show as the person's shared sessions)
 - the agent's `claude.complete` and `sqlite.query` ops and the `instructions` / `toolPolicy` launch options

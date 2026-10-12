@@ -31,7 +31,7 @@ export function searchRoutes(d: {
       const notes = d.notes.visibleIds(user, hits.filter((h) => h.kind === 'note').map((h) => Number(h.ref))).slice(0, 10)
         .map((n) => ({ id: n.id, title: n.title, project: n.project, snippet: snippet.get(`note:${n.id}`) ?? '' }))
       return c.json({
-        projects: d.projects.list().filter((p) => p.name.toLowerCase().includes(needle) || p.slug.includes(needle)).slice(0, 6),
+        projects: d.projects.list(false, user.id).filter((p) => p.name.toLowerCase().includes(needle) || p.slug.includes(needle)).slice(0, 6),
         tasks: direct ? [...d.db.prepare(`select t.number, t.title, t.status, p.slug from tasks t join projects p on p.id = t.project_id where t.number = ? and (? is null or p.slug = ?) limit 6`)
           .all(Number(direct[2]), direct[1] ?? null, direct[1] ?? null).map((t) => {
             const r = t as { number: number; title: string; status: string; slug: string }
