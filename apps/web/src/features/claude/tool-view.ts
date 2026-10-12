@@ -30,6 +30,9 @@ export type ToolView = {
   inline?: Preview
   /** Shown when the row is opened. */
   details: Preview[]
+  /** The file it worked on (a full path), which opens in the file viewer; with the line it started at. */
+  file?: string
+  line?: number
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v : v === undefined || v === null ? '' : JSON.stringify(v))
@@ -96,7 +99,20 @@ const argFields = (input: Record<string, unknown>): Preview[] => {
 }
 const pretty = (s: string) => { try { return JSON.stringify(JSON.parse(s), null, 2) } catch { return s } }
 
+/** The file a call worked on: Read, Write, Edit, NotebookEdit, LSP and any other tool with a file_path. */
+export function toolFile(t: ToolBlock): Pick<ToolView, 'file' | 'line'> {
+  const i = t.input
+  const file = [i.file_path, i.notebook_path, i.filePath].find((v): v is string => typeof v === 'string' && v.startsWith('/'))
+  if (!file) return {}
+  const line = Number(t.name === 'Read' ? i.offset : i.line)
+  return { file, line: line > 1 ? line : undefined }
+}
+
 export function toolView(t: ToolBlock): ToolView {
+  return { ...view(t), ...toolFile(t) }
+}
+
+function view(t: ToolBlock): ToolView {
   const i = t.input
   const text = clean(t.result?.text ?? '')
   const err = t.result?.isError === true

@@ -10,15 +10,17 @@ import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { FileViewer } from './FileViewer'
 import { Progress } from './Progress'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ApiError, api, unwrap } from '@/lib/api'
-import { cn } from '@/lib/utils'
+import { bytes, cn } from '@/lib/utils'
 import { ErrorAlert } from '../auth/LoginPage'
 import { relativeTime } from '../claude/data'
+import type { FileRef } from '../claude/file-links'
 
-export const bytes = (n: number | null) => n === null ? '' : n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(0)} KB` : n < 1024 ** 3 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${(n / 1024 ** 3).toFixed(2)} GB`
+export { bytes }
 const join = (dir: string, name: string) => `${dir.replace(/\/$/, '')}/${name}`
 const CHUNK = 8 * 1024 * 1024
 
@@ -30,6 +32,7 @@ export function FilesPage() {
   const qc = useQueryClient()
   const q = useQuery({ queryKey: ['files', path ?? null], queryFn: () => unwrap(api.api.files.$get({ query: { path } })) })
   const [sharing, setSharing] = useState<string | null>(null)
+  const [viewing, setViewing] = useState<FileRef | null>(null)
   const [renaming, setRenaming] = useState<Entry | null>(null)
   const [deleting, setDeleting] = useState<Entry | null>(null)
   const [mkdir, setMkdir] = useState(false)
@@ -124,7 +127,8 @@ export function FilesPage() {
                         <div className="flex min-w-0 flex-1 flex-col">
                           {e.dir
                             ? <button className="truncate text-left" onClick={() => go(p)}>{e.name}</button>
-                            : <a className="truncate" href={`/api/files/download?${new URLSearchParams({ path: p })}`} download={e.name}>{e.name}</a>}
+                            : <a className="truncate" href={`/api/files/download?${new URLSearchParams({ path: p })}`} download={e.name}
+                                onClick={(ev) => { if (ev.metaKey || ev.ctrlKey || ev.shiftKey) return; ev.preventDefault(); setViewing({ path: p }) }}>{e.name}</a>}
                           <span className="text-xs text-muted-foreground md:hidden">{e.dir ? '' : `${bytes(e.size)}, `}{relativeTime(e.mtime)}</span>
                         </div>
                         <span className="hidden w-20 shrink-0 text-right text-xs text-muted-foreground tabular-nums md:block">{e.dir ? '' : bytes(e.size)}</span>
@@ -150,6 +154,7 @@ export function FilesPage() {
           <TabsContent value="links"><ShareLinks /></TabsContent>
         </Tabs>
       </PageBody>
+      <FileViewer file={viewing} onClose={() => setViewing(null)} />
       {sharing && <ShareDialog path={sharing} onClose={() => setSharing(null)} />}
       <NameDialog open={mkdir} title="New folder" action="Create folder" initial="" onClose={() => setMkdir(false)}
         onSave={(name) => unwrap(api.api.files.mkdir.$post({ json: { path: join(dir, name) } })).then(refresh)} />

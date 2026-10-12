@@ -4,9 +4,11 @@ import { AppError, json, query, rateLimit } from '../../core/http.ts'
 import type { AgentsService } from '../agents/service.ts'
 import type { AuthEnv, authMiddleware } from '../auth/routes.ts'
 import { EXPIRY, type ShareRow, type SharesService } from './shares.ts'
-import { agentFile, attachment } from './stream.ts'
+import { agentFile, asText, attachment, readAll } from './stream.ts'
 
 const CHUNK = 8 * 1024 * 1024
+/** Biggest file the viewer shows as text; past that it offers a download. */
+const TEXT_MAX = 2 * 1024 * 1024
 const Path = z.string().min(1).max(4096)
 const ShareInput = z.object({
   path: Path, password: z.string().max(256).optional(), expires: z.enum(Object.keys(EXPIRY) as [keyof typeof EXPIRY]).default('7d'),
@@ -25,9 +27,21 @@ export function filesRoutes(agents: AgentsService, shares: SharesService, mw: Re
       ])
       return c.json({ roots, ...listing })
     })
-    .get('/download', query(z.object({ path: Path })), async (c) => {
+    .get('/download', query(z.object({ path: Path, view: z.literal('1').optional() })), async (c) => {
       const f = await agentFile(agents.open(as(c), { op: 'fs.read', path: c.req.valid('query').path }))
+      // view=1 opens a PDF in the browser's own viewer (a new tab); everything else always downloads.
+      if (c.req.valid('query').view && /\.pdf$/i.test(f.name)) {
+        return new Response(f.body, { headers: { 'content-type': 'application/pdf', 'content-length': String(f.size), 'content-disposition': attachment(f.name).replace(/^attachment/, 'inline') } })
+      }
       return new Response(f.body, { headers: { 'content-type': 'application/octet-stream', 'content-length': String(f.size), 'content-disposition': attachment(f.name) } })
+    })
+    // For the file viewer: a text file's contents (read-only, size-capped); binary or bigger files come back without text.
+    .get('/read', query(z.object({ path: Path })), async (c) => {
+      const f = await agentFile(agents.open(as(c), { op: 'fs.read', path: c.req.valid('query').path }))
+      const tooBig = f.size > TEXT_MAX
+      if (tooBig) await f.body.cancel()
+      const text = tooBig ? null : asText(await readAll(f.body))
+      return c.json({ name: f.name, size: f.size, text, binary: !tooBig && text === null, tooBig })
     })
     // Chunked upload: the browser sends ≤ 8 MB pieces in order (Cloudflare caps a request at 100 MB).
     .post('/upload', query(z.object({ path: Path, offset: z.coerce.number().int().min(0) })), async (c) => {

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { openExternal } from '@/lib/shell'
 import { cn } from '@/lib/utils'
+import { useFileLinks } from '../files/open-file'
 import { Prose } from './Prose'
 import { toolView, type Preview, type ToolView } from './tool-view'
 import type { Block, ToolBlock } from './transcript'
@@ -50,26 +51,35 @@ const Step = memo(function Step({ tool: t, live, renderChildren }: { tool: ToolB
   const hasChildren = t.children.length > 0
   const expandable = v.details.length > 0 || hasChildren
   const [open, setOpen] = useState(agent && running)
+  const files = useFileLinks()
   const Icon = ICONS[v.icon]
+  const targetClass = cn('min-w-0 truncate', v.mono ? 'font-mono text-[12.5px] text-foreground/85' : 'text-foreground/85')
 
+  // The whole row opens the step (its button stretches over it); a file's name sits above that and opens the file.
   return (
     <li className="relative">
-      <button type="button" disabled={!expandable} onClick={() => setOpen((o) => !o)} aria-expanded={expandable ? open : undefined}
-        className={cn('group flex w-full min-w-0 items-center gap-2.5 rounded-md py-1 pr-1.5 text-left text-sm transition-colors duration-150',
-          expandable && 'hover:bg-muted/60', !expandable && 'cursor-default')}>
-        <span className={cn('relative z-10 flex size-6 shrink-0 items-center justify-center rounded-full border bg-background',
+      <div className={cn('group relative flex w-full min-w-0 items-center gap-2.5 rounded-md py-1 pr-1.5 text-left text-sm transition-colors duration-150',
+        expandable && 'hover:bg-muted/60')}>
+        <span className={cn('pointer-events-none relative z-10 flex size-6 shrink-0 items-center justify-center rounded-full border bg-background',
           failed ? 'border-destructive/50 text-destructive' : 'text-muted-foreground')}>
           {running ? <LoaderCircle className="size-3.5 animate-spin" /> : failed ? <CircleAlert className="size-3.5" /> : <Icon className="size-3.5" />}
         </span>
         <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
-          <span className="shrink-0 font-medium">{running ? `${v.doing}…` : v.verb}</span>
-          {v.target && <span className={cn('min-w-0 truncate', v.mono ? 'font-mono text-[12.5px] text-foreground/85' : 'text-foreground/85')} title={v.target}>{v.target}</span>}
+          <button type="button" disabled={!expandable} onClick={() => setOpen((o) => !o)} aria-expanded={expandable ? open : undefined}
+            className={cn('shrink-0 text-left font-medium outline-none before:absolute before:inset-0 before:rounded-md focus-visible:before:ring-2 focus-visible:before:ring-ring/50',
+              !expandable && 'cursor-default')}>
+            {running ? `${v.doing}…` : v.verb}
+          </button>
+          {v.target && (files && v.file
+            ? <button type="button" onClick={() => files.open(v.file!, v.line)} title={`Open ${v.file}`}
+                className={cn(targetClass, 'relative z-10 text-left underline decoration-muted-foreground/40 decoration-dotted underline-offset-[3px] hover:decoration-solid hover:text-foreground')}>{v.target}</button>
+            : <span className={targetClass} title={v.target}>{v.target}</span>)}
           {v.where && <span className={cn('hidden min-w-0 shrink-[4] truncate text-xs text-muted-foreground sm:inline', v.mono || v.icon === 'run' ? 'font-mono' : '')} title={v.where}>{v.where}</span>}
         </span>
         {v.meta && <Meta text={v.meta} failed={failed} />}
         {stopped && <span className="shrink-0 text-xs text-muted-foreground" title="The turn ended before this finished">stopped</span>}
         {expandable && <ChevronRight className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform duration-150', open && 'rotate-90')} />}
-      </button>
+      </div>
       {v.inline && <div className="mt-0.5 mb-1.5 pl-8"><PreviewView p={v.inline} /></div>}
       {open && (
         <div className="mt-1 mb-2 flex flex-col gap-2 pl-8">
