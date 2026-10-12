@@ -137,21 +137,36 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
   const lastError = new Map<string, number>()
   // Per session: the id of the last message of the answer being written (the saved numbers go after it).
   const lastUuid = new Map<string, string>()
-  function saveTurn(sessionId: string, r: ResultMsg) {
+  // Per session: the model of the answer being written (from its own messages; the result lists every model the
+  // session used, including the small one Claude Code uses for titles).
+  const lastModel = new Map<string, string>()
+  /**
+   * The answer's own cost. Claude Code reports the session's running total (carried over when it resumes), so it is
+   * this total minus the last one saved; null when there is none to compare with (a session that began before DevDash
+   * saved answers), unless the session is brand new and its total started at zero.
+   */
+  function turnCost(sessionId: string, r: ResultMsg & { devdash_fresh?: boolean }) {
+    if (typeof r.total_cost_usd !== 'number') return null
+    const prev = repo.lastTotal(sessionId)
+    if (prev !== null) return r.total_cost_usd >= prev ? r.total_cost_usd - prev : r.total_cost_usd
+    return r.devdash_fresh ? r.total_cost_usd : null
+  }
+  function saveTurn(sessionId: string, r: ResultMsg, cost: number | null) {
     if (!r.uuid) return
     const u = r.usage ?? {}
     repo.insertTurn({
       session_id: sessionId, result_uuid: r.uuid, after_uuid: lastUuid.get(sessionId) ?? null, prompt_uuid: r.user_message_uuid ?? null,
-      ok: r.subtype === 'success' && !r.is_error ? 1 : 0, duration_ms: Math.round(r.duration_ms ?? 0), cost_usd: r.total_cost_usd ?? 0,
+      ok: r.subtype === 'success' && !r.is_error ? 1 : 0, duration_ms: Math.round(r.duration_ms ?? 0),
+      cost_usd: r.total_cost_usd ?? 0, turn_cost_usd: cost,
       input_tokens: u.input_tokens ?? 0, output_tokens: u.output_tokens ?? 0,
       cache_read_tokens: u.cache_read_input_tokens ?? 0, cache_write_tokens: u.cache_creation_input_tokens ?? 0,
-      num_turns: r.num_turns ?? 0, model: Object.keys(r.modelUsage ?? {})[0] ?? null,
+      num_turns: r.num_turns ?? 0, model: lastModel.get(sessionId) ?? null,
     })
   }
   /** A saved answer as the result message Claude Code sent at the time (what the browser shows under the answer). */
   const turnResult = (t: TurnRow) => ({
     type: 'result', uuid: t.result_uuid, subtype: t.ok ? 'success' : 'error', is_error: !t.ok,
-    duration_ms: t.duration_ms, total_cost_usd: t.cost_usd, num_turns: t.num_turns, model: t.model,
+    duration_ms: t.duration_ms, turn_cost_usd: t.turn_cost_usd, num_turns: t.num_turns, turn_model: t.model,
     usage: { input_tokens: t.input_tokens, output_tokens: t.output_tokens, cache_read_input_tokens: t.cache_read_tokens, cache_creation_input_tokens: t.cache_write_tokens },
     timestamp: new Date(t.created_at * 1000).toISOString(),
   })
@@ -262,14 +277,19 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
           else alert(s, 'errors', `Claude stopped with an error: ${s.title}`, typeof m.result === 'string' ? clip(m.result) : undefined)
         }
         // The last message of the answer so far: where the answer's numbers go in the transcript.
-        const top = ev.msg as { uuid?: string; parent_tool_use_id?: string | null }
+        const top = ev.msg as { uuid?: string; parent_tool_use_id?: string | null; message?: { model?: string } }
         if ((m.type === 'assistant' || m.type === 'user') && top.uuid && !top.parent_tool_use_id) lastUuid.set(s.id, top.uuid)
+        if (m.type === 'assistant' && !top.parent_tool_use_id && top.message?.model) lastModel.set(s.id, top.message.model)
         if (m.type === 'result') {
-          saveTurn(s.id, ev.msg as ResultMsg)
+          const cost = turnCost(s.id, ev.msg as ResultMsg)
+          saveTurn(s.id, ev.msg as ResultMsg, cost)
           turnEnded({
             session: s, ok: m.subtype === 'success' && !m.is_error, aborted: !!m.terminal_reason?.startsWith('aborted'),
-            result: typeof m.result === 'string' ? m.result : null, costUsd: typeof m.total_cost_usd === 'number' ? m.total_cost_usd : 0,
+            result: typeof m.result === 'string' ? m.result : null, costUsd: cost ?? 0,
           })
+          // Browsers get the answer's own cost and model, the same as after a reload.
+          const msg = { ...(ev.msg as object), turn_cost_usd: cost, turn_model: lastModel.get(s.id) ?? null }
+          return hub.publish(`session:${s.id}`, { type: 'msg', msg }, viewers)
         }
         return hub.publish(`session:${s.id}`, { type: 'msg', msg: ev.msg }, viewers)
       }

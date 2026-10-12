@@ -45,7 +45,7 @@ type Pending = { requestId: string; toolName: string; input: Record<string, unkn
 /** `remote`: the claude.ai link while Remote Control is on. */
 /** `tasks`: background shells, subagents and monitors still running (Claude picks up their results when they finish). */
 type Task = { id: string; type: string; description: string }
-type Chat = { launch: Launch; q: Query; inbox: Inbox; pending: Map<string, Pending>; status: Status; lastActive: number; bg: number; tasks: Task[]; remote: string | null; done?: Promise<void> }
+type Chat = { launch: Launch; q: Query; inbox: Inbox; pending: Map<string, Pending>; status: Status; lastActive: number; bg: number; tasks: Task[]; remote: string | null; fresh: boolean; done?: Promise<void> }
 
 let emit: (ev: Record<string, unknown>) => void = () => {}
 export const setEmitter = (fn: typeof emit) => { emit = fn }
@@ -178,7 +178,7 @@ async function startChat(l: Launch): Promise<Chat> {
       stderr: (d: string) => console.error(`[${l.id.slice(0, 8)}] ${d.trimEnd()}`),
     },
   })
-  chat = { launch: { ...l, started: true }, q, inbox, pending, status: 'idle', lastActive: Date.now(), bg: 0, tasks: [], remote: null }
+  chat = { launch: { ...l, started: true }, q, inbox, pending, status: 'idle', lastActive: Date.now(), bg: 0, tasks: [], remote: null, fresh: !l.started }
   chats.set(l.id, chat)
   chat.done = pump(chat)
   if (l.remote) void remoteControl(chat, true).catch((err: Error) => emit({ ev: 'claude.remote', id: l.id, url: null, error: err.message.slice(0, 300) }))
@@ -210,7 +210,8 @@ async function pump(c: Chat) {
         void c.q.supportedModels().then((v) => modelCache.set(c.launch.profile, v), () => {})
       }
       if (msg.type === 'result') reportContext(c)
-      emit({ ev: 'claude.msg', id, msg })
+      // A brand-new session's running cost starts at zero; a resumed one carries its total over (the server subtracts).
+      emit({ ev: 'claude.msg', id, msg: msg.type === 'result' ? { ...msg, devdash_fresh: c.fresh } : msg })
     }
     setStatus(c, id, 'idle')
   } catch (err) {

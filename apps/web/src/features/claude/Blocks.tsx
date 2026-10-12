@@ -104,13 +104,14 @@ const kTokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M
 /** Under each answer: when it finished, how long it took, the tokens it used and what that would cost on the API. */
 function ResultLine({ b }: { b: Extract<Block, { kind: 'result' }> }) {
   const t = b.tokens
-  const total = t ? t.input + t.cacheRead + t.cacheWrite + t.output : 0
+  // Every model call reads the whole conversation (mostly from the cheap cache), so "in" grows with the context.
+  const read = t ? t.input + t.cacheRead + t.cacheWrite : 0
   const detail = t ? [
-    `Read ${t.input.toLocaleString()} new tokens, ${t.cacheRead.toLocaleString()} from cache, wrote ${t.cacheWrite.toLocaleString()} to cache`,
+    `Read ${read.toLocaleString()} tokens: ${t.cacheRead.toLocaleString()} from cache, ${t.input.toLocaleString()} new, ${t.cacheWrite.toLocaleString()} written to cache`,
     `Wrote ${t.output.toLocaleString()} tokens`,
-    b.steps ? `${b.steps} model call${b.steps === 1 ? '' : 's'}` : '',
+    b.steps ? `${b.steps} model call${b.steps === 1 ? '' : 's'}${b.steps > 1 ? ', each reading the conversation again' : ''}` : '',
     b.model ? `Model: ${b.model}` : '',
-    b.cost !== undefined ? `$${b.cost.toFixed(4)} at API prices (on a Claude plan it counts against the plan, not money)` : '',
+    b.cost !== undefined ? `$${b.cost.toFixed(4)} at API prices (on a Claude plan it counts against the plan, not money)` : 'Cost unknown: this session began before DevDash saved costs',
   ].filter(Boolean).join('\n') : undefined
   const tone = b.stopped ? 'text-muted-foreground' : b.ok ? 'text-muted-foreground' : 'text-destructive'
   return (
@@ -119,7 +120,7 @@ function ResultLine({ b }: { b: Extract<Block, { kind: 'result' }> }) {
       <span>{b.stopped ? 'Stopped' : b.ok ? 'Done' : 'Stopped with an error'}</span>
       {b.at && <><span aria-hidden>·</span><time dateTime={new Date(b.at).toISOString()}>{clock(b.at)}</time></>}
       <span aria-hidden>·</span><span>{took(b.seconds)}</span>
-      {total > 0 && <><span aria-hidden>·</span><span>{kTokens(total)} tokens</span></>}
+      {t && <><span aria-hidden>·</span><span>{kTokens(read)} in, {kTokens(t.output)} out</span></>}
       {b.cost !== undefined && <><span aria-hidden>·</span><span>${b.cost < 0.01 ? b.cost.toFixed(3) : b.cost.toFixed(2)}</span></>}
     </p>
   )

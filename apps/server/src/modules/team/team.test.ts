@@ -237,11 +237,17 @@ test('each answer\'s time, tokens and cost are saved and come back after the ans
   const { team, claude, sent, replies, youssef, event } = setup()
   t.after(() => team.stop())
   const s = await claude.create(youssef, { prompt: 'Fix login', images: [], cwd: '', profile: 'default', model: null, effort: null, permissionMode: 'default', mode: 'chat', project: 'seevil' })
-  event('youssef', { ev: 'claude.msg', id: s.id, msg: { type: 'assistant', uuid: 'a1', parent_tool_use_id: null, message: { content: [{ type: 'text', text: 'Done.' }] } } })
-  event('youssef', { ev: 'claude.msg', id: s.id, msg: {
-    type: 'result', uuid: 'r1', subtype: 'success', is_error: false, duration_ms: 252_000, total_cost_usd: 0.42, num_turns: 9,
-    usage: { input_tokens: 120, output_tokens: 3100, cache_read_input_tokens: 80_000, cache_creation_input_tokens: 4000 }, modelUsage: { 'claude-opus-5-5': {} },
-  } })
+  // A brand-new session: its first answer's cost is the running total; the next one is the difference. The model is the
+  // answer's own, not the first of every model the session used (Claude Code also uses a small one for titles).
+  const answer = (n: number, total: number) => {
+    event('youssef', { ev: 'claude.msg', id: s.id, msg: { type: 'assistant', uuid: `a${n}`, parent_tool_use_id: null, message: { model: 'claude-opus-5-5', content: [{ type: 'text', text: 'Done.' }] } } })
+    event('youssef', { ev: 'claude.msg', id: s.id, msg: {
+      type: 'result', uuid: `r${n}`, subtype: 'success', is_error: false, duration_ms: 252_000, total_cost_usd: total, num_turns: 9, devdash_fresh: true,
+      usage: { input_tokens: 120, output_tokens: 3100, cache_read_input_tokens: 80_000, cache_creation_input_tokens: 4000 }, modelUsage: { 'claude-haiku-5-5': {}, 'claude-opus-5-5': {} },
+    } })
+  }
+  answer(0, 0.30)
+  answer(1, 0.72)
   replies['claude.history'] = { messages: [
     { type: 'user', uuid: 'p1', message: { content: 'Fix login' }, timestamp: '2026-10-12T11:11:00Z' },
     { type: 'assistant', uuid: 'a1', message: { content: [{ type: 'thinking', thinking: 'Check the timeout', signature: 'x'.repeat(2000) }, { type: 'redacted_thinking', data: 'y' }] }, timestamp: '2026-10-12T11:15:00Z' },
@@ -250,7 +256,8 @@ test('each answer\'s time, tokens and cost are saved and come back after the ans
   assert.equal(h.more, true)
   assert.deepEqual((h.messages[1] as { message: { content: unknown[] } }).message.content, [{ type: 'thinking', thinking: 'Check the timeout' }]) // no signatures
   const [, , r] = h.messages as Record<string, unknown>[]
-  assert.deepEqual({ type: r!.type, uuid: r!.uuid, cost: r!.total_cost_usd, ms: r!.duration_ms, model: r!.model }, { type: 'result', uuid: 'r1', cost: 0.42, ms: 252_000, model: 'claude-opus-5-5' })
+  assert.deepEqual({ type: r!.type, uuid: r!.uuid, ms: r!.duration_ms, model: r!.turn_model }, { type: 'result', uuid: 'r1', ms: 252_000, model: 'claude-opus-5-5' })
+  assert.equal(Math.round((r!.turn_cost_usd as number) * 100), 42) // 0.72 - 0.30
   assert.deepEqual(r!.usage, { input_tokens: 120, output_tokens: 3100, cache_read_input_tokens: 80_000, cache_creation_input_tokens: 4000 })
   assert.equal(sent.filter((x) => x.op === 'claude.history').at(-1)!.turns, 10) // pages of 10 prompts
   await claude.history(youssef, s.id, 'p1')

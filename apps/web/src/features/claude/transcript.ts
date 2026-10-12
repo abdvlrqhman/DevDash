@@ -165,11 +165,13 @@ export function buildTranscript(raws: Raw[]): Block[] {
 
     if (r.type === 'result') {
       const u = r.usage as { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | undefined
-      const model = typeof r.model === 'string' ? r.model : Object.keys((r.modelUsage as Record<string, unknown> | undefined) ?? {})[0]
+      // DevDash adds the answer's own cost and model: Claude Code's are the session's running total and every model it used.
+      const model = typeof r.turn_model === 'string' ? r.turn_model : undefined
+      const cost = typeof r.turn_cost_usd === 'number' ? r.turn_cost_usd : undefined
       top.push({
         kind: 'result', key, ok: r.subtype === 'success' && r.is_error !== true,
         stopped: typeof r.terminal_reason === 'string' && r.terminal_reason.startsWith('aborted'),
-        seconds: Math.round(Number(r.duration_ms ?? 0) / 1000), cost: typeof r.total_cost_usd === 'number' ? r.total_cost_usd : undefined,
+        seconds: Math.round(Number(r.duration_ms ?? 0) / 1000), cost,
         at: when(r),
         tokens: u ? { input: u.input_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0, output: u.output_tokens ?? 0 } : undefined,
         model, steps: typeof r.num_turns === 'number' ? r.num_turns : undefined,
