@@ -42,8 +42,8 @@ export type Launch = {
   toolPolicy?: { tools?: string[]; allow?: string[] } | null
   /** Reach my tailnet: route the session's shell tools (ssh/curl/frida) through the owner's SOCKS/HTTP proxy. */
   reachTailnet?: boolean
-  /** A tailnet MCP URL (e.g. IDA Pro at http://100.x:13337/mcp) to expose to the session, reached over the proxy. */
-  tailnetMcp?: string | null
+  /** Tailnet MCPs (e.g. IDA Pro at http://100.x:13337/mcp) to expose to the session, each reached over the proxy. */
+  tailnetMcps?: { name: string; url: string }[] | null
 }
 export type Status = 'working' | 'waiting' | 'idle' | 'stopped' | 'error'
 type Pending = { requestId: string; toolName: string; input: Record<string, unknown>; suggestions?: unknown[]; resolve: (r: PermissionResult) => void }
@@ -58,8 +58,8 @@ export const setEmitter = (fn: typeof emit) => { emit = fn }
 
 const chats = new Map<string, Chat>()
 
-// Per-session tailnet routing. Each entry owns a local TCP→SOCKS forwarder (to a tailnet MCP) that must be torn down
-// when the session's process ends. Keyed by session id; closing an old one before starting a new one is safe.
+// Per-session tailnet routing. Each entry owns the local TCP→SOCKS forwarders (one per tailnet MCP) that must be torn
+// down when the session's process ends. Keyed by session id; closing an old one before starting a new one is safe.
 const tailnets = new Map<string, { close: () => void }>()
 function teardownTailnet(id: string) {
   const t = tailnets.get(id)
@@ -70,8 +70,8 @@ function teardownTailnet(id: string) {
 type TailnetSetup = { env: Record<string, string>; mcpServers?: Record<string, unknown> }
 /**
  * When "Reach my tailnet" is on: build the env that routes the session's shell tools through the owner's SOCKS/HTTP
- * proxy, write the ssh ProxyCommand helper onto its PATH, and — if a tailnet MCP URL is set — start a local forwarder
- * and point the MCP at it. Never sets HTTPS_PROXY: Claude's own Anthropic API calls (HTTPS) must stay direct, or the
+ * proxy, write the ssh ProxyCommand helper onto its PATH, and — for each tailnet MCP — start a local forwarder and
+ * point the MCP at it. Never sets HTTPS_PROXY: Claude's own Anthropic API calls (HTTPS) must stay direct, or the
  * SDK's traffic would tunnel through the proxy and break. Returns null when routing is off.
  */
 async function setupTailnet(l: Launch): Promise<TailnetSetup | null> {
@@ -88,20 +88,19 @@ async function setupTailnet(l: Launch): Promise<TailnetSetup | null> {
     DEVDASH_TAILNET_SOCKS: String(socksPort),
     PATH: `${binDir}:${process.env.PATH ?? ''}`,
   }
+  // The SDK/CLI HTTP MCP client can't reach a userspace 100.x address, so for each MCP forward a localhost port to it
+  // over SOCKS and register it at the forwarded URL (original scheme/path kept, e.g. /mcp), under its own server name.
+  const forwarders: { close: () => void }[] = []
   let mcpServers: Record<string, unknown> | undefined
-  let close = () => {}
-  if (l.tailnetMcp) {
-    // The SDK/CLI HTTP MCP client can't reach a userspace 100.x address, so forward a localhost port to it over SOCKS
-    // and register the MCP at the forwarded URL, preserving the original scheme and path (e.g. /mcp).
-    const u = new URL(l.tailnetMcp)
-    const dest = { host: u.hostname, port: Number(u.port) || (u.protocol === 'https:' ? 443 : 80) }
-    const fwd = await startForwarder(socksPort, dest.host, dest.port)
-    close = fwd.close
+  for (const mcp of l.tailnetMcps ?? []) {
+    const u = new URL(mcp.url)
+    const fwd = await startForwarder(socksPort, u.hostname, Number(u.port) || (u.protocol === 'https:' ? 443 : 80))
+    forwarders.push(fwd)
     const url = `${u.protocol}//127.0.0.1:${fwd.port}${u.pathname}${u.search}`
-    mcpServers = { tailnet: { type: 'http', url } }
+    mcpServers = { ...mcpServers, [mcp.name]: { type: 'http', url } }
   }
   teardownTailnet(l.id)
-  tailnets.set(l.id, { close })
+  tailnets.set(l.id, { close: () => { for (const f of forwarders) try { f.close() } catch { /* gone */ } } })
   return { env, mcpServers }
 }
 

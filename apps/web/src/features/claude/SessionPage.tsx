@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { Archive, ArchiveRestore, Check, ChevronDown, Circle, Ellipsis, FileCode, Gauge, LoaderCircle, MessageSquare, Network, Pencil, Share2, SquareTerminal, Shield, ShieldOff, SlidersHorizontal, X, Zap } from 'lucide-react'
+import { Archive, ArchiveRestore, Check, ChevronDown, Circle, Ellipsis, FileCode, Gauge, LoaderCircle, MessageSquare, Network, Pencil, Plus, Share2, SquareTerminal, Shield, ShieldOff, SlidersHorizontal, X, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
 import { PageHeader } from '@/components/app/page'
@@ -440,7 +440,7 @@ function CliView({ id, onEnded }: { id: string; onEnded: () => void }) {
 
 type Updater = (v: {
   model?: string | null; effort?: Effort | null; permissionMode?: PermissionMode; shared?: boolean; sharedCanSend?: boolean; archived?: boolean
-  fastMode?: boolean; remoteControl?: boolean; reachTailnet?: boolean; tailnetMcp?: string | null
+  fastMode?: boolean; remoteControl?: boolean; reachTailnet?: boolean; tailnetMcps?: { name: string; url: string }[] | null
 }) => void
 
 /** Model, effort and permissions, changed in place from the chip row. */
@@ -600,21 +600,24 @@ function RenameDialog({ open, onOpenChange, s, onSave }: { open: boolean; onOpen
  * private Tailscale node. Only available while they have a connected node; Claude's own API traffic is never proxied.
  */
 function TailnetDialog({ open, onOpenChange, s, onUpdate }: {
-  open: boolean; onOpenChange: (v: boolean) => void; s: Session; onUpdate: (v: { reachTailnet?: boolean; tailnetMcp?: string | null }) => Promise<unknown>
+  open: boolean; onOpenChange: (v: boolean) => void; s: Session
+  onUpdate: (v: { reachTailnet?: boolean; tailnetMcps?: { name: string; url: string }[] | null }) => Promise<unknown>
 }) {
   const status = useQuery({ ...tailnetStatusQuery, enabled: open })
   const connected = !!status.data?.connected && !!status.data?.running
   const [reach, setReach] = useState(s.reachTailnet)
-  const [mcp, setMcp] = useState(s.tailnetMcp ?? '')
+  const [mcps, setMcps] = useState<{ name: string; url: string }[]>(s.tailnetMcps ?? [])
   const [error, setError] = useState<Error | null>(null)
   const [saving, setSaving] = useState(false)
-  useEffect(() => { if (open) { setReach(s.reachTailnet); setMcp(s.tailnetMcp ?? ''); setError(null) } }, [open, s.reachTailnet, s.tailnetMcp])
+  useEffect(() => { if (open) { setReach(s.reachTailnet); setMcps(s.tailnetMcps ?? []); setError(null) } }, [open, s.reachTailnet, s.tailnetMcps])
+  const setRow = (i: number, k: 'name' | 'url', v: string) => setMcps((m) => m.map((e, j) => (j === i ? { ...e, [k]: v } : e)))
   const save = async (e: FormEvent) => {
     e.preventDefault()
     setSaving(true)
     setError(null)
     try {
-      await onUpdate({ reachTailnet: reach, tailnetMcp: reach ? mcp.trim() || null : null })
+      const clean = reach ? mcps.filter((m) => m.url.trim()).map((m) => ({ name: m.name.trim(), url: m.url.trim() })) : []
+      await onUpdate({ reachTailnet: reach, tailnetMcps: clean })
       onOpenChange(false)
     } catch (err) {
       setError(err as Error)
@@ -641,9 +644,16 @@ function TailnetDialog({ open, onOpenChange, s, onUpdate }: {
           </label>
           {reach && (
             <Field>
-              <FieldLabel htmlFor="tailnet-mcp">Tailnet MCP URL (optional)</FieldLabel>
-              <Input id="tailnet-mcp" className="h-10 font-mono" placeholder="http://100.x.x.x:13337/mcp" value={mcp} onChange={(e) => setMcp(e.target.value)} />
-              <FieldDescription>An MCP server on your tailnet (e.g. IDA Pro). It's exposed to this session over the proxy. Must be a tailnet address (100.x or a *.ts.net name).</FieldDescription>
+              <FieldLabel>Tailnet MCP servers (optional)</FieldLabel>
+              {mcps.map((m, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <Input className="h-10 w-28 font-mono" placeholder="name" value={m.name} onChange={(e) => setRow(i, 'name', e.target.value)} />
+                  <Input className="h-10 flex-1 font-mono" placeholder="http://100.x.x.x:13337/mcp" value={m.url} onChange={(e) => setRow(i, 'url', e.target.value)} />
+                  <Button type="button" size="icon" variant="ghost" className="size-10 shrink-0" aria-label="Remove" onClick={() => setMcps((v) => v.filter((_, j) => j !== i))}><X /></Button>
+                </div>
+              ))}
+              <Button type="button" size="sm" variant="outline" className="self-start" disabled={mcps.length >= 8} onClick={() => setMcps((v) => [...v, { name: '', url: '' }])}><Plus />Add MCP</Button>
+              <FieldDescription>MCP servers on your tailnet (e.g. IDA Pro), each exposed to this session over the proxy and named for Claude. Hosts must be tailnet addresses (100.x or a *.ts.net name). Up to 8.</FieldDescription>
             </Field>
           )}
           <ErrorAlert error={error} />

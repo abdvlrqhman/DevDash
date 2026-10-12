@@ -32,6 +32,7 @@ export type SessionRow = {
   listed: number
   reach_tailnet: number
   tailnet_mcp: string | null
+  tailnet_mcps: string | null
   project_slug: string | null
   project_name: string | null
 }
@@ -47,7 +48,7 @@ const SELECT = `select s.*, u.username as owner_username, u.name as owner_name, 
   from claude_sessions s join users u on u.id = s.owner_id left join projects p on p.id = s.project_id`
 
 // Columns a PATCH may touch; anything else is ignored.
-const PATCHABLE = ['title', 'title_custom', 'shared', 'shared_can_send', 'archived', 'model', 'effort', 'permission_mode', 'mode', 'started', 'fast_mode', 'remote_control', 'context_json', 'instructions', 'tool_policy', 'listed', 'reach_tailnet', 'tailnet_mcp'] as const
+const PATCHABLE = ['title', 'title_custom', 'shared', 'shared_can_send', 'archived', 'model', 'effort', 'permission_mode', 'mode', 'started', 'fast_mode', 'remote_control', 'context_json', 'instructions', 'tool_policy', 'listed', 'reach_tailnet', 'tailnet_mcp', 'tailnet_mcps'] as const
 export type Patch = Partial<Pick<SessionRow, (typeof PATCHABLE)[number]>>
 
 const toComment = (r: { id: number; body: string; created_at: number; user_id: number; name: string }): Comment => ({ id: r.id, body: r.body, createdAt: r.created_at, user: { id: r.user_id, name: r.name } })

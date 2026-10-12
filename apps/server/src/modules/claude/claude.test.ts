@@ -118,24 +118,35 @@ test('reach my tailnet: owner-only, needs a connected node, validates the MCP, a
   const { claude: c2, ann: ann2 } = setup({ tailnetConnected: () => false })
   await assert.rejects(c2.update(ann2, 's1', { reachTailnet: true }), /Connect your tailnet/)
   // a bad MCP URL is rejected before anything is stored
-  await assert.rejects(claude.update(ann, 's1', { reachTailnet: true, tailnetMcp: 'http://8.8.8.8/mcp' }), /tailnet address/)
+  await assert.rejects(claude.update(ann, 's1', { reachTailnet: true, tailnetMcps: [{ name: 'x', url: 'http://8.8.8.8/mcp' }] }), /tailnet address/)
 
-  const dto = await claude.update(ann, 's1', { reachTailnet: true, tailnetMcp: 'http://100.64.0.2:13337/mcp' })
+  // several MCPs, names turned into distinct safe slugs
+  const dto = await claude.update(ann, 's1', { reachTailnet: true, tailnetMcps: [
+    { name: 'IDA Pro', url: 'http://100.64.0.2:13337/mcp' },
+    { name: '', url: 'http://100.64.0.3:13337/mcp' },
+  ] })
   assert.equal(dto.reachTailnet, true)
-  assert.equal(dto.tailnetMcp, 'http://100.64.0.2:13337/mcp')
+  assert.deepEqual(dto.tailnetMcps, [
+    { name: 'ida-pro', url: 'http://100.64.0.2:13337/mcp' },
+    { name: 'mcp2', url: 'http://100.64.0.3:13337/mcp' },
+  ])
   // an idle chat process is stopped so the next message relaunches with the proxy env
   assert.ok(sent.some((r) => r.op === 'claude.stop'))
-  // the flag/url travel to the agent on the next send, inside the launch payload
+  // the flag/mcps travel to the agent on the next send, inside the launch payload
   await claude.send(ann, 's1', 'ssh to my iphone', [])
-  const launch = sent.find((r) => r.op === 'claude.send')!.launch as { reachTailnet: boolean; tailnetMcp: string }
+  const launch = sent.find((r) => r.op === 'claude.send')!.launch as { reachTailnet: boolean; tailnetMcps: { name: string; url: string }[] }
   assert.equal(launch.reachTailnet, true)
-  assert.equal(launch.tailnetMcp, 'http://100.64.0.2:13337/mcp')
+  assert.equal(launch.tailnetMcps.length, 2)
 
-  // clearing: empty URL nulls it, and the row reflects the toggle off
-  await claude.update(ann, 's1', { reachTailnet: false, tailnetMcp: '' })
-  const row = db.prepare('select reach_tailnet, tailnet_mcp from claude_sessions where id = ?').get('s1') as { reach_tailnet: number; tailnet_mcp: string | null }
+  // the legacy single-URL field still works (stored as one entry named "ida")
+  await claude.update(ann, 's1', { tailnetMcp: 'http://100.64.0.9:13337/mcp' })
+  assert.deepEqual((await claude.update(ann, 's1', {})).tailnetMcps, [{ name: 'ida', url: 'http://100.64.0.9:13337/mcp' }])
+
+  // clearing: empty list nulls it, and the row reflects the toggle off
+  await claude.update(ann, 's1', { reachTailnet: false, tailnetMcps: [] })
+  const row = db.prepare('select reach_tailnet, tailnet_mcps from claude_sessions where id = ?').get('s1') as { reach_tailnet: number; tailnet_mcps: string | null }
   assert.equal(row.reach_tailnet, 0)
-  assert.equal(row.tailnet_mcp, null)
+  assert.equal(row.tailnet_mcps, '[]')
 })
 
 function inProject(sharing: 'private' | 'shared' | 'shared_can_send' = 'private') {

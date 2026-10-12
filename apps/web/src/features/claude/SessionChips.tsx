@@ -140,7 +140,7 @@ export function SessionChips({ s, isOwner, canSend, working, onUpdate, onCompact
             <p className="mt-1 text-xs text-muted-foreground">
               This session's ssh, curl and frida reach your private devices by their 100.x addresses. Claude's own Anthropic traffic is not proxied.
             </p>
-            {s.tailnetMcp && <p className="mt-2 break-all text-xs text-muted-foreground">MCP: <span className="font-mono">{s.tailnetMcp}</span></p>}
+            {s.tailnetMcps?.length ? <p className="mt-2 break-all text-xs text-muted-foreground">MCP: <span className="font-mono">{s.tailnetMcps.map((m) => m.name).join(', ')}</span></p> : null}
           </PopoverContent>
         </Popover>
       )}
