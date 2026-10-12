@@ -23,7 +23,7 @@ import { cn } from '@/lib/utils'
 import { ErrorAlert } from '../auth/LoginPage'
 import { NativeSelect } from '@/components/app/native-select'
 import { Switch } from '@/components/ui/switch'
-import { projectsQuery } from '../work/data'
+import { projectsQuery, type SessionSharing } from '../work/data'
 import { useArchiveSession } from './ArchiveSession'
 import { ModelChoices } from './ModelChoices'
 import { groupModels, isDefaultModel, modelLabel, type ModelInfo } from './models'
@@ -157,6 +157,9 @@ export function NewSession({ open, onClose, initialPrompt = '', initialCwd, init
   const projects = useQuery({ ...projectsQuery, enabled: open }).data?.projects ?? []
   const [project, setProject] = useState(initialProject ?? '')
   const [worktree, setWorktree] = useState(true)
+  // Untouched, it follows the project's default for new sessions (the server applies the same one).
+  const [sharingPick, setSharing] = useState<SessionSharing | null>(null)
+  const sharing = sharingPick ?? projects.find((p) => p.slug === project)?.sessionSharing ?? 'private'
   useEffect(() => {
     if (!d) return
     setProfile(d.profile)
@@ -164,7 +167,7 @@ export function NewSession({ open, onClose, initialPrompt = '', initialCwd, init
     setPerm(d.permission_mode as PermissionMode)
     setOpenIn(d.open_in)
   }, [d])
-  useEffect(() => { if (open) { setPrompt(initialPrompt); setCwd(initialCwd ?? sessionFolder()); setProject(initialProject ?? '') } }, [open, initialPrompt, initialCwd, initialProject])
+  useEffect(() => { if (open) { setPrompt(initialPrompt); setCwd(initialCwd ?? sessionFolder()); setProject(initialProject ?? ''); setSharing(null) } }, [open, initialPrompt, initialCwd, initialProject])
 
   const profiles = (setup.data?.profiles as { name: string; loggedIn: boolean }[] | undefined) ?? []
   const chosen = profiles.find((p) => p.name === profile)
@@ -177,6 +180,7 @@ export function NewSession({ open, onClose, initialPrompt = '', initialCwd, init
       json: {
         prompt, images: [], cwd, profile, model: model && model !== 'default' ? model.trim() : null, effort: null, permissionMode: perm, mode: openIn,
         project: project || undefined, worktree: project ? worktree : undefined,
+        ...(sharingPick && { shared: sharingPick !== 'private', sharedCanSend: sharingPick === 'shared_can_send' }),
         cols: Math.max(40, Math.min(220, Math.floor(innerWidth / 8.2))), rows: Math.max(15, Math.min(80, Math.floor(innerHeight / 19))),
       },
     })),
@@ -205,7 +209,7 @@ export function NewSession({ open, onClose, initialPrompt = '', initialCwd, init
           {projects.length > 0 && (
             <Field>
               <FieldLabel htmlFor="ns-project">Project</FieldLabel>
-              <NativeSelect id="ns-project" value={project} onChange={(e) => setProject(e.target.value)}>
+              <NativeSelect id="ns-project" value={project} onChange={(e) => { setProject(e.target.value); setSharing(null) }}>
                 <option value="">None, its own folder</option>
                 {projects.map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}
               </NativeSelect>
@@ -261,6 +265,9 @@ export function NewSession({ open, onClose, initialPrompt = '', initialCwd, init
           <Choice id="ns-perm" label="Permissions" value={perm} onChange={(v) => setPerm(v as PermissionMode)}
             options={PERMISSION_MODES.slice(0, 4).map((p) => ({ value: p.value, label: p.label }))}
             description={PERMISSION_MODES.find((p) => p.value === perm)?.hint} />
+          <Choice id="ns-sharing" label="Sharing" value={sharing} onChange={(v) => setSharing(v as SessionSharing)}
+            options={[{ value: 'private', label: 'Private' }, { value: 'shared', label: 'Shared' }, { value: 'shared_can_send', label: 'Anyone can send' }]}
+            description={`${sharing === 'private' ? 'Only you see it.' : sharing === 'shared' ? 'Everyone can watch; you choose who else can send.' : 'Everyone can watch and send messages.'}${project && !sharingPick ? ' The project\'s default.' : ''} Change it any time in the session.`} />
           <Choice id="ns-open" label="Open in" value={openIn} onChange={(v) => setOpenIn(v as 'chat' | 'cli')}
             options={[{ value: 'chat', label: 'Chat' }, { value: 'cli', label: 'CLI' }]}
             description={openIn === 'cli' ? 'The real Claude Code terminal. You can switch to Chat any time.' : 'A chat view of Claude Code. You can switch to the CLI any time.'} />

@@ -1,19 +1,22 @@
 import { useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { Copy, GitBranch, GitCommitHorizontal, Plus, RefreshCw, Sparkles, StickyNote } from 'lucide-react'
+import { Bot, ChevronRight, Copy, GitBranch, GitCommitHorizontal, Lock, Plus, RefreshCw, Search, Share2, Sparkles, StickyNote } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
 import { PageBody, PageHeader, Section } from '@/components/app/page'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabCount, TabsTrigger } from '@/components/ui/tabs'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ErrorAlert } from '../auth/LoginPage'
-import { relativeTime, sessionsQuery, STATUS_LABEL, type Session } from '../claude/data'
+import { projectSessionsQuery, relativeTime, STATUS_LABEL, useLiveProjectSessions, type ProjectSession, type Session } from '../claude/data'
 import { NewSession } from '../claude/SessionsPage'
 import { Board } from '../work/Board'
-import { activityQuery, commitsQuery, notesQuery, projectQuery, STATUSES, tasksQuery, useLiveWork, type Task } from '../work/data'
+import { activityQuery, commitsQuery, notesQuery, projectQuery, STATUSES, tasksQuery, useLiveWork, type SessionSharing, type Task } from '../work/data'
 import { StatusIcon, TaskRow } from '../work/TaskBits'
 import { cn } from '@/lib/utils'
 import { ActivityList } from '../work/Activity'
@@ -91,7 +94,7 @@ function ProjectPageView() {
             {tasks.data && <Board tasks={tasks.data.tasks} project={slug} showProject={false} />}
           </TabsContent>
           <TabsContent value="notes"><ProjectNotes slug={slug} /></TabsContent>
-          <TabsContent value="sessions"><ProjectSessions slug={slug} onNew={() => setSession(true)} /></TabsContent>
+          <TabsContent value="sessions"><ProjectSessions slug={slug} sharing={p.sessionSharing} onNew={() => setSession(true)} /></TabsContent>
           <TabsContent value="builds"><BuildsTab slug={slug} isGithub={/github\.com/.test(p.repoUrl ?? '')} /></TabsContent>
           <TabsContent value="commits"><Commits slug={slug} /></TabsContent>
           <TabsContent value="activity"><ProjectActivity slug={slug} /></TabsContent>
@@ -114,35 +117,177 @@ function ProjectNotes({ slug }: { slug: string }) {
 }
 
 const isActive = (s: Session) => s.status === 'working' || s.status === 'waiting'
-const projectSessions = (all: Session[] | undefined, slug: string) =>
-  (all ?? []).filter((s) => s.project?.slug === slug).sort((a, b) => Number(isActive(b)) - Number(isActive(a)))
+const light = (s: Session) => (s.status === 'working' ? 'live' : s.status === 'waiting' ? 'waiting' : s.status === 'error' ? 'error' : 'idle')
+// Working or waiting first, then the most recent.
+const byUrgency = (a: Session, b: Session) => Number(isActive(b)) - Number(isActive(a)) || b.lastActivityAt - a.lastActivityAt
+const firstName = (n: string) => n.split(' ')[0]!
+const branch = (s: Session) => (s.worktree ? `dd/${s.worktree.split('/').pop()}` : null)
 
-function SessionList({ sessions }: { sessions: Session[] }) {
+/** Whose it is: you, a teammate, or a team role (which runs as a person, but people know it by the role). */
+function Who({ s }: { s: ProjectSession }) {
+  if (s.role) return <span className="flex items-center gap-1"><Bot className="size-3.5" />{s.role.name}</span>
+  if (s.kind === 'mine') return <span className="flex items-center gap-1">{s.shared ? <Share2 className="size-3" aria-label="Shared" /> : <Lock className="size-3" aria-label="Private" />}You</span>
+  return <span>{firstName(s.owner.name)}</span>
+}
+
+function SessionRow({ s, nested }: { s: ProjectSession; nested?: boolean }) {
+  return (
+    <Link to="/claude/$id" params={{ id: s.id }} className={cn('flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-accent/50', nested && 'pl-9')}>
+      <StatusLight state={light(s)} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate">{s.title}</span>
+        {(isActive(s) || s.status === 'error') && <span className="block text-xs text-muted-foreground">{STATUS_LABEL[s.status]}</span>}
+      </span>
+      {s.worktree && <span className="hidden shrink-0 items-center gap-1 font-mono text-xs text-muted-foreground sm:flex"><GitBranch className="size-3.5" />{branch(s)}</span>}
+      <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">{!nested && <><Who s={s} />,</>} {relativeTime(s.lastActivityAt)}</span>
+    </Link>
+  )
+}
+
+/** A role's shifts under one row, so dozens of them don't bury everything else: "CEO · 14 shifts, last 2 h ago". */
+function ShiftGroup({ role, shifts, open: forced }: { role: { id: number; name: string }; shifts: ProjectSession[]; open?: boolean }) {
+  const [open, setOpen] = useState(false)
+  const shown = open || !!forced
+  const top = shifts[0]!
+  const busy = shifts.some(isActive)
+  return (
+    <>
+      <button onClick={() => setOpen(!shown)} aria-expanded={shown} className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-accent/50">
+        <StatusLight state={busy ? light(top) : 'idle'} />
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-1.5"><Bot className="size-3.5 shrink-0 text-muted-foreground" /><span className="truncate">{role.name}</span>
+            <span className="shrink-0 text-muted-foreground">· {shifts.length} {shifts.length === 1 ? 'shift' : 'shifts'}</span></span>
+          {busy && <span className="block text-xs text-muted-foreground">{STATUS_LABEL[top.status]}</span>}
+        </span>
+        <span className="shrink-0 text-xs text-muted-foreground">last {relativeTime(top.lastActivityAt)}</span>
+        <ChevronRight className={cn('size-4 shrink-0 text-muted-foreground transition-transform', shown && 'rotate-90')} />
+      </button>
+      {shown && <ul className="border-t bg-muted/30">{shifts.map((s) => <li key={s.id} className="border-b last:border-b-0"><SessionRow s={s} nested /></li>)}</ul>}
+    </>
+  )
+}
+
+type Row = { key: string; at: Session } & ({ s: ProjectSession } | { role: { id: number; name: string }; shifts: ProjectSession[] })
+/** Sessions in order, each role's shifts folded into one row that sits where its latest shift would. */
+function rows(sessions: ProjectSession[]): Row[] {
+  const sorted = [...sessions].sort(byUrgency)
+  const shifts = new Map<number, ProjectSession[]>()
+  const out: Row[] = []
+  for (const s of sorted) {
+    if (s.kind === 'shift' && s.role) shifts.set(s.role.id, [...(shifts.get(s.role.id) ?? []), s])
+    else out.push({ key: s.id, at: s, s })
+  }
+  for (const [id, list] of shifts) out.push({ key: `shifts:${id}`, at: list[0]!, role: list[0]!.role!, shifts: list })
+  return out.sort((a, b) => byUrgency(a.at, b.at))
+}
+
+function SessionList({ sessions, expand }: { sessions: ProjectSession[]; expand?: boolean }) {
   return (
     <ul className="overflow-hidden rounded-xl border">
-      {sessions.map((s) => (
-        <li key={s.id} className="border-b last:border-b-0">
-          <Link to="/claude/$id" params={{ id: s.id }} className="flex items-center gap-3 px-3 py-2.5 text-sm hover:bg-accent/50">
-            <StatusLight state={s.status === 'working' ? 'live' : s.status === 'waiting' ? 'waiting' : s.status === 'error' ? 'error' : 'idle'} />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate">{s.title}</span>
-              {isActive(s) && <span className="block text-xs text-muted-foreground">{STATUS_LABEL[s.status]}</span>}
-            </span>
-            {s.worktree && <span className="hidden shrink-0 items-center gap-1 font-mono text-xs text-muted-foreground sm:flex"><GitBranch className="size-3.5" />dd/{s.worktree.split('/').pop()}</span>}
-            <span className="shrink-0 text-xs text-muted-foreground">{s.owner.name.split(' ')[0]}, {relativeTime(s.lastActivityAt)}</span>
-          </Link>
+      {rows(sessions).map((r) => (
+        <li key={r.key} className="border-b last:border-b-0">
+          {'s' in r ? <SessionRow s={r.s} /> : <ShiftGroup role={r.role} shifts={r.shifts} open={expand} />}
         </li>
       ))}
     </ul>
   )
 }
 
-function ProjectSessions({ slug, onNew }: { slug: string; onNew: () => void }) {
-  const sessions = projectSessions(useQuery(sessionsQuery(false)).data?.sessions, slug)
+const FILTERS = [
+  { value: 'all', label: 'All', test: () => true },
+  { value: 'mine', label: 'Mine', test: (s: ProjectSession) => s.kind === 'mine' },
+  { value: 'teammates', label: 'Teammates', test: (s: ProjectSession) => s.kind === 'shared' },
+  { value: 'roles', label: 'Team roles', test: (s: ProjectSession) => s.kind === 'role' || s.kind === 'shift' },
+] as const
+
+/** "2 private sessions by Ahmed": counted by the server, never listed. */
+function HiddenLine({ hidden, archived }: { hidden: { count: number; people: string[] }; archived: boolean }) {
+  if (!hidden.count) return null
+  const names = hidden.people.map(firstName)
+  const who = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names.at(-1)}` : names[0]
   return (
-    <Section action={<Button size="sm" variant="outline" onClick={onNew}><Plus />New session</Button>}>
-      {!sessions.length ? <p className="text-sm text-muted-foreground">No Claude sessions in this project yet.</p> : <SessionList sessions={sessions} />}
+    <p className="flex items-center gap-2 text-sm text-muted-foreground">
+      <Lock className="size-3.5 shrink-0" />{hidden.count} {archived ? 'archived ' : ''}private {hidden.count === 1 ? 'session' : 'sessions'} by {who}
+    </p>
+  )
+}
+
+/** Everything in the project you may open, the roles' sessions too: filter by whose, search when there are many. */
+function ProjectSessions({ slug, sharing, onNew }: { slug: string; sharing: SessionSharing; onNew: () => void }) {
+  useLiveProjectSessions(slug)
+  const [archived, setArchived] = useState(false)
+  const [filter, setFilter] = useState<(typeof FILTERS)[number]['value']>('all')
+  const [q, setQ] = useState('')
+  const list = useQuery(projectSessionsQuery(slug, archived))
+  const all = list.data?.sessions ?? []
+  const needle = q.trim().toLowerCase()
+  const found = needle
+    ? all.filter((s) => [s.title, s.owner.name, s.role?.name ?? '', branch(s) ?? ''].some((t) => t.toLowerCase().includes(needle)))
+    : all
+  const sessions = found.filter(FILTERS.find((f) => f.value === filter)!.test)
+  return (
+    <Section action={<div className="flex items-center gap-1"><SharingDefault slug={slug} sharing={sharing} /><Button size="sm" variant="outline" onClick={onNew}><Plus />New session</Button></div>}>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap gap-1" role="group" aria-label="Whose sessions">
+          {FILTERS.map((f) => (
+            <button key={f.value} onClick={() => setFilter(f.value)} aria-pressed={filter === f.value}
+              className={cn('flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs text-muted-foreground transition-colors hover:text-foreground',
+                filter === f.value && 'border-foreground/20 bg-foreground/10 text-foreground')}>
+              {f.label}<span className="tabular-nums opacity-70">{found.filter(f.test).length}</span>
+            </button>
+          ))}
+        </div>
+        <ToggleGroup type="single" variant="outline" size="sm" className="ml-auto" value={archived ? 'archived' : 'active'} onValueChange={(v) => v && setArchived(v === 'archived')}>
+          <ToggleGroupItem value="active">Active</ToggleGroupItem>
+          <ToggleGroupItem value="archived">Archived</ToggleGroupItem>
+        </ToggleGroup>
+      </div>
+      {(all.length > 8 || needle) && (
+        <InputGroup>
+          <InputGroupAddon><Search /></InputGroupAddon>
+          <InputGroupInput aria-label="Search sessions" placeholder="Search titles, people, roles, branches" value={q} onChange={(e) => setQ(e.target.value)} />
+        </InputGroup>
+      )}
+      <ErrorAlert error={list.error} />
+      {list.isPending ? <Skeleton className="h-32 rounded-xl" />
+        : sessions.length ? <SessionList sessions={sessions} expand={!!needle} />
+        : <p className="text-sm text-muted-foreground">{needle ? 'No sessions match.' : filter !== 'all' ? 'None here.' : archived ? 'No archived sessions in this project.' : 'No Claude sessions in this project yet.'}</p>}
+      {list.data && !needle && (filter === 'all' || filter === 'teammates') && <HiddenLine hidden={list.data.hidden} archived={archived} />}
     </Section>
+  )
+}
+
+const SHARING: { value: SessionSharing; label: string; hint: string }[] = [
+  { value: 'private', label: 'Private', hint: 'Only whoever starts a session sees it, until they share it.' },
+  { value: 'shared', label: 'Shared', hint: 'Everyone can watch; only the owner, and whoever they let in, can send.' },
+  { value: 'shared_can_send', label: 'Anyone can send', hint: 'Everyone can watch and send messages.' },
+]
+
+/** How new Claude sessions in the project start out, for everyone. Each one can still be changed when it starts or later. */
+function SharingDefault({ slug, sharing }: { slug: string; sharing: SessionSharing }) {
+  const qc = useQueryClient()
+  const save = useMutation({
+    mutationFn: (v: SessionSharing) => unwrap(api.api.projects[':slug'].$patch({ param: { slug }, json: { sessionSharing: v } })),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['projects'] }),
+    onError: (e) => toast.error(e.message),
+  })
+  const current = SHARING.find((o) => o.value === sharing)!
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button size="sm" variant="ghost" className="text-muted-foreground" aria-label={`New sessions here: ${current.label}`}>
+          {sharing === 'private' ? <Lock /> : <Share2 />}<span className="max-sm:hidden">New: {current.label.toLowerCase()}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 text-sm">
+        <p className="font-medium">New Claude sessions here are</p>
+        <ToggleGroup type="single" variant="outline" size="sm" className="mt-3 w-full" value={sharing} disabled={save.isPending}
+          onValueChange={(v) => v && v !== sharing && save.mutate(v as SessionSharing)}>
+          {SHARING.map((o) => <ToggleGroupItem key={o.value} value={o.value} className="flex-1">{o.label}</ToggleGroupItem>)}
+        </ToggleGroup>
+        <p className="mt-2 text-xs text-muted-foreground">{current.hint} For everyone's new sessions in this project; whoever starts one can still change it then or later.</p>
+      </PopoverContent>
+    </Popover>
   )
 }
 
@@ -151,7 +296,8 @@ function Overview({ slug, live, tasks, onTab, onNew }: {
   slug: string; live: { working: number; waiting: number; people: string[] }; tasks: Task[] | undefined
   onTab: (tab: string) => void; onNew: () => void
 }) {
-  const active = projectSessions(useQuery(sessionsQuery(false)).data?.sessions, slug).filter(isActive)
+  useLiveProjectSessions(slug)
+  const active = (useQuery(projectSessionsQuery(slug, false)).data?.sessions ?? []).filter(isActive)
   // Private sessions of other people: counted by the server, never listed.
   const hidden = Math.max(0, live.working + live.waiting - active.length)
   const shown = new Set(active.map((s) => s.owner.name))
@@ -163,7 +309,7 @@ function Overview({ slug, live, tasks, onTab, onNew }: {
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <Card title="Claude right now" className="md:col-span-2" action={<Button size="sm" variant="outline" onClick={onNew}><Plus />New session</Button>}>
-        {active.length > 0 && <SessionList sessions={active} />}
+        {active.length > 0 && <SessionList sessions={active} expand />}
         {hidden > 0 && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
             <StatusLight state="live" />

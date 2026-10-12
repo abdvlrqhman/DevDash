@@ -33,6 +33,9 @@ const CreateInput = z.object({
   worktree: z.boolean().optional(),
   cols: Size.optional(),
   rows: z.number().int().min(4).max(200).optional(),
+  // Left out: the project's default for new sessions.
+  shared: z.boolean().optional(),
+  sharedCanSend: z.boolean().optional(),
 })
 const SendInput = z.object({ text: z.string().max(200_000), images: Images, files: Files })
   .refine((v) => v.text.trim() || v.images.length || v.files.length, 'Write a message or attach a file')
@@ -64,6 +67,8 @@ export function claudeRoutes(claude: ClaudeService, mw: ReturnType<typeof authMi
     .use(mw.requireUser)
     .get('/sessions', query(z.object({ archived: z.enum(['0', '1']).default('0') })), (c) =>
       c.json({ sessions: claude.list(c.get('user'), c.req.valid('query').archived === '1') }))
+    .get('/projects/:slug/sessions', query(z.object({ archived: z.enum(['0', '1']).default('0') })), (c) =>
+      c.json(claude.inProject(c.get('user'), c.req.param('slug'), c.req.valid('query').archived === '1')))
     .post('/sessions', json(CreateInput), async (c) => c.json({ session: await claude.create(c.get('user'), c.req.valid('json')) }))
     .get('/sessions/:id', async (c) => c.json(await claude.get(c.get('user'), c.req.param('id'))))
     .patch('/sessions/:id', json(PatchInput), async (c) => c.json({ session: await claude.update(c.get('user'), c.req.param('id'), c.req.valid('json')) }))

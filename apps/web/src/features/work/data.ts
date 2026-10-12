@@ -12,6 +12,7 @@ const fetchActivity = () => unwrap(api.api.activity.$get())
 
 export type TaskFilter = { project?: string; assignee?: string; done?: 'recent' | 'all' }
 export type Project = Awaited<ReturnType<typeof fetchProjects>>['projects'][number]
+export type SessionSharing = Project['sessionSharing']
 export type Task = Awaited<ReturnType<typeof fetchTasks>>['tasks'][number]
 export type TaskDetail = Awaited<ReturnType<typeof fetchTask>>['task']
 export type Note = Awaited<ReturnType<typeof fetchNotes>>['notes'][number]
