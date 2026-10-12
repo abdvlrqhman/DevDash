@@ -35,6 +35,15 @@ type ResultMsg = {
   usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
 }
 const HISTORY_TURNS = 10 // prompts per page of history: a long session opens with its last 10 and loads more on scroll
+
+/** A history message without what only the model needs: thinking signatures (a third of a long session's size). */
+export function lighter<T>(m: T): T {
+  const msg = (m as { message?: { content?: unknown } }).message
+  if (!Array.isArray(msg?.content) || !msg.content.some((b: { type?: string }) => b.type === 'thinking' || b.type === 'redacted_thinking')) return m
+  const content = msg.content.flatMap((b: Record<string, unknown>) =>
+    b.type === 'thinking' ? [{ type: 'thinking', thinking: b.thinking }] : b.type === 'redacted_thinking' ? [] : [b])
+  return { ...m, message: { ...msg, content } }
+}
 const live = new Map<string, Live>()
 const setLive = (id: string, v: Live) => live.set(id, { ...live.get(id), ...v })
 
@@ -626,7 +635,7 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
       const turns = new Map(repo.turns(id).map((t) => [t.after_uuid, t]))
       const messages: unknown[] = []
       for (const m of page.messages) {
-        messages.push(m)
+        messages.push(lighter(m))
         const t = m.uuid ? turns.get(m.uuid) : undefined
         if (t) messages.push(turnResult(t))
       }
