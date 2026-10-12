@@ -13,6 +13,9 @@ export const tmux = (...args: string[]) => run('tmux', [...TMUX, ...args])
 // Services get their own tmux server (apps/agent/src/services.ts), apart from terminals.
 const SVC = ['-L', 'devdash-svc', '-f', TMUX_CONF]
 export const svcTmux = (...args: string[]) => run('tmux', [...SVC, ...args])
+// The member's userspace tailscaled runs in its own tmux server too (apps/agent/src/tailscale.ts), so it outlives agent restarts.
+const TS = ['-L', 'devdash-ts', '-f', TMUX_CONF]
+export const tsTmux = (...args: string[]) => run('tmux', [...TS, ...args])
 export const clamp = (n: unknown, min: number, max: number) => Math.min(max, Math.max(min, Math.floor(Number(n)) || min))
 
 export async function hasSession(name: string) {

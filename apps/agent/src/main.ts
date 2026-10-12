@@ -9,6 +9,7 @@ import { promisify } from 'node:util'
 import { createInterface } from 'node:readline'
 import * as claude from './claude.ts'
 import * as services from './services.ts'
+import * as tailscale from './tailscale.ts'
 import { ops as git } from './git.ts'
 import * as files from './files.ts'
 import * as memory from './memory.ts'
@@ -126,6 +127,11 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
   'service.stop': async (r) => (await services.stop(r), { ok: true }),
   'service.status': async () => ({ services: await services.status() }),
   'service.logs': async (r) => ({ text: await services.logs(r) }),
+  // Per-user tailnet (docs/design/tailnet.md): one userspace Tailscale node, isolated to this member. The auth key
+  // arrives already decrypted from the server; tailscale.ts never logs it.
+  'tailscale.up': (r) => tailscale.up(r),
+  'tailscale.status': () => tailscale.status(),
+  'tailscale.down': () => tailscale.down(),
   // From the member's own processes (the `devdash` command): relayed to the server, which knows who this agent is.
   rpc: async (r) => ({ result: await rpc(str(r.method, 'method'), r.params) }),
 }

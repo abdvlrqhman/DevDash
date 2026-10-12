@@ -54,8 +54,16 @@ const DEPLOY_TOOLS = [
 ]
 const deployTools = () => call('mcp.devdash_here', { ...context, args: {} }).then((r) => (r?.here ? DEPLOY_TOOLS : []), () => [])
 
+// Your own tailnet (docs/design/tailnet.md): devices on the Tailscale account you connected on the Network page, and
+// their live online status. Scoped to you; listed in your own sessions, not team roles'.
+const NET_TOOLS = [
+  { name: 'net_devices', description: 'Devices on your own tailnet (the Tailscale account you connected on the Network page) with live online status, OS and tailnet IP. Check this before you try to reach one.', inputSchema: obj({}) },
+  { name: 'net_check', description: 'Status of one device on your tailnet by name, host or tailnet IP: online or offline, its IP, and when it was last seen.', inputSchema: obj({ device: { type: 'string', description: 'Device name, hostname or tailnet IP.' } }, ['device']) },
+]
+const netTools = () => call('mcp.net_here', { ...context, args: {} }).then((r) => (r?.available ? NET_TOOLS : []), () => [])
+
 let listed
-const tools = () => (listed ??= Promise.all([teamTools(call, context), deployTools()]).then(([team, deploy]) => [...TOOLS, ...deploy, ...team]))
+const tools = () => (listed ??= Promise.all([teamTools(call, context), deployTools(), netTools()]).then(([team, deploy, net]) => [...TOOLS, ...deploy, ...net, ...team]))
 
 const send = (msg) => process.stdout.write(JSON.stringify(msg) + '\n')
 

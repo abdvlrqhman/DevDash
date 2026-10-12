@@ -33,6 +33,35 @@ if [[ ! -x /usr/local/bin/bun ]]; then
   curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash >/dev/null
 fi
 
+# Tailscale (static binaries only) for per-user userspace tailnet nodes (docs/design/tailnet.md). We never enable a
+# host-level tailscaled; each member runs their own rootless userspace daemon inside their agent. Pinned and idempotent:
+# skip when the pinned version is already installed. Guard against a system daemon that a package may have started.
+TAILSCALE_VERSION=1.78.3
+if [[ "$(/usr/local/bin/tailscale --version 2>/dev/null | head -1)" != "$TAILSCALE_VERSION" ]]; then
+  case "$(uname -m)" in
+    x86_64|amd64) TS_ARCH=amd64 ;;
+    aarch64|arm64) TS_ARCH=arm64 ;;
+    *) echo "unsupported arch for tailscale: $(uname -m)" >&2; TS_ARCH="" ;;
+  esac
+  if [[ -n $TS_ARCH ]]; then
+    TS_TMP=$(mktemp -d)
+    TS_TGZ="tailscale_${TAILSCALE_VERSION}_${TS_ARCH}.tgz"
+    if curl -fsSL "https://pkgs.tailscale.com/stable/$TS_TGZ" -o "$TS_TMP/$TS_TGZ"; then
+      tar -xzf "$TS_TMP/$TS_TGZ" -C "$TS_TMP"
+      install -m 755 "$TS_TMP/tailscale_${TAILSCALE_VERSION}_${TS_ARCH}/tailscale" /usr/local/bin/tailscale
+      install -m 755 "$TS_TMP/tailscale_${TAILSCALE_VERSION}_${TS_ARCH}/tailscaled" /usr/local/bin/tailscaled
+    else
+      echo "could not download tailscale $TAILSCALE_VERSION; per-user tailnet will be unavailable until it installs" >&2
+    fi
+    rm -rf "$TS_TMP"
+  fi
+fi
+# Never run a host-level tailscaled: a package install may have enabled one, so stop and mask it. Per-user userspace
+# nodes use their own socket and need no system daemon.
+if systemctl list-unit-files tailscaled.service >/dev/null 2>&1; then
+  systemctl disable --now tailscaled.service >/dev/null 2>&1 || true
+fi
+
 if [[ ! -f $ENV_FILE ]]; then
   [[ -n $DOMAIN ]] || { echo "first install: pass --domain <domain>" >&2; exit 2; }
   (umask 027; cat > "$ENV_FILE" <<EOF

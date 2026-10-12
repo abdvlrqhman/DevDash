@@ -21,6 +21,8 @@ import { servicePages } from './modules/previews/service.ts'
 import { statusService } from './modules/status/service.ts'
 import { deployService } from './modules/status/deploy.ts'
 import { vaultService } from './modules/vault/service.ts'
+import { tailnetRoutes } from './modules/tailnet/routes.ts'
+import { tailnetService } from './modules/tailnet/service.ts'
 import { buildsService } from './modules/builds/service.ts'
 import { notesRoutes } from './modules/notes/routes.ts'
 import { notesService } from './modules/notes/service.ts'
@@ -89,6 +91,8 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   const vault = vaultService({ db })
   const browser = browserService({ db, runDir: config.runDir, dataDir: config.dataDir, masterKey: config.masterKey, origin: config.origin })
   const team = teamPlugin({ db, hub, agents, claude, projects, activity, tasks, notify: notifications.notify, masterKey: config.masterKey, mw }) // Team
+  // Per-user tailnets: keep net_* tools out of team role sessions (Team may be off, so roleOf is optional).
+  const tailnet = tailnetService({ db, agents, masterKey: config.masterKey, runDir: config.runDir, isRole: (u, s) => !!team.service?.roleOf(u, s) })
   const status = statusService({ db, agents, services, browser, runDir: config.runDir, dataDir: config.dataDir, version: config.version })
   const deploys = deployService({ db, agents, projects, notify: notifications.notify, runDir: config.runDir, repo: config.repo, live: status.release })
   const app = new Hono()
@@ -116,6 +120,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     .route('/api/files', filesRoutes(agents, shares, mw))
     .route('/api/builds', buildsRoutes(builds, mw))
     .route('/api/vault', vaultRoutes(vault, mw))
+    .route('/api/tailnet', tailnetRoutes(tailnet, mw))
     .route('/api/browser', browserRoutes(browser, mw))
     .route('/api/status', statusRoutes(status, deploys, mw))
     .route('/api/team', team.routes) // Team

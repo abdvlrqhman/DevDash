@@ -88,6 +88,7 @@ const files = createRoute({
 const serverRoute = createRoute({ getParentRoute: () => app, path: '/server', component: lazy(() => import('./features/status/ServerPage'), 'ServerPage') })
 const browserRoute = createRoute({ getParentRoute: () => app, path: '/browser', component: lazy(() => import('./features/browser/BrowserPage'), 'BrowserPage') })
 const vaultRoute = createRoute({ getParentRoute: () => app, path: '/vault', component: lazy(() => import('./features/vault/VaultPage'), 'VaultPage') })
+const network = createRoute({ getParentRoute: () => app, path: '/network', component: lazy(() => import('./features/network/NetworkPage'), 'NetworkPage') })
 const services = createRoute({ getParentRoute: () => app, path: '/services', component: lazyRouteComponent(() => import('./features/services/ServicesPage'), 'ServicesPage') })
 const service = createRoute({ getParentRoute: () => app, path: '/services/$name', component: lazyRouteComponent(() => import('./features/services/ServicePage'), 'ServicePage') })
 // Claude is master-detail on wide screens: ClaudeLayout keeps the session list beside whatever is open.
@@ -101,7 +102,7 @@ const claudeSession = createRoute({
 })
 
 const router = createRouter({
-  routeTree: root.addChildren([login, invite, app.addChildren([home, claude.addChildren([claudeIndex, claudeSetup, claudeSession]), terminal, files, vaultRoute, browserRoute, serverRoute, services, service, projects, project, teamRole, teamThreads, teamThread, approvals, buildRun, tasks, task, notes, note, members, account, more])]),
+  routeTree: root.addChildren([login, invite, app.addChildren([home, claude.addChildren([claudeIndex, claudeSetup, claudeSession]), terminal, files, vaultRoute, network, browserRoute, serverRoute, services, service, projects, project, teamRole, teamThreads, teamThread, approvals, buildRun, tasks, task, notes, note, members, account, more])]),
   context: { queryClient },
   defaultPreload: 'intent',
 })

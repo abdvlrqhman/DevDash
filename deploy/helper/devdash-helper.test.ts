@@ -77,6 +77,35 @@ test('deploy: only full commit ids, one at a time, in the background', () => {
   assert.deepEqual(s.planned, [])
 })
 
+test('tailnet-isolate: owner-match REJECT rules per port, uid resolved from the username (not trusted)', () => {
+  const r = call({ cmd: 'tailnet-isolate', args: { username: 'alice', ports: [41000, 41001] } }, { DEVDASH_HELPER_FAKE_UID: '1000' })
+  assert.equal(r.ok, true)
+  // -C (check) then -A (append) for each port, with ! --uid-owner <resolved uid>.
+  assert.deepEqual(r.planned, [
+    'iptables -C OUTPUT -o lo -p tcp --dport 41000 -m owner ! --uid-owner 1000 -j REJECT',
+    'iptables -A OUTPUT -o lo -p tcp --dport 41000 -m owner ! --uid-owner 1000 -j REJECT',
+    'iptables -C OUTPUT -o lo -p tcp --dport 41001 -m owner ! --uid-owner 1000 -j REJECT',
+    'iptables -A OUTPUT -o lo -p tcp --dport 41001 -m owner ! --uid-owner 1000 -j REJECT',
+  ])
+})
+
+test('tailnet-unisolate: removes the same rules (-D)', () => {
+  const r = call({ cmd: 'tailnet-unisolate', args: { username: 'alice', ports: [41000] } }, { DEVDASH_HELPER_FAKE_UID: '1000' })
+  assert.equal(r.ok, true)
+  assert.deepEqual(r.planned, [
+    'iptables -C OUTPUT -o lo -p tcp --dport 41000 -m owner ! --uid-owner 1000 -j REJECT',
+    'iptables -D OUTPUT -o lo -p tcp --dport 41000 -m owner ! --uid-owner 1000 -j REJECT',
+  ])
+})
+
+test('tailnet-isolate: validates username, uid is a member account, and the ports', () => {
+  assert.match(call({ cmd: 'tailnet-isolate', args: { username: 'root', ports: [41000] } }).error, /refused: invalid username/)
+  assert.match(call({ cmd: 'tailnet-isolate', args: { username: 'alice', ports: [41000] } }).error, /refused: not a member account/) // no FAKE_UID: unknown account
+  assert.match(call({ cmd: 'tailnet-isolate', args: { username: 'alice', ports: [80] } }, { DEVDASH_HELPER_FAKE_UID: '1000' }).error, /refused: invalid port/)
+  assert.match(call({ cmd: 'tailnet-isolate', args: { username: 'alice', ports: [] } }, { DEVDASH_HELPER_FAKE_UID: '1000' }).error, /refused: give 1-8 ports/)
+  assert.match(call({ cmd: 'tailnet-isolate', args: { username: 'alice', ports: 41000 } }, { DEVDASH_HELPER_FAKE_UID: '1000' }).error, /refused: give 1-8 ports/)
+})
+
 test('claude-update starts the update unit without waiting; its status is read-only', () => {
   const r = call({ cmd: 'claude-update' })
   assert.equal(r.ok, true)
