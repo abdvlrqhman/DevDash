@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildTranscript, mergeRaw, type Raw } from './transcript.ts'
+import { buildTranscript, mergePage, mergeRaw, type Raw } from './transcript.ts'
 
 const msgs: Raw[] = [
   { type: 'user', uuid: 'u1', message: { role: 'user', content: 'Fix the login crash' } },
@@ -31,6 +31,20 @@ test('builds user, thinking, text, nested tool calls with results, commands and 
 test('merging live messages skips ones already in the transcript', () => {
   const merged = mergeRaw(msgs.slice(0, 2), [msgs[1]!, msgs[2]!])
   assert.deepEqual(merged.map((m) => m.uuid), ['u1', 'a1', 'a2'])
+})
+
+test('a fresh latest page slides: an exchange that dropped out of it stays above, not after the new prompt', () => {
+  const turn = (n: number, day: number): Raw[] => [
+    { type: 'user', uuid: `p${n}`, timestamp: `2026-10-${day}T10:0${n}:00Z`, message: { role: 'user', content: `prompt ${n}` } },
+    { type: 'assistant', uuid: `a${n}`, timestamp: `2026-10-${day}T10:0${n}:30Z`, message: { content: [{ type: 'text', text: `answer ${n}` }] } },
+  ]
+  // The view had the page p1..p2 (yesterday) and the prompt just sent; a refetch brings the page p2..p3.
+  const have = [...turn(1, 11), ...turn(2, 11), ...turn(3, 12), { type: 'assistant', uuid: 'live', timestamp: '2026-10-12T10:09:00Z', message: { content: [] } }]
+  const page = [...turn(2, 11), ...turn(3, 12)]
+  assert.deepEqual(mergePage(have, page).map((m) => m.uuid), ['p1', 'a1', 'p2', 'a2', 'p3', 'a3', 'live'])
+  // Nothing in common: older messages go above by time, newer ones after.
+  assert.deepEqual(mergePage(turn(1, 10), page).map((m) => m.uuid), ['p1', 'a1', 'p2', 'a2', 'p3', 'a3'])
+  assert.deepEqual(mergePage(turn(4, 13), page).map((m) => m.uuid), ['p2', 'a2', 'p3', 'a3', 'p4', 'a4'])
 })
 
 test('images in user messages become data URLs', () => {

@@ -201,6 +201,27 @@ export function mergeRaw(existing: Raw[], incoming: Raw[]): Raw[] {
   return [...existing, ...incoming.filter((r) => !r.uuid || !seen.has(r.uuid))]
 }
 
+/**
+ * A fresh copy of the latest page (the newest prompts, from disk) merged into what the view already has. The page
+ * slides as prompts are added, so what dropped out of it is older than its start and stays above it; only what the
+ * page doesn't have yet (live messages not on disk yet) goes after it.
+ */
+export function mergePage(have: Raw[], page: Raw[]): Raw[] {
+  const inPage = new Set(page.map((r) => r.uuid).filter(Boolean))
+  const anchor = have.findIndex((r) => r.uuid && inPage.has(r.uuid))
+  const start = page.map(when).find((t) => t !== undefined)
+  const before: Raw[] = []
+  const after: Raw[] = []
+  have.forEach((r, i) => {
+    if (r.uuid && inPage.has(r.uuid)) return
+    // Nothing in common (the page moved past everything here): go by time instead.
+    const t = when(r)
+    const older = anchor >= 0 ? i < anchor : start !== undefined && t !== undefined && t < start
+    ;(older ? before : after).push(r)
+  })
+  return [...before, ...page, ...after]
+}
+
 export type Todo = { content: string; status: 'pending' | 'in_progress' | 'completed'; activeForm?: string }
 export type FileChange = { path: string; added: number; removed: number; writes: number }
 

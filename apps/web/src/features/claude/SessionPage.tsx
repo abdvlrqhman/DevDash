@@ -34,7 +34,7 @@ import { useArchiveSession } from './ArchiveSession'
 import { Requests } from './Requests'
 import { PlanUsage } from './Usage'
 import { servicesQuery, stateOf } from '../services/data'
-import { buildTranscript, mergeRaw, sessionFacts, type Raw } from './transcript'
+import { buildTranscript, mergePage, mergeRaw, sessionFacts, type Raw } from './transcript'
 import { useTopic } from '@/lib/live'
 
 const light = (s: Session['status']) => (s === 'working' ? 'live' : s === 'waiting' ? 'waiting' : s === 'error' ? 'error' : 'idle')
@@ -128,7 +128,7 @@ function SessionView({ id }: { id: string }) {
 
   useEffect(() => {
     if (!history.data) return
-    setRaw((live) => mergeRaw(history.data.messages as Raw[], live))
+    setRaw((have) => mergePage(have, history.data.messages as Raw[]))
     setHasOlder((had) => had || history.data.more)
   }, [history.data])
   const all = useMemo(() => (older.length ? mergeRaw(older, raw) : raw), [older, raw])
