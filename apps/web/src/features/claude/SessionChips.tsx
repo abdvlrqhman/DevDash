@@ -1,9 +1,11 @@
 import type { ReactNode } from 'react'
+import { useMutation } from '@tanstack/react-query'
 import { Copy, ExternalLink, Smartphone, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { api, unwrap } from '@/lib/api'
 import { openExternal } from '@/lib/shell'
 import { cn } from '@/lib/utils'
 import type { Session } from './data'
@@ -35,6 +37,39 @@ const Chip = ({ children, tone, label }: { children: ReactNode; tone?: 'attentio
   </PopoverTrigger>
 )
 
+const TASK_KIND: Record<string, string> = { local_bash: 'Shell', bash: 'Shell', monitor: 'Monitor', local_agent: 'Subagent', workflow: 'Workflow' }
+
+/** Shells, subagents and monitors Claude left running: how many, what each is doing, and Stop. */
+function BackgroundTasks({ id, tasks, canStop }: { id: string; tasks: Session['tasks']; canStop: boolean }) {
+  const stop = useMutation({
+    mutationFn: (taskId: string) => unwrap(api.api.claude.sessions[':id'].tasks[':taskId'].stop.$post({ param: { id, taskId } })),
+    onSuccess: () => toast.success('Stopped. Claude gets a note that it was stopped.'),
+    onError: (e) => toast.error(e.message),
+  })
+  return (
+    <Popover>
+      <Chip label={`${tasks.length} running in the background`} tone="live"><StatusLight state="live" />{tasks.length} running</Chip>
+      <PopoverContent align="start" className="w-80 text-sm">
+        <p className="font-medium">Running in the background</p>
+        <p className="mt-1 text-xs text-muted-foreground">Claude started these and picks up their results when they finish, even after it answered.</p>
+        <ul className="mt-3 flex flex-col divide-y">
+          {tasks.map((t) => (
+            <li key={t.id} className="flex items-start gap-2 py-2">
+              <div className="min-w-0 flex-1">
+                <div className="line-clamp-2">{t.description || 'A background task'}</div>
+                <div className="text-xs text-muted-foreground">{TASK_KIND[t.type] ?? t.type}</div>
+              </div>
+              {canStop && (
+                <Button size="sm" variant="outline" className="h-7 shrink-0" disabled={stop.isPending && stop.variables === t.id} onClick={() => stop.mutate(t.id)}>Stop</Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 /** A ring that fills as the context window does. */
 function Ring({ percent }: { percent: number }) {
   const r = 6
@@ -64,6 +99,7 @@ export function SessionChips({ s, isOwner, canSend, working, onUpdate, onCompact
     : s.fast && s.fast.state !== 'on' ? (s.fast.reason && FAST_REASON[s.fast.reason]) ?? 'Fast mode is not available right now.' : null
   return (
     <>
+      {s.tasks.length > 0 && <BackgroundTasks id={s.id} tasks={s.tasks} canStop={canSend} />}
       {ctx && (
         <Popover>
           <Chip label={`Context ${ctx.percent}% used`} tone={ctx.percent >= 90 ? 'destructive' : ctx.percent >= 75 ? 'attention' : undefined}>

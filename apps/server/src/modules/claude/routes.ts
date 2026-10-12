@@ -67,7 +67,12 @@ export function claudeRoutes(claude: ClaudeService, mw: ReturnType<typeof authMi
     .post('/sessions', json(CreateInput), async (c) => c.json({ session: await claude.create(c.get('user'), c.req.valid('json')) }))
     .get('/sessions/:id', async (c) => c.json(await claude.get(c.get('user'), c.req.param('id'))))
     .patch('/sessions/:id', json(PatchInput), async (c) => c.json({ session: await claude.update(c.get('user'), c.req.param('id'), c.req.valid('json')) }))
-    .get('/sessions/:id/messages', async (c) => c.json(await claude.history(c.get('user'), c.req.param('id'))))
+    .get('/sessions/:id/messages', query(z.object({ before: z.string().max(64).optional() })), async (c) =>
+      c.json(await claude.history(c.get('user'), c.req.param('id'), c.req.valid('query').before)))
+    .post('/sessions/:id/tasks/:taskId/stop', async (c) => {
+      await claude.stopTask(c.get('user'), c.req.param('id'), c.req.param('taskId'))
+      return c.json({ ok: true })
+    })
     .post('/sessions/:id/messages', json(SendInput), async (c) => {
       const { text, images, files } = c.req.valid('json')
       return c.json({ uuid: await claude.send(c.get('user'), c.req.param('id'), text, images, files) })

@@ -4,7 +4,7 @@
 // Switching mode stops one process and resumes the same id in the other (Claude Code has no lock of its own).
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -43,7 +43,9 @@ export type Status = 'working' | 'waiting' | 'idle' | 'stopped' | 'error'
 type Pending = { requestId: string; toolName: string; input: Record<string, unknown>; suggestions?: unknown[]; resolve: (r: PermissionResult) => void }
 /** `bg`: background shells, subagents and monitors still running; Claude picks their results up when they finish. */
 /** `remote`: the claude.ai link while Remote Control is on. */
-type Chat = { launch: Launch; q: Query; inbox: Inbox; pending: Map<string, Pending>; status: Status; lastActive: number; bg: number; remote: string | null; done?: Promise<void> }
+/** `tasks`: background shells, subagents and monitors still running (Claude picks up their results when they finish). */
+type Task = { id: string; type: string; description: string }
+type Chat = { launch: Launch; q: Query; inbox: Inbox; pending: Map<string, Pending>; status: Status; lastActive: number; bg: number; tasks: Task[]; remote: string | null; done?: Promise<void> }
 
 let emit: (ev: Record<string, unknown>) => void = () => {}
 export const setEmitter = (fn: typeof emit) => { emit = fn }
@@ -176,7 +178,7 @@ async function startChat(l: Launch): Promise<Chat> {
       stderr: (d: string) => console.error(`[${l.id.slice(0, 8)}] ${d.trimEnd()}`),
     },
   })
-  chat = { launch: { ...l, started: true }, q, inbox, pending, status: 'idle', lastActive: Date.now(), bg: 0, remote: null }
+  chat = { launch: { ...l, started: true }, q, inbox, pending, status: 'idle', lastActive: Date.now(), bg: 0, tasks: [], remote: null }
   chats.set(l.id, chat)
   chat.done = pump(chat)
   if (l.remote) void remoteControl(chat, true).catch((err: Error) => emit({ ev: 'claude.remote', id: l.id, url: null, error: err.message.slice(0, 300) }))
@@ -198,7 +200,11 @@ async function pump(c: Chat) {
         setStatus(c, id, 'idle')
         refreshTitle(c.launch)
       } else if (msg.type === 'system' && msg.subtype === 'background_tasks_changed') {
-        c.bg = (msg.tasks as { ambient?: boolean }[]).filter((t) => !t.ambient).length
+        c.tasks = (msg.tasks as { task_id: string; task_type: string; description: string; subagent_type?: string; ambient?: boolean }[])
+          .filter((t) => !t.ambient)
+          .map((t) => ({ id: t.task_id, type: t.subagent_type ?? t.task_type, description: t.description }))
+        c.bg = c.tasks.length
+        emit({ ev: 'claude.tasks', id, tasks: c.tasks })
       } else if (msg.type === 'system' && msg.subtype === 'init') {
         void c.q.supportedCommands().then((v) => commandCache.set(c.launch.profile, v), () => {})
         void c.q.supportedModels().then((v) => modelCache.set(c.launch.profile, v), () => {})
@@ -212,6 +218,7 @@ async function pump(c: Chat) {
   } finally {
     if (chats.get(id) === c) chats.delete(id)
     for (const p of c.pending.values()) p.resolve({ behavior: 'deny', message: 'Session closed' })
+    if (c.tasks.length) emit({ ev: 'claude.tasks', id, tasks: [] })
     emit({ ev: 'claude.closed', id })
   }
 }
@@ -362,7 +369,7 @@ export const closeCli = (id: string) => serial(id, async () => {
 export async function snapshot() {
   const cli = (await listSessions()).filter((s) => s.name.startsWith('c-')).map((s) => ({ id: s.name.slice(2), mode: 'cli' }))
   const chat = [...chats.values()].map((c) => ({
-    id: c.launch.id, mode: 'chat', status: c.status, remote: c.remote,
+    id: c.launch.id, mode: 'chat', status: c.status, remote: c.remote, tasks: c.tasks,
     pending: [...c.pending.values()].map(({ resolve: _, ...p }) => p),
   }))
   return [...chat, ...cli]
@@ -390,10 +397,91 @@ function withProfile<T>(profile: string, fn: () => Promise<T>): Promise<T> {
   return next
 }
 
-export async function history(l: Launch) {
+export type HistoryMessage = { type: string; uuid: string; parent_tool_use_id: string | null; message?: { content?: unknown } }
+
+/** A message the person typed (not a tool result Claude Code sends back as a "user" message). */
+function isPrompt(m: HistoryMessage) {
+  if (m.type !== 'user' || m.parent_tool_use_id) return false
+  const c = m.message?.content
+  if (typeof c === 'string') return !!c.trim()
+  return Array.isArray(c) && !c.some((b: { type?: string }) => b.type === 'tool_result') && c.some((b: { type?: string }) => b.type === 'text' || b.type === 'image' || b.type === 'document')
+}
+
+/** Which messages a page holds: from the `turns`-th last prompt before `before` (or the end) up to it. */
+export function pageOf(all: HistoryMessage[], o: { before?: string; turns?: number }) {
+  let end = all.length
+  if (o.before) {
+    const i = all.findIndex((m) => m.uuid === o.before)
+    if (i >= 0) end = i
+  }
+  let start = 0
+  if (o.turns && o.turns > 0) {
+    let seen = 0
+    for (let i = end - 1; i >= 0; i--) {
+      if (isPrompt(all[i]!) && ++seen === o.turns) {
+        start = i
+        break
+      }
+    }
+  }
+  return { start, end }
+}
+
+/**
+ * When each message was written, from the session's transcript file (the SDK's history leaves it out).
+ * Cached per file size: a growing transcript is read again, a finished one once.
+ */
+const timeCache = new Map<string, { size: number; times: Map<string, string> }>()
+function transcriptTimes(l: Launch) {
+  const root = join(profileDir(l.profile), 'projects')
+  let file = join(root, l.cwd.replace(/[^a-zA-Z0-9]/g, '-'), `${l.id}.jsonl`)
+  if (!existsSync(file)) {
+    // Very long folder paths are shortened by Claude Code; look for the file instead.
+    const dir = existsSync(root) ? readdirSync(root).find((d) => existsSync(join(root, d, `${l.id}.jsonl`))) : undefined
+    if (!dir) return new Map<string, string>()
+    file = join(root, dir, `${l.id}.jsonl`)
+  }
+  const size = statSync(file).size
+  const hit = timeCache.get(file)
+  if (hit?.size === size) return hit.times
+  const times = new Map<string, string>()
+  for (const line of readFileSync(file, 'utf8').split('\n')) {
+    if (!line) continue
+    try {
+      const e = JSON.parse(line) as { uuid?: string; timestamp?: string }
+      if (e.uuid && e.timestamp) times.set(e.uuid, e.timestamp)
+    } catch {
+      // a line being written right now
+    }
+  }
+  timeCache.set(file, { size, times })
+  return times
+}
+
+/**
+ * A page of a session's history: the last `turns` prompts and everything after them, ending before message `before`
+ * (the first message of the page already shown). Long sessions open fast and load older turns as you scroll up.
+ */
+export async function history(l: Launch, o: { before?: string; turns?: number } = {}) {
   if (!ID_RE.test(l.id) || !PROFILE_RE.test(l.profile)) throw new Error('invalid session')
   const sdk = await loadSdk()
-  return withProfile(l.profile, () => sdk.getSessionMessages(l.id, { dir: l.cwd }))
+  const all = (await withProfile(l.profile, () => sdk.getSessionMessages(l.id, { dir: l.cwd }))) as HistoryMessage[]
+  const { start, end } = pageOf(all, o)
+  let times = new Map<string, string>()
+  try {
+    times = transcriptTimes(l)
+  } catch {
+    // no times rather than no history
+  }
+  const messages = all.slice(start, end).map((m) => (times.has(m.uuid) ? { ...m, timestamp: times.get(m.uuid) } : m))
+  return { messages, more: start > 0 }
+}
+
+/** Stops one background task (a shell, subagent or monitor) of a Chat session. */
+export async function stopTask(id: string, taskId: string) {
+  const c = chats.get(id)
+  if (!c) throw new Error('This session is not running.')
+  await c.q.stopTask(taskId)
 }
 
 /**

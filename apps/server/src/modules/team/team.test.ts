@@ -233,6 +233,54 @@ test('sources: one read-only statement, API calls stay under the base URL, keys 
   assert.equal(app!.name, 'App DB')
 })
 
+test('each answer\'s time, tokens and cost are saved and come back after the answer in a reload; background tasks show and stop', async (t) => {
+  const { team, claude, sent, replies, youssef, event } = setup()
+  t.after(() => team.stop())
+  const s = await claude.create(youssef, { prompt: 'Fix login', images: [], cwd: '', profile: 'default', model: null, effort: null, permissionMode: 'default', mode: 'chat', project: 'seevil' })
+  event('youssef', { ev: 'claude.msg', id: s.id, msg: { type: 'assistant', uuid: 'a1', parent_tool_use_id: null, message: { content: [{ type: 'text', text: 'Done.' }] } } })
+  event('youssef', { ev: 'claude.msg', id: s.id, msg: {
+    type: 'result', uuid: 'r1', subtype: 'success', is_error: false, duration_ms: 252_000, total_cost_usd: 0.42, num_turns: 9,
+    usage: { input_tokens: 120, output_tokens: 3100, cache_read_input_tokens: 80_000, cache_creation_input_tokens: 4000 }, modelUsage: { 'claude-opus-5-5': {} },
+  } })
+  replies['claude.history'] = { messages: [{ type: 'user', uuid: 'p1', message: { content: 'Fix login' }, timestamp: '2026-10-12T11:11:00Z' }, { type: 'assistant', uuid: 'a1', message: { content: [] }, timestamp: '2026-10-12T11:15:00Z' }], more: true }
+  const h = await claude.history(youssef, s.id)
+  assert.equal(h.more, true)
+  const [, , r] = h.messages as Record<string, unknown>[]
+  assert.deepEqual({ type: r!.type, uuid: r!.uuid, cost: r!.total_cost_usd, ms: r!.duration_ms, model: r!.model }, { type: 'result', uuid: 'r1', cost: 0.42, ms: 252_000, model: 'claude-opus-5-5' })
+  assert.deepEqual(r!.usage, { input_tokens: 120, output_tokens: 3100, cache_read_input_tokens: 80_000, cache_creation_input_tokens: 4000 })
+  assert.equal(sent.filter((x) => x.op === 'claude.history').at(-1)!.turns, 10) // pages of 10 prompts
+  await claude.history(youssef, s.id, 'p1')
+  assert.equal(sent.filter((x) => x.op === 'claude.history').at(-1)!.before, 'p1')
+
+  event('youssef', { ev: 'claude.tasks', id: s.id, tasks: [{ id: 'b1', type: 'local_bash', description: 'npm run dev' }] })
+  assert.deepEqual((await claude.get(youssef, s.id)).session.tasks, [{ id: 'b1', type: 'local_bash', description: 'npm run dev' }])
+  await claude.stopTask(youssef, s.id, 'b1')
+  assert.deepEqual(sent.at(-1), { op: 'claude.task.stop', id: s.id, taskId: 'b1' })
+})
+
+test('a person\'s Claude session can create and change roles when asked; a role\'s own session can\'t', async (t) => {
+  const { team, claude, notified, youssef } = setup()
+  t.after(() => team.stop())
+  team.enable(youssef, 'seevil')
+  const s = await claude.create(youssef, { prompt: 'Set up the team', images: [], cwd: '', profile: 'default', model: null, effort: null, permissionMode: 'default', mode: 'chat', project: 'seevil' })
+  const out = await team.sessionCreateRole('youssef', s.id, { name: 'Finance', summary: 'Spending and revenue', instructions: '## Mission\n- Watch costs' })
+  assert.match(out, /Created #\d+ Finance/)
+  const fin = team.overview('seevil').roles.find((r) => r.name === 'Finance')!
+  assert.deepEqual(fin.schedule, [{ days: [1, 2, 3, 4, 5], at: '09:00' }])
+  assert.ok(notified.some((n) => n.title === 'Seevil: Youssef\'s Claude added a role'))
+  await assert.rejects(team.sessionCreateRole('youssef', s.id, { name: 'finance' }), /already a role called/)
+
+  team.sessionUpdateRole('youssef', s.id, { role: 'fin', paused: true, model: 'haiku', schedule: [{ days: [5], at: '17:00' }] })
+  const after = team.overview('seevil').roles.find((r) => r.name === 'Finance')!
+  assert.deepEqual({ paused: after.paused, model: after.model, schedule: after.schedule }, { paused: true, model: 'haiku', schedule: [{ days: [5], at: '17:00' }] })
+  assert.match(team.sessionRoles('youssef', s.id), /#\d+ Finance: Spending and revenue\n {2}works: paused/)
+
+  await team.runShift(fin.id)
+  const shiftSession = team.role(fin.id).shifts[0]!.sessionId!
+  assert.equal(team.sessionAuthor('youssef', shiftSession), null) // a role's session is not a person's
+  assert.throws(() => team.sessionRoles('youssef', shiftSession), /not in a project with Team on/)
+})
+
 test('schedules are read in the project time zone, run once per slot and day, and catch up after a short restart', () => {
   const cairoMon0900 = Date.parse('2026-10-12T06:00:00Z') // Cairo is UTC+3 on this date: Monday 09:00 there
   const slots = [{ days: [1], at: '09:00' }]

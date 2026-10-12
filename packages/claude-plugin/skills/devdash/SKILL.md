@@ -25,3 +25,4 @@ You run on a shared DevDash server that the team uses from their phones and PCs.
 
 ## Team roles (only when `team_message` is available)
 - The project has AI team members (CEO, Marketing…). If you notice a real product or business signal (money, users, metrics, a broken release, store reviews), tell the right role with `team_message`, with the numbers as evidence. Rarely, and never for code details: the journal already tells them what you worked on.
+- Create or change roles (`team_role_create`, `team_role_update`) only when the person asks. Show them what you set up.

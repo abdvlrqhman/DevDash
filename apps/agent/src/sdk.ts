@@ -37,6 +37,8 @@ export type Query = AsyncGenerator<SDKMessage, void> & {
   getContextUsage(o?: { detail?: 'summary' | 'full' }): Promise<{ percentage: number; totalTokens: number; maxTokens: number }>
   /** Remote Control (claude.ai/code and the Claude app). Not in the SDK's public types yet, so optional here. */
   enableRemoteControl?(enabled: boolean, name?: string): Promise<{ session_url?: string } | undefined>
+  /** Stops a background task (a shell, subagent or monitor) by its task id. */
+  stopTask(taskId: string): Promise<void>
   close(): void
 }
 type Sdk = {

@@ -172,6 +172,12 @@ export function Composer({ sessionId, profile, working, disabledReason, footer, 
         return
       }
     }
+    // Esc with nothing typed stops Claude, as in the CLI.
+    if (e.key === 'Escape' && working && empty) {
+      e.preventDefault()
+      onStop()
+      return
+    }
     // Enter sends on a keyboard; on phones Enter adds a line and the button sends.
     if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer: coarse)').matches) {
       e.preventDefault()
@@ -242,10 +248,15 @@ export function Composer({ sessionId, profile, working, disabledReason, footer, 
           onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
           placeholder={working ? 'Add a message for Claude' : 'Message Claude, @ to mention a file'}
           className="max-h-[40vh] min-h-10 flex-1 resize-none rounded-[20px] px-4 py-2 text-base leading-6 [field-sizing:content] placeholder:truncate md:text-sm md:leading-6" />
-        {/* One button: Stop while Claude works and nothing is typed, otherwise Send (queued until Claude is ready). */}
-        {working && empty
-          ? <Button size="icon" variant="secondary" className="size-10 shrink-0 rounded-full" aria-label="Stop Claude" onClick={onStop}><Square className="fill-current" /></Button>
-          : <Button size="icon" className="size-10 shrink-0 rounded-full" aria-label="Send" disabled={sending || empty} onClick={() => void submit()}><ArrowUp /></Button>}
+        {/* Stop is always there while Claude works; Send joins it once something is typed (it waits for Claude). */}
+        {working && (
+          <Button size="icon" variant="secondary" className="size-10 shrink-0 rounded-full" aria-label="Stop Claude" title="Stop (Esc)" onClick={onStop}>
+            <Square className="fill-current" />
+          </Button>
+        )}
+        {(!working || !empty) && (
+          <Button size="icon" className="size-10 shrink-0 rounded-full" aria-label={working ? 'Send after Claude finishes' : 'Send'} disabled={sending || empty} onClick={() => void submit()}><ArrowUp /></Button>
+        )}
       </div>
       {footer && <div className="flex min-h-6 flex-wrap items-center gap-1 pl-12">{footer}</div>}
     </div>

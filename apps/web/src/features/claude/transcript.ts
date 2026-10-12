@@ -30,12 +30,17 @@ export type ToolBlock = {
 /** What Claude Code itself put in the conversation: not the person, shown as a quiet line with the raw text one tap away. */
 export type EventTone = 'task' | 'skill' | 'peer' | 'schedule' | 'system'
 export type Block =
-  | { kind: 'user'; key: string; uuid?: string; text: string; images: string[]; files: string[] }
+  | { kind: 'user'; key: string; uuid?: string; text: string; images: string[]; files: string[]; at?: number }
   | { kind: 'text'; key: string; text: string }
   | { kind: 'thinking'; key: string; text: string }
   | ToolBlock
   | { kind: 'command'; key: string; name: string; args?: string; output?: string }
-  | { kind: 'result'; key: string; ok: boolean; seconds: number; cost?: number }
+  | {
+      kind: 'result'; key: string; ok: boolean; seconds: number; cost?: number; at?: number; stopped?: boolean
+      /** Tokens the model read (fresh, from cache, written to cache) and wrote for the whole answer. */
+      tokens?: { input: number; cacheRead: number; cacheWrite: number; output: number }
+      model?: string; steps?: number
+    }
   | { kind: 'note'; key: string; text: string }
   | { kind: 'event'; key: string; text: string; ok: boolean; tone?: EventTone; detail?: string }
 
@@ -49,6 +54,12 @@ export function toText(c: unknown): string {
     : x.type === 'document' ? `[${String(x.title ?? 'file')}]`
     : x.type === 'tool_reference' ? String(x.tool_name ?? '')
     : '').filter((s) => s !== '').join('\n')
+}
+
+/** When a message was written: from the transcript (history) or when it arrived (live), as epoch ms. */
+const when = (r: Raw) => {
+  const t = typeof r.timestamp === 'string' ? Date.parse(r.timestamp) : NaN
+  return Number.isFinite(t) ? t : undefined
 }
 
 const imagesOf = (c: unknown) => Array.isArray(c)
@@ -148,14 +159,20 @@ export function buildTranscript(raws: Raw[]): Block[] {
       if (!said && !images.length && !files.length) return
       const machine = injected(r, said || text, key)
       if (machine) return void top.push(machine)
-      top.push({ kind: 'user', key, uuid: r.uuid, text: said, images, files })
+      top.push({ kind: 'user', key, uuid: r.uuid, text: said, images, files, at: when(r) })
       return
     }
 
     if (r.type === 'result') {
+      const u = r.usage as { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number } | undefined
+      const model = typeof r.model === 'string' ? r.model : Object.keys((r.modelUsage as Record<string, unknown> | undefined) ?? {})[0]
       top.push({
         kind: 'result', key, ok: r.subtype === 'success' && r.is_error !== true,
+        stopped: typeof r.terminal_reason === 'string' && r.terminal_reason.startsWith('aborted'),
         seconds: Math.round(Number(r.duration_ms ?? 0) / 1000), cost: typeof r.total_cost_usd === 'number' ? r.total_cost_usd : undefined,
+        at: when(r),
+        tokens: u ? { input: u.input_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0, output: u.output_tokens ?? 0 } : undefined,
+        model, steps: typeof r.num_turns === 'number' ? r.num_turns : undefined,
       })
       return
     }

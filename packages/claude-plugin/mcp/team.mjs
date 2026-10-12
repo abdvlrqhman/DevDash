@@ -86,13 +86,47 @@ const ROLE_ONLY = [
   },
 ]
 
-/** The team tools this session gets: all of them in a role's own sessions, team_message in other sessions of a
- *  project with Team on, none otherwise (or when DevDash can't tell: Team off, an older server). */
+// A person's own sessions can set up the team when the person asks; roles can't.
+const slot = obj({ days: { type: 'array', items: { type: 'integer', minimum: 0, maximum: 6 }, description: '0 = Sunday … 6 = Saturday' }, at: { type: 'string', description: 'HH:MM in the project\'s time zone' } }, ['days', 'at'])
+const MANAGE = [
+  {
+    name: 'team_roles',
+    description: 'The project\'s AI team members (roles): what each does, when it works, its model and autonomy.',
+    inputSchema: obj({}),
+  },
+  {
+    name: 'team_role_create',
+    description: 'Add an AI team member (role) to this project, only when the person asks for it. Without instructions, DevDash drafts them from the name, summary and project brief (Generate). It runs on the plan of whoever turned Team on.',
+    inputSchema: obj({
+      name: { type: 'string', description: 'e.g. "Marketing – Social", "CTO"' },
+      summary: { type: 'string', description: 'What it should do, in one line.' },
+      instructions: { type: 'string', description: 'Markdown: mission, what it watches, delivers, measures, may do alone, must ask first, works with. Omit to generate.' },
+      model: { type: 'string', enum: ['opus', 'sonnet', 'haiku'] },
+      schedule: { type: 'array', items: slot, description: 'When it works on its own. Default: weekdays 09:00.' },
+    }, ['name']),
+  },
+  {
+    name: 'team_role_update',
+    description: 'Change a role when the person asks: its name, summary, instructions, model, schedule, triggers, autonomy, lead, or pause it.',
+    inputSchema: obj({
+      role: { type: ['string', 'integer'], description: 'Its name or #id (see team_roles).' },
+      name: { type: 'string' }, summary: { type: 'string' }, instructions: { type: 'string' },
+      model: { type: ['string', 'null'], enum: ['opus', 'sonnet', 'haiku', null] },
+      schedule: { type: 'array', items: slot },
+      triggers: { type: 'array', items: { type: 'string', enum: ['work', 'task_done', 'task_created'] } },
+      autonomy: { type: 'string', enum: ['advisor', 'operator'] },
+      paused: { type: 'boolean' }, lead: { type: 'boolean' },
+    }, ['role']),
+  },
+]
+
+/** The team tools this session gets: all role tools in a role's own sessions; team_message and managing roles in a
+ *  person's sessions of a project with Team on; none otherwise (or when DevDash can't tell: Team off, an older server). */
 export async function teamTools(call, context) {
   try {
     const who = await call('mcp.team_role', { ...context, args: {} })
     if (who?.role) return [...TEAM_TOOLS, MESSAGE_TOOL, ...ROLE_ONLY]
-    if (who?.session) return [MESSAGE_TOOL]
+    if (who?.session) return [MESSAGE_TOOL, ...MANAGE]
   } catch {
     // no team here
   }

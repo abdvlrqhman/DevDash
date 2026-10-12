@@ -23,7 +23,7 @@ Team tab says it's off. Nothing is deleted.
    - `apps/web/src/components/app/shell.tsx`: the `ApprovalsBadge` import, the Approvals nav item and its badge line
    - `apps/web/src/features/more/MorePage.tsx`: the Approvals link
    - `packages/claude-plugin/mcp/devdash.mjs`: the `team.mjs` import; `tools()` becomes `TOOLS`
-   - `packages/claude-plugin/skills/devdash/SKILL.md`: the "Team roles" section
+   - `packages/claude-plugin/skills/devdash/SKILL.md`: the "Team roles" section (both lines)
 4. **Drop the tables** with a new migration: `team_projects`, `team_briefs`, `team_decisions`, `team_roles`,
    `team_notebook`, `team_shifts`, `team_journal`, `team_proposals`, `team_goals`, `team_threads`, `team_thread_roles`,
    `team_messages`, `team_sources`.

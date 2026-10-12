@@ -33,6 +33,11 @@ export type SessionRow = {
   project_slug: string | null
   project_name: string | null
 }
+export type TurnRow = {
+  session_id: string; result_uuid: string; after_uuid: string | null; prompt_uuid: string | null; ok: number
+  duration_ms: number; cost_usd: number; input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_write_tokens: number
+  num_turns: number; model: string | null; created_at: number
+}
 export type Comment = { id: number; body: string; createdAt: number; user: { id: number; name: string } }
 export type Defaults = { profile: string; model: string | null; effort: string | null; permission_mode: string; open_in: 'chat' | 'cli' }
 
@@ -57,6 +62,9 @@ export function claudeRepo(db: Db) {
     setProject: db.prepare(`update claude_sessions set project_id = ?, worktree = ? where id = ?`),
     addSender: db.prepare(`insert or ignore into claude_message_senders (session_id, message_uuid, user_id) values (?, ?, ?)`),
     senders: db.prepare(`select m.message_uuid, u.id, u.name from claude_message_senders m join users u on u.id = m.user_id where m.session_id = ?`),
+    insertTurn: db.prepare(`insert or ignore into claude_turns (session_id, result_uuid, after_uuid, prompt_uuid, ok, duration_ms, cost_usd,
+      input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, num_turns, model) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`),
+    turns: db.prepare(`select * from claude_turns where session_id = ? order by id`),
     isWriter: db.prepare(`select 1 from claude_session_writers where session_id = ? and user_id = ?`),
     writers: db.prepare(`select u.id, u.name from claude_session_writers w join users u on u.id = w.user_id where w.session_id = ? order by u.name`),
     addWriter: db.prepare(`insert or ignore into claude_session_writers (session_id, user_id) values (?, ?)`),
@@ -87,6 +95,10 @@ export function claudeRepo(db: Db) {
     addSender: (sessionId: string, uuid: string, userId: number) => void s.addSender.run(sessionId, uuid, userId),
     senders: (sessionId: string) =>
       Object.fromEntries((s.senders.all(sessionId) as { message_uuid: string; id: number; name: string }[]).map((r) => [r.message_uuid, { id: r.id, name: r.name }])),
+    insertTurn: (t: Omit<TurnRow, 'created_at'>) => void s.insertTurn.run(
+      t.session_id, t.result_uuid, t.after_uuid, t.prompt_uuid, t.ok, t.duration_ms, t.cost_usd,
+      t.input_tokens, t.output_tokens, t.cache_read_tokens, t.cache_write_tokens, t.num_turns, t.model),
+    turns: (sessionId: string) => (s.turns.all(sessionId) as TurnRow[]).map((r) => ({ ...r })),
     isWriter: (sessionId: string, userId: number) => !!s.isWriter.get(sessionId, userId),
     writers: (sessionId: string) => (s.writers.all(sessionId) as { id: number; name: string }[]).map(({ id, name }) => ({ id, name })),
     setWriter: (sessionId: string, userId: number, on: boolean) => void (on ? s.addWriter : s.removeWriter).run(sessionId, userId),

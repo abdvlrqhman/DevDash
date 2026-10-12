@@ -1,4 +1,4 @@
-import { memo, useState } from 'react'
+import { memo, useState, type ReactNode } from 'react'
 import {
   BookOpen, Brain, CalendarClock, Check, ChevronRight, Circle, CircleAlert, FileText, Info, ListChecks, LoaderCircle, MessagesSquare, SquareSlash,
   type LucideIcon,
@@ -38,7 +38,11 @@ export const Blocks = memo(function Blocks({ blocks, senders, nested, live = tru
           case 'user':
             return (
               <div key={b.key} className="flex max-w-[85%] flex-col items-end gap-1 self-end">
-                {b.uuid && senders?.[b.uuid] && <span className="text-xs text-muted-foreground">{senders[b.uuid]!.name}</span>}
+                {((b.uuid && senders?.[b.uuid]) || b.at) && (
+                  <span className="text-xs text-muted-foreground">
+                    {[b.uuid && senders?.[b.uuid]?.name, b.at && <time key="t" dateTime={new Date(b.at).toISOString()} title={new Date(b.at).toLocaleString()}>{clock(b.at)}</time>].filter(Boolean).reduce<ReactNode[]>((acc, x, i) => (i ? [...acc, ' · ', x] : [x]), [])}
+                  </span>
+                )}
                 {b.images.length > 0 && (
                   <div className="flex flex-wrap justify-end gap-1.5">
                     {b.images.map((src, i) => <img key={i} src={src} alt="Attached image" className="max-h-40 rounded-lg border" />)}
@@ -73,12 +77,8 @@ export const Blocks = memo(function Blocks({ blocks, senders, nested, live = tru
               </div>
             )
           case 'result':
-            return (
-              <p key={b.key} className={cn('flex items-center gap-1.5 text-xs', b.ok ? 'text-muted-foreground' : 'text-destructive')}>
-                {b.ok ? <Check className="size-3.5" /> : <CircleAlert className="size-3.5" />}
-                {b.ok ? 'Done' : 'Stopped with an error'} in {b.seconds}s{b.cost !== undefined ? `, $${b.cost.toFixed(2)}` : ''}
-              </p>
-            )
+            return <ResultLine key={b.key} b={b} />
+
           case 'event':
             return <Event key={b.key} text={b.text} ok={b.ok} tone={b.tone} detail={b.detail} />
           case 'note':
@@ -88,6 +88,42 @@ export const Blocks = memo(function Blocks({ blocks, senders, nested, live = tru
     </div>
   )
 })
+
+/** 11:15 today, "Mon 11:15" this week, "12 Oct 11:15" before. */
+export function clock(ms: number) {
+  const d = new Date(ms)
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+  const days = (new Date().setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 86_400_000
+  if (days < 1) return time
+  if (days < 7) return `${d.toLocaleDateString(undefined, { weekday: 'short' })} ${time}`
+  return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })} ${time}`
+}
+const took = (s: number) => (s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`)
+const kTokens = (n: number) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n))
+
+/** Under each answer: when it finished, how long it took, the tokens it used and what that would cost on the API. */
+function ResultLine({ b }: { b: Extract<Block, { kind: 'result' }> }) {
+  const t = b.tokens
+  const total = t ? t.input + t.cacheRead + t.cacheWrite + t.output : 0
+  const detail = t ? [
+    `Read ${t.input.toLocaleString()} new tokens, ${t.cacheRead.toLocaleString()} from cache, wrote ${t.cacheWrite.toLocaleString()} to cache`,
+    `Wrote ${t.output.toLocaleString()} tokens`,
+    b.steps ? `${b.steps} model call${b.steps === 1 ? '' : 's'}` : '',
+    b.model ? `Model: ${b.model}` : '',
+    b.cost !== undefined ? `$${b.cost.toFixed(4)} at API prices (on a Claude plan it counts against the plan, not money)` : '',
+  ].filter(Boolean).join('\n') : undefined
+  const tone = b.stopped ? 'text-muted-foreground' : b.ok ? 'text-muted-foreground' : 'text-destructive'
+  return (
+    <p className={cn('flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs tabular-nums', tone)} title={detail}>
+      {b.ok || b.stopped ? <Check className="size-3.5" /> : <CircleAlert className="size-3.5" />}
+      <span>{b.stopped ? 'Stopped' : b.ok ? 'Done' : 'Stopped with an error'}</span>
+      {b.at && <><span aria-hidden>·</span><time dateTime={new Date(b.at).toISOString()}>{clock(b.at)}</time></>}
+      <span aria-hidden>·</span><span>{took(b.seconds)}</span>
+      {total > 0 && <><span aria-hidden>·</span><span>{kTokens(total)} tokens</span></>}
+      {b.cost !== undefined && <><span aria-hidden>·</span><span>${b.cost < 0.01 ? b.cost.toFixed(3) : b.cost.toFixed(2)}</span></>}
+    </p>
+  )
+}
 
 const TONE: Record<EventTone, LucideIcon> = { task: Check, skill: BookOpen, peer: MessagesSquare, schedule: CalendarClock, system: Info }
 

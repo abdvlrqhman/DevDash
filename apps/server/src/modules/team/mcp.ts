@@ -46,6 +46,36 @@ export function registerTeamMcp(agents: AgentsService, team: TeamService) {
     const found = team.roleOf(username, c.sessionId ?? null)
     return sent(found ? team.roleMessage(found.r.id, c.sessionId!, input) : team.sessionMessage(username, c.sessionId ?? '', input))
   })
+  // Managing roles: a person's own sessions only. A role is a member of the team, not its manager.
+  const personSession = (username: string, params: unknown) => {
+    const c = (params ?? {}) as Ctx
+    if (team.roleOf(username, c.sessionId ?? null)) throw new AppError(403, 'role', 'Roles can\'t create or change roles. Suggest it to people in your report.')
+    return { sessionId: c.sessionId ?? '', args: c.args ?? {} }
+  }
+  agents.onRpc('mcp.team_roles', (username, params) => team.sessionRoles(username, personSession(username, params).sessionId))
+  agents.onRpc('mcp.team_role_create', (username, params) => {
+    const c = personSession(username, params)
+    return team.sessionCreateRole(username, c.sessionId, {
+      name: text(c.args.name, 'role name'), summary: typeof c.args.summary === 'string' ? c.args.summary : '',
+      instructions: typeof c.args.instructions === 'string' ? c.args.instructions : undefined,
+      model: typeof c.args.model === 'string' ? c.args.model : null, schedule: Array.isArray(c.args.schedule) ? c.args.schedule : undefined,
+    })
+  })
+  agents.onRpc('mcp.team_role_update', (username, params) => {
+    const c = personSession(username, params)
+    const a = c.args
+    if (a.role === undefined) throw new AppError(400, 'bad_args', 'Give the role (its name or #id).')
+    return team.sessionUpdateRole(username, c.sessionId, {
+      role: typeof a.role === 'number' ? a.role : String(a.role).replace(/^#/, ''),
+      name: typeof a.name === 'string' ? a.name : undefined, summary: typeof a.summary === 'string' ? a.summary : undefined,
+      instructions: typeof a.instructions === 'string' ? a.instructions : undefined,
+      model: a.model === null ? null : typeof a.model === 'string' ? a.model : undefined,
+      schedule: Array.isArray(a.schedule) ? a.schedule : undefined,
+      triggers: Array.isArray(a.triggers) ? a.triggers.filter((x): x is string => typeof x === 'string') : undefined,
+      autonomy: typeof a.autonomy === 'string' ? a.autonomy : undefined,
+      paused: typeof a.paused === 'boolean' ? a.paused : undefined, lead: typeof a.lead === 'boolean' ? a.lead : undefined,
+    })
+  })
   agents.onRpc('mcp.team_thread', (username, params) => {
     const c = role(username, params)
     if (!Number.isInteger(c.args.id)) throw new AppError(400, 'bad_args', 'Give the thread id.')

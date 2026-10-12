@@ -52,13 +52,18 @@ function SessionView({ id }: { id: string }) {
   const info = useQuery(sessionQuery(id))
   // The transcript on disk is the truth: the CLI, other devices and other people add to it while this page isn't
   // looking. Re-read it whenever the page opens or comes back, and when the CLI hands back to Chat.
+  // Only the latest turns come first (long sessions open fast); older ones load as you scroll up.
   const history = useQuery({
     queryKey: ['claude', 'history', id],
-    queryFn: () => unwrap(api.api.claude.sessions[':id'].messages.$get({ param: { id } })),
+    queryFn: () => unwrap(api.api.claude.sessions[':id'].messages.$get({ param: { id }, query: {} })),
     staleTime: 0,
     refetchOnMount: 'always',
   })
   const [raw, setRaw] = useState<Raw[]>([])
+  const [older, setOlder] = useState<Raw[]>([])
+  const [hasOlder, setHasOlder] = useState(false)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const keepPlace = useRef<{ height: number; top: number } | null>(null)
   const [liveText] = useState(createLiveText)
   const [pending, setPending] = useState<PendingRequest[]>([])
   const [settings, setSettings] = useState(false)
@@ -113,14 +118,44 @@ function SessionView({ id }: { id: string }) {
         return
       }
       if (m.type === 'assistant' && !m.parent_tool_use_id) liveText.reset()
-      setRaw((r) => mergeRaw(r, [m]))
+      // Live messages carry no time of their own: they happened now.
+      setRaw((r) => mergeRaw(r, [m.timestamp ? m : { ...m, timestamp: new Date().toISOString() }]))
     }
   }, () => {
     void info.refetch()
     void history.refetch()
   })
 
-  useEffect(() => { if (history.data) setRaw((live) => mergeRaw(history.data.messages as Raw[], live)) }, [history.data])
+  useEffect(() => {
+    if (!history.data) return
+    setRaw((live) => mergeRaw(history.data.messages as Raw[], live))
+    setHasOlder((had) => had || history.data.more)
+  }, [history.data])
+  const all = useMemo(() => (older.length ? mergeRaw(older, raw) : raw), [older, raw])
+  const loadOlder = async () => {
+    const first = all.find((m) => m.uuid && !m.uuid.startsWith('turn'))?.uuid
+    if (loadingOlder || !hasOlder || !first) return
+    setLoadingOlder(true)
+    try {
+      const page = await unwrap(api.api.claude.sessions[':id'].messages.$get({ param: { id }, query: { before: first } }))
+      const el = scroller.current
+      if (el) keepPlace.current = { height: el.scrollHeight, top: el.scrollTop }
+      setOlder((o) => [...(page.messages as Raw[]), ...o])
+      setHasOlder(page.more)
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setLoadingOlder(false)
+    }
+  }
+  // Older messages go in above what you're reading: keep it where it was on screen.
+  useLayoutEffect(() => {
+    const el = scroller.current
+    const k = keepPlace.current
+    if (!el || !k) return
+    el.scrollTop = el.scrollHeight - k.height + k.top
+    keepPlace.current = null
+  }, [older])
   const mode = info.data?.session.mode
   const lastMode = useRef(mode)
   useEffect(() => {
@@ -133,7 +168,8 @@ function SessionView({ id }: { id: string }) {
     setViewers(info.data.viewers)
     setCommentCount(info.data.comments)
   }, [info.data])
-  const blocks = useMemo(() => buildTranscript(raw), [raw])
+  const blocks = useMemo(() => buildTranscript(all), [all])
+  const lastPromptAt = useMemo(() => blocks.findLast((b) => b.kind === 'user')?.at, [blocks]) as number | undefined
   const toBottom = () => {
     const el = scroller.current
     if (el && stick.current) el.scrollTop = el.scrollHeight
@@ -147,7 +183,7 @@ function SessionView({ id }: { id: string }) {
     stick.current = true
     // The server also broadcasts it (for other devices) and may get here first: merge by uuid, never append twice.
     setRaw((r) => mergeRaw(r, [{
-      type: 'user', uuid,
+      type: 'user', uuid, timestamp: new Date().toISOString(),
       message: { role: 'user', content: [
         ...images.map((i) => ({ type: 'image', source: { type: 'base64', media_type: i.mediaType, data: i.data } })),
         ...files.map((f) => ({ type: 'document', title: f.name })),
@@ -225,10 +261,13 @@ function SessionView({ id }: { id: string }) {
             className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6">
             <div className="mx-auto flex max-w-4xl flex-col gap-4">
               {history.isPending && s.started && [0, 1].map((i) => <Skeleton key={i} className="h-20" />)}
+              {hasOlder && <Earlier loading={loadingOlder} onLoad={() => void loadOlder()} root={scroller}
+                // Only when you scrolled up (or everything fits): not in the moment the page opens at the top.
+                auto={() => { const el = scroller.current; return !!el && (!stick.current || el.scrollHeight <= el.clientHeight + 8) }} />}
               <ErrorAlert error={history.error} />
               {!s.started && !raw.length && <p className="py-10 text-center text-muted-foreground">Tell Claude what to work on.</p>}
               <Blocks blocks={blocks} senders={history.data?.senders} live={working || s.status === 'waiting'} />
-              <LiveText store={liveText} working={working} onGrow={toBottom} />
+              <LiveText store={liveText} working={working} since={lastPromptAt} onGrow={toBottom} />
               {s.status === 'error' && s.statusDetail && <ErrorAlert error={s.statusDetail} />}
               <Requests sessionId={id} requests={pending} canAnswer={canSend} afterPlanApproved={afterPlanApproved} />
             </div>
@@ -256,15 +295,49 @@ function SessionView({ id }: { id: string }) {
   )
 }
 
+/** At the top of a long conversation: loads the turns before it, by itself as it scrolls into view (or on a tap). */
+function Earlier({ loading, onLoad, root, auto }: { loading: boolean; onLoad: () => void; root: React.RefObject<HTMLDivElement | null>; auto: () => boolean }) {
+  const ref = useRef<HTMLButtonElement>(null)
+  const load = useRef(onLoad)
+  const can = useRef(auto)
+  can.current = auto
+  load.current = onLoad
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const io = new IntersectionObserver((e) => { if (e.some((x) => x.isIntersecting) && can.current()) load.current() }, { root: root.current, rootMargin: '400px 0px 0px 0px' })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [root])
+  return (
+    <button ref={ref} onClick={onLoad} disabled={loading} className="self-center rounded-full px-3 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground">
+      {loading ? 'Loading earlier messages…' : 'Earlier messages'}
+    </button>
+  )
+}
+
 /** Only this re-renders while Claude types, at most once per frame (see live-text.ts). */
-const LiveText = memo(function LiveText({ store, working, onGrow }: { store: LiveTextStore; working: boolean; onGrow: () => void }) {
+const LiveText = memo(function LiveText({ store, working, since, onGrow }: { store: LiveTextStore; working: boolean; since?: number; onGrow: () => void }) {
   const text = useSyncExternalStore(store.subscribe, store.get)
   const grow = useRef(onGrow)
   grow.current = onGrow
   useLayoutEffect(() => grow.current(), [text])
   if (text) return <Prose text={text} />
-  return working ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><StatusLight state="live" />Claude is working…</p> : null
+  return working ? <p className="flex items-center gap-2 text-sm text-muted-foreground"><StatusLight state="live" />Claude is working… <Elapsed since={since} /></p> : null
 })
+
+/** How long Claude has been on this answer, counting up. */
+function Elapsed({ since }: { since?: number }) {
+  const [mounted] = useState(Date.now)
+  const start = since && Date.now() - since < 6 * 3_600_000 ? since : mounted
+  const [, tick] = useState(0)
+  useEffect(() => {
+    const t = setInterval(() => tick((n) => n + 1), 1000)
+    return () => clearInterval(t)
+  }, [])
+  const s = Math.floor((Date.now() - start) / 1000)
+  return s < 3 ? null : <span className="tabular-nums">{s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`}</span>
+}
 
 /** Wide screens: what Claude is doing at a glance, beside the conversation. */
 function SessionAside({ s, blocks, isOwner }: { s: Session; blocks: ReturnType<typeof buildTranscript>; isOwner: boolean }) {

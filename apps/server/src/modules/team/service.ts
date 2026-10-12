@@ -895,6 +895,68 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       if (!s?.project_id || !owner || owner.username !== username || !repo.project(s.project_id) || repo.roleBySession(sessionId)) return null
       return { projectId: s.project_id, author: { kind: 'session' as const, sessionId, title: s.title, owner } }
     },
+    // ---- Managing roles from a person's own Claude session ("make us a Finance role"). Never from a role's session. ----
+
+    /** The project's roles for a session, as Markdown, with what each one does and when it works. */
+    sessionRoles(username: string, sessionId: string) {
+      const who = this.sessionAuthor(username, sessionId)
+      if (!who) throw new AppError(403, 'not_team', 'This session is not in a project with Team on.')
+      const t = repo.project(who.projectId)!
+      const roles = repo.roles(who.projectId)
+      if (!roles.length) return 'No roles yet. Create one with team_role_create.'
+      return roles.map((r) => {
+        const s = settingsOf(r)
+        const when = s.paused ? 'paused' : s.schedule.length ? s.schedule.map((x) => `${x.days.map((d) => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d]).join(',')} ${x.at}`).join('; ') + ` (${t.tz})` : 'no schedule'
+        return `- #${r.id} ${r.name}${s.lead ? ' (lead)' : ''}: ${r.summary || '(no summary)'}\n  works: ${when}; ${s.autonomy}; model ${r.model ?? 'default'}${s.triggers.length ? `; also wakes on ${s.triggers.join(', ')}` : ''}`
+      }).join('\n')
+    },
+
+    /** Creates a role as the session's owner (the same as on the Team tab). Without instructions, Generate writes them. */
+    async sessionCreateRole(username: string, sessionId: string, input: { name: string; summary?: string; instructions?: string; model?: string | null; schedule?: unknown[] }) {
+      const who = this.sessionAuthor(username, sessionId)
+      if (!who) throw new AppError(403, 'not_team', 'This session is not in a project with Team on.')
+      const p = db.prepare('select slug, name from projects where id = ?').get(who.projectId) as { slug: string; name: string }
+      if (repo.roles(who.projectId).some((r) => r.name.toLowerCase() === input.name.trim().toLowerCase())) {
+        throw new AppError(409, 'taken', `There is already a role called ${input.name}. Change it with team_role_update.`)
+      }
+      const owner = who.author.owner
+      const summary = (input.summary ?? '').trim().slice(0, 300)
+      const instructions = input.instructions?.trim() || (await this.generate(owner, p.slug, input.name, summary)).instructions
+      const model = input.model && (MODELS as readonly string[]).includes(input.model) ? input.model : null
+      const role = this.createRole(owner, p.slug, {
+        name: input.name.trim().slice(0, 60), summary, instructions, model,
+        schedule: input.schedule?.length ? input.schedule : [{ days: [1, 2, 3, 4, 5], at: '09:00' }],
+      })
+      tell(`${p.name}: ${owner.name}'s Claude added a role`, `${role.name}${summary ? `: ${summary}` : ''}`, `/projects/${p.slug}/team/${role.id}`, `team-role:${role.id}`, 'shared')
+      return `Created #${role.id} ${role.name}. It works ${role.schedule.length ? 'on its schedule' : 'when started'}; see and change it at /projects/${p.slug}/team/${role.id}.\n\nInstructions:\n${instructions}`
+    },
+
+    /** Changes a role from a person's session: its words, model, schedule, triggers, autonomy, lead, or pauses it. */
+    sessionUpdateRole(username: string, sessionId: string, input: {
+      role: string | number; name?: string; summary?: string; instructions?: string; model?: string | null
+      schedule?: unknown[]; triggers?: string[]; autonomy?: string; paused?: boolean; lead?: boolean
+    }) {
+      const who = this.sessionAuthor(username, sessionId)
+      if (!who) throw new AppError(403, 'not_team', 'This session is not in a project with Team on.')
+      const r = typeof input.role === 'number' ? repo.role(input.role) : roleNamed(who.projectId, String(input.role))
+      if (!r || r.archived || r.project_id !== who.projectId) throw new AppError(404, 'not_found', `There is no role ${input.role} in this project. See team_roles.`)
+      if (input.name !== undefined || input.summary !== undefined || input.instructions !== undefined || input.model !== undefined) {
+        this.updateRole(r.id, {
+          name: input.name?.trim().slice(0, 60) || r.name, summary: input.summary?.trim().slice(0, 300) ?? r.summary,
+          instructions: input.instructions?.trim() || r.instructions,
+          model: input.model === undefined ? r.model : input.model && (MODELS as readonly string[]).includes(input.model) ? input.model : null,
+        })
+      }
+      const s = settingsOf(repo.role(r.id)!)
+      this.roleSettings(r.id, {
+        ...s, autoApprove: s.autoApprove,
+        autonomy: input.autonomy === 'advisor' || input.autonomy === 'operator' ? input.autonomy : s.autonomy,
+        schedule: input.schedule ?? s.schedule, triggers: input.triggers ?? s.triggers,
+        paused: input.paused ?? s.paused, lead: input.lead,
+      })
+      return `Updated ${repo.role(r.id)!.name}.`
+    },
+
     sessionMessage(username: string, sessionId: string, input: MessageInput) {
       const who = this.sessionAuthor(username, sessionId)
       if (!who) throw new AppError(403, 'not_team', 'This session is not in a project with Team on.')

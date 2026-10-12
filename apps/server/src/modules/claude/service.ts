@@ -6,7 +6,7 @@ import type { AgentsService } from '../agents/service.ts'
 import type { NotificationKind } from '../notifications/service.ts'
 import type { ProjectsService } from '../projects/service.ts'
 import type { User } from '../auth/repo.ts'
-import { claudeRepo, type Defaults, type Patch, type SessionRow, type SessionStatus } from './repo.ts'
+import { claudeRepo, type Defaults, type Patch, type SessionRow, type SessionStatus, type TurnRow } from './repo.ts'
 
 export const PERMISSION_MODES = ['default', 'acceptEdits', 'bypassPermissions', 'plan', 'dontAsk', 'auto'] as const
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
@@ -26,7 +26,15 @@ const canView = (u: User, s: SessionRow) => s.owner_id === u.id || s.shared === 
  * What the running process reports and nothing needs to remember across restarts: the Remote Control link and
  * whether fast mode is actually serving (it can be on but unavailable, e.g. without extra usage on the plan).
  */
-type Live = { remoteUrl?: string | null; remoteError?: string | null; fast?: { state: string; reason: string | null } }
+type Task = { id: string; type: string; description: string }
+type Live = { remoteUrl?: string | null; remoteError?: string | null; fast?: { state: string; reason: string | null }; tasks?: Task[] }
+/** The end of a Chat answer, as Claude Code reports it. */
+type ResultMsg = {
+  uuid?: string; subtype?: string; is_error?: boolean; duration_ms?: number; total_cost_usd?: number; num_turns?: number
+  user_message_uuid?: string; modelUsage?: Record<string, unknown>
+  usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
+}
+const HISTORY_TURNS = 10 // prompts per page of history: a long session opens with its last 10 and loads more on scroll
 const live = new Map<string, Live>()
 const setLive = (id: string, v: Live) => live.set(id, { ...live.get(id), ...v })
 
@@ -49,6 +57,7 @@ export function toDto(s: SessionRow) {
     project: s.project_slug ? { slug: s.project_slug, name: s.project_name! } : null, worktree: s.worktree,
     fastMode: !!s.fast_mode, fast: live.get(s.id)?.fast ?? null, context: context(s),
     remoteControl: !!s.remote_control, remoteUrl: live.get(s.id)?.remoteUrl ?? null, remoteError: live.get(s.id)?.remoteError ?? null,
+    tasks: live.get(s.id)?.tasks ?? [],
   }
 }
 export type SessionDto = ReturnType<typeof toDto>
@@ -117,6 +126,26 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
   const repo = claudeRepo(db)
   // A failing turn can report twice (its result, then the process exiting): one error alert per session per minute.
   const lastError = new Map<string, number>()
+  // Per session: the id of the last message of the answer being written (the saved numbers go after it).
+  const lastUuid = new Map<string, string>()
+  function saveTurn(sessionId: string, r: ResultMsg) {
+    if (!r.uuid) return
+    const u = r.usage ?? {}
+    repo.insertTurn({
+      session_id: sessionId, result_uuid: r.uuid, after_uuid: lastUuid.get(sessionId) ?? null, prompt_uuid: r.user_message_uuid ?? null,
+      ok: r.subtype === 'success' && !r.is_error ? 1 : 0, duration_ms: Math.round(r.duration_ms ?? 0), cost_usd: r.total_cost_usd ?? 0,
+      input_tokens: u.input_tokens ?? 0, output_tokens: u.output_tokens ?? 0,
+      cache_read_tokens: u.cache_read_input_tokens ?? 0, cache_write_tokens: u.cache_creation_input_tokens ?? 0,
+      num_turns: r.num_turns ?? 0, model: Object.keys(r.modelUsage ?? {})[0] ?? null,
+    })
+  }
+  /** A saved answer as the result message Claude Code sent at the time (what the browser shows under the answer). */
+  const turnResult = (t: TurnRow) => ({
+    type: 'result', uuid: t.result_uuid, subtype: t.ok ? 'success' : 'error', is_error: !t.ok,
+    duration_ms: t.duration_ms, total_cost_usd: t.cost_usd, num_turns: t.num_turns, model: t.model,
+    usage: { input_tokens: t.input_tokens, output_tokens: t.output_tokens, cache_read_input_tokens: t.cache_read_tokens, cache_creation_input_tokens: t.cache_write_tokens },
+    timestamp: new Date(t.created_at * 1000).toISOString(),
+  })
   const turnEnds = new Set<(t: TurnEnd) => void>()
   const turnEnded = (t: TurnEnd) => {
     for (const fn of turnEnds) {
@@ -170,7 +199,7 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
   agents.onEvent((username, ev) => {
     if (ev.ev === 'snapshot') {
       void backfillTitles(username)
-      return reconcile(username, ev.sessions as { id: string; mode: string; status?: SessionStatus; remote?: string | null }[])
+      return reconcile(username, ev.sessions as { id: string; mode: string; status?: SessionStatus; remote?: string | null; tasks?: Task[] }[])
     }
     const s = typeof ev.id === 'string' ? repo.byId(ev.id) : undefined
     if (!s || s.owner_username !== username) return
@@ -202,6 +231,9 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
       case 'claude.remote':
         setLive(s.id, { remoteUrl: typeof ev.url === 'string' ? ev.url : null, remoteError: typeof ev.error === 'string' ? ev.error : null })
         return publish(s.id)
+      case 'claude.tasks':
+        setLive(s.id, { tasks: Array.isArray(ev.tasks) ? (ev.tasks as Task[]).slice(0, 50) : [] })
+        return publish(s.id)
       case 'claude.msg': {
         const m = ev.msg as {
           type?: string; subtype?: string; result?: unknown; is_error?: boolean; terminal_reason?: string; total_cost_usd?: number
@@ -220,7 +252,11 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
           if (m.subtype === 'success' && !m.is_error) alert(s, 'finished', `Claude finished: ${s.title}`, typeof m.result === 'string' ? clip(m.result) : undefined)
           else alert(s, 'errors', `Claude stopped with an error: ${s.title}`, typeof m.result === 'string' ? clip(m.result) : undefined)
         }
+        // The last message of the answer so far: where the answer's numbers go in the transcript.
+        const top = ev.msg as { uuid?: string; parent_tool_use_id?: string | null }
+        if ((m.type === 'assistant' || m.type === 'user') && top.uuid && !top.parent_tool_use_id) lastUuid.set(s.id, top.uuid)
         if (m.type === 'result') {
+          saveTurn(s.id, ev.msg as ResultMsg)
           turnEnded({
             session: s, ok: m.subtype === 'success' && !m.is_error, aborted: !!m.terminal_reason?.startsWith('aborted'),
             result: typeof m.result === 'string' ? m.result : null, costUsd: typeof m.total_cost_usd === 'number' ? m.total_cost_usd : 0,
@@ -294,11 +330,11 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
     publish(s.id)
   }
 
-  function reconcile(username: string, running: { id: string; mode: string; status?: SessionStatus; remote?: string | null }[]) {
+  function reconcile(username: string, running: { id: string; mode: string; status?: SessionStatus; remote?: string | null; tasks?: Task[] }[]) {
     const byId = new Map(running.map((l) => [l.id, l]))
     for (const s of repo.ownedActive(username)) {
       const l = byId.get(s.id)
-      setLive(s.id, { remoteUrl: l?.mode === 'chat' ? (l.remote ?? null) : null })
+      setLive(s.id, { remoteUrl: l?.mode === 'chat' ? (l.remote ?? null) : null, tasks: l?.mode === 'chat' ? (l.tasks ?? []) : [] })
       if (!l && s.remote_control && s.mode === 'chat' && s.started && s.status !== 'working') void restoreRemote(s)
       if (!l && s.status === 'working' && s.started && Date.now() - (resumed.get(s.id) ?? 0) > 30 * 60_000) {
         void resumeInterrupted(s)
@@ -577,11 +613,31 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
     complete: async (username: string, prompt: string, o: { profile?: string; model?: string; system?: string } = {}) =>
       (await agents.request<{ text: string }>(username, { op: 'claude.complete', profile: o.profile ?? 'default', prompt, model: o.model, system: o.system }, 180_000)).text,
 
-    async history(user: User, id: string) {
+    /**
+     * A page of the conversation: the last few prompts and what followed, before message `before` when given. Each
+     * answer's saved numbers (time, tokens, cost) are put back right after it, as the result Claude Code reported.
+     */
+    async history(user: User, id: string, before?: string) {
       const s = find(user, id)
-      if (!s.started) return { messages: [], senders: {} }
-      const { messages } = await agents.request<{ messages: unknown[] }>(s.owner_username, { op: 'claude.history', launch: launch(s) }, 120_000)
-      return { messages, senders: repo.senders(id) }
+      if (!s.started) return { messages: [] as unknown[], senders: {}, more: false }
+      const page = await agents.request<{ messages: { uuid?: string }[]; more?: boolean }>(s.owner_username, {
+        op: 'claude.history', launch: launch(s), before, turns: HISTORY_TURNS,
+      }, 120_000)
+      const turns = new Map(repo.turns(id).map((t) => [t.after_uuid, t]))
+      const messages: unknown[] = []
+      for (const m of page.messages) {
+        messages.push(m)
+        const t = m.uuid ? turns.get(m.uuid) : undefined
+        if (t) messages.push(turnResult(t))
+      }
+      return { messages, senders: repo.senders(id), more: !!page.more }
+    },
+
+    /** Stops one background task (a shell, subagent or monitor) of a Chat session. */
+    async stopTask(user: User, id: string, taskId: string) {
+      const s = find(user, id)
+      requireSend(user, s)
+      await agents.request(s.owner_username, { op: 'claude.task.stop', id, taskId })
     },
 
     /** For the CLI view: owner and members allowed to send get a writable terminal; other viewers watch. */
