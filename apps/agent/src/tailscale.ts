@@ -20,7 +20,7 @@ const SESSION = 'tailscaled' // tmux session (on the devdash-ts server) running 
 const user = () => process.env.USER || 'user'
 const hostname = () => `devdash-${user()}`
 
-type Ports = { socksPort: number; httpPort: number }
+export type Ports = { socksPort: number; httpPort: number }
 export type Device = { name: string; dnsName: string; os: string; ip: string | null; online: boolean; lastSeen: string | null }
 export type Status = {
   backendState: string
@@ -85,6 +85,9 @@ async function ports(): Promise<Ports> {
   await writeFile(PORTS_FILE, JSON.stringify(chosen))
   return chosen
 }
+
+/** This member's chosen proxy ports, for routing a Claude session through the tailnet (apps/agent/src/claude.ts). */
+export const getPorts = (): Promise<Ports> => ports()
 
 const running = () => tsTmux('has-session', '-t', `=${SESSION}`).then(() => true, () => false)
 const socketReady = () => stat(SOCKET).then((s) => s.isSocket(), () => false)

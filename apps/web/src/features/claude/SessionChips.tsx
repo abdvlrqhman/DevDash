@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Copy, ExternalLink, Smartphone, Zap } from 'lucide-react'
+import { Copy, ExternalLink, Network, Smartphone, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
 import { Button } from '@/components/ui/button'
@@ -128,6 +128,19 @@ export function SessionChips({ s, isOwner, canSend, working, onUpdate, onCompact
             <p className="mt-1 text-xs text-muted-foreground">{FAST_HINT}</p>
             {fastNote && <p className="mt-2 text-xs text-attention-foreground dark:text-attention">{fastNote}</p>}
             {canSend && <Button size="sm" variant="outline" className="mt-3 w-full" onClick={() => onUpdate({ fastMode: false })}>Turn off fast mode</Button>}
+          </PopoverContent>
+        </Popover>
+      )}
+
+      {s.reachTailnet && (
+        <Popover>
+          <Chip label="Routed through your tailnet" tone="live"><Network className="size-3.5" /><span className="max-sm:hidden">Tailnet</span></Chip>
+          <PopoverContent align="start" className="w-80 text-sm">
+            <p className="font-medium">Reaching your tailnet</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              This session's ssh, curl and frida reach your private devices by their 100.x addresses. Claude's own Anthropic traffic is not proxied.
+            </p>
+            {s.tailnetMcp && <p className="mt-2 break-all text-xs text-muted-foreground">MCP: <span className="font-mono">{s.tailnetMcp}</span></p>}
           </PopoverContent>
         </Popover>
       )}

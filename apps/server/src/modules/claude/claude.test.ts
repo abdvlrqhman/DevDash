@@ -5,9 +5,9 @@ import { createHub } from '../../core/hub.ts'
 import type { AgentsService } from '../agents/service.ts'
 import type { User } from '../auth/repo.ts'
 import type { ProjectsService } from '../projects/service.ts'
-import { claudeService } from './service.ts'
+import { claudeService, checkTailnetMcp, isTailnetHost } from './service.ts'
 
-function setup() {
+function setup({ tailnetConnected }: { tailnetConnected?: (userId: number) => boolean } = {}) {
   const db = openDb(':memory:')
   const add = db.prepare("insert into users (id, email, username, name, password_hash, totp_secret, role) values (?, ?, ?, ?, 'x', 'x', 'member')")
   add.run(1, 'a@x.io', 'ann', 'Ann')
@@ -26,9 +26,10 @@ function setup() {
   const claude = claudeService({
     db, agents, hub: createHub(), projects: {} as ProjectsService,
     notify: async (userId, _kind, n) => void notified.push({ userId, title: n.title }),
+    tailnetConnected,
   })
   const user = (id: number, name: string): User => ({ id, name, username: name.toLowerCase(), email: '', role: 'member' })
-  return { claude, notified, sent, ann: user(1, 'Ann'), bob: user(2, 'Bob'), cat: user(3, 'Cat') }
+  return { claude, db, notified, sent, ann: user(1, 'Ann'), bob: user(2, 'Bob'), cat: user(3, 'Cat') }
 }
 
 test('watching a shared session: ask to join, the owner lets one person in, only they can send', async () => {
@@ -83,6 +84,58 @@ test('fast mode and Remote Control: fast is for anyone who can send, Remote Cont
   assert.equal(s.fastMode, true)
   assert.deepEqual(sent.filter((r) => r.op === 'claude.set').map((r) => [r.key, r.value]), [['fast', true]])
   await assert.rejects(claude.update(bob, 's1', { remoteControl: true }), /Only the owner/)
+})
+
+test('tailnet MCP URL validation: tailnet addresses only, http(s) only', () => {
+  // 100.64.0.0/10 CGNAT range and *.ts.net MagicDNS names pass
+  assert.equal(isTailnetHost('100.64.0.1'), true)
+  assert.equal(isTailnetHost('100.102.226.36'), true)
+  assert.equal(isTailnetHost('100.127.255.255'), true)
+  assert.equal(isTailnetHost('ida-box.tail1234.ts.net'), true)
+  assert.equal(isTailnetHost('ida-box.tail1234.ts.net.'), true)
+  // outside the range, public IPs, localhost and other names fail
+  assert.equal(isTailnetHost('100.63.0.1'), false)
+  assert.equal(isTailnetHost('100.128.0.1'), false)
+  assert.equal(isTailnetHost('8.8.8.8'), false)
+  assert.equal(isTailnetHost('127.0.0.1'), false)
+  assert.equal(isTailnetHost('localhost'), false)
+  assert.equal(isTailnetHost('evil.com'), false)
+  assert.equal(isTailnetHost('ts.net'), false)
+
+  assert.equal(checkTailnetMcp('http://100.102.226.36:13337/mcp'), 'http://100.102.226.36:13337/mcp')
+  assert.equal(checkTailnetMcp('  https://ida-box.tail1.ts.net/mcp  '), 'https://ida-box.tail1.ts.net/mcp')
+  assert.throws(() => checkTailnetMcp('http://8.8.8.8/mcp'), /tailnet address/)
+  assert.throws(() => checkTailnetMcp('http://127.0.0.1:13337/mcp'), /tailnet address/)
+  assert.throws(() => checkTailnetMcp('ftp://100.64.0.1/mcp'), /http or https/)
+  assert.throws(() => checkTailnetMcp('not a url'), /full MCP URL/)
+})
+
+test('reach my tailnet: owner-only, needs a connected node, validates the MCP, and rides along in the launch', async () => {
+  const { claude, db, ann, bob, sent } = setup({ tailnetConnected: (id) => id === 1 })
+  // non-owner can't touch it
+  await assert.rejects(claude.update(bob, 's1', { reachTailnet: true }), /Only the owner/)
+  // owner with no connected node is blocked
+  const { claude: c2, ann: ann2 } = setup({ tailnetConnected: () => false })
+  await assert.rejects(c2.update(ann2, 's1', { reachTailnet: true }), /Connect your tailnet/)
+  // a bad MCP URL is rejected before anything is stored
+  await assert.rejects(claude.update(ann, 's1', { reachTailnet: true, tailnetMcp: 'http://8.8.8.8/mcp' }), /tailnet address/)
+
+  const dto = await claude.update(ann, 's1', { reachTailnet: true, tailnetMcp: 'http://100.64.0.2:13337/mcp' })
+  assert.equal(dto.reachTailnet, true)
+  assert.equal(dto.tailnetMcp, 'http://100.64.0.2:13337/mcp')
+  // an idle chat process is stopped so the next message relaunches with the proxy env
+  assert.ok(sent.some((r) => r.op === 'claude.stop'))
+  // the flag/url travel to the agent on the next send, inside the launch payload
+  await claude.send(ann, 's1', 'ssh to my iphone', [])
+  const launch = sent.find((r) => r.op === 'claude.send')!.launch as { reachTailnet: boolean; tailnetMcp: string }
+  assert.equal(launch.reachTailnet, true)
+  assert.equal(launch.tailnetMcp, 'http://100.64.0.2:13337/mcp')
+
+  // clearing: empty URL nulls it, and the row reflects the toggle off
+  await claude.update(ann, 's1', { reachTailnet: false, tailnetMcp: '' })
+  const row = db.prepare('select reach_tailnet, tailnet_mcp from claude_sessions where id = ?').get('s1') as { reach_tailnet: number; tailnet_mcp: string | null }
+  assert.equal(row.reach_tailnet, 0)
+  assert.equal(row.tailnet_mcp, null)
 })
 
 function inProject(sharing: 'private' | 'shared' | 'shared_can_send' = 'private') {

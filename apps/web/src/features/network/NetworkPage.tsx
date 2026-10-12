@@ -14,7 +14,7 @@ import { openExternal } from '@/lib/shell'
 import { ErrorAlert } from '../auth/LoginPage'
 
 type Device = { name: string; dnsName: string; os: string; ip: string | null; online: boolean; lastSeen: string | null }
-type TailnetStatus = {
+export type TailnetStatus = {
   backendState: string; self: { hostName: string | null; tailscaleIPs: string[] }
   socksPort: number | null; httpPort: number | null; running: boolean; devices: Device[]
   hasKey: boolean; connected: boolean
@@ -23,11 +23,13 @@ type TailnetStatus = {
 const KEYS_URL = 'https://login.tailscale.com/admin/settings/keys'
 
 // Status is live-ish: poll every few seconds so online dots and newly-seen devices show without a manual refresh.
-const statusQuery = queryOptions({
+// Exported so the Claude session's "Reach my tailnet" setting can reuse it to know whether a node is connected.
+export const tailnetStatusQuery = queryOptions({
   queryKey: ['tailnet', 'status'],
   queryFn: () => unwrap(api.api.tailnet.status.$get()) as Promise<TailnetStatus>,
   refetchInterval: 5000,
 })
+const statusQuery = tailnetStatusQuery
 
 export function NetworkPage() {
   const q = useQuery(statusQuery)

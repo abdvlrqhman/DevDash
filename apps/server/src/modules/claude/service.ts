@@ -23,6 +23,31 @@ export type PermissionAnswer =
 const canView = (u: User, s: SessionRow) => s.owner_id === u.id || s.shared === 1
 
 /**
+ * A tailnet address: Tailscale's 100.64.0.0/10 CGNAT range, or a *.ts.net MagicDNS name. Pure, so it is unit-tested.
+ * Rejects public IPs, localhost and everything else so the per-session MCP can't be pointed at the open internet.
+ */
+export function isTailnetHost(host: string): boolean {
+  const h = host.toLowerCase().replace(/\.$/, '')
+  // 100.64.x.x – 100.127.x.x: first octet 100, second 64–127, last two 0–255.
+  const m = /^100\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(h)
+  if (m) return Number(m[1]) >= 64 && Number(m[1]) <= 127 && Number(m[2]) <= 255 && Number(m[3]) <= 255
+  return /^(?=.{1,253}$)[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.ts\.net$/.test(h)
+}
+
+/** Validates the per-session tailnet MCP URL (http(s), host on the tailnet) and returns it cleaned. Throws otherwise. */
+export function checkTailnetMcp(raw: string): string {
+  let u: URL
+  try {
+    u = new URL(raw.trim())
+  } catch {
+    throw new AppError(400, 'bad_mcp', 'Enter a full MCP URL, like http://100.102.226.36:13337/mcp.')
+  }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new AppError(400, 'bad_mcp', 'The MCP URL must be http or https.')
+  if (!isTailnetHost(u.hostname)) throw new AppError(400, 'bad_mcp', 'The MCP host must be a tailnet address (100.x, or a *.ts.net name) — not the public internet or localhost.')
+  return u.toString()
+}
+
+/**
  * What the running process reports and nothing needs to remember across restarts: the Remote Control link and
  * whether fast mode is actually serving (it can be on but unavailable, e.g. without extra usage on the plan).
  */
@@ -66,6 +91,7 @@ export function toDto(s: SessionRow) {
     project: s.project_slug ? { slug: s.project_slug, name: s.project_name! } : null, worktree: s.worktree,
     fastMode: !!s.fast_mode, fast: live.get(s.id)?.fast ?? null, context: context(s),
     remoteControl: !!s.remote_control, remoteUrl: live.get(s.id)?.remoteUrl ?? null, remoteError: live.get(s.id)?.remoteError ?? null,
+    reachTailnet: !!s.reach_tailnet, tailnetMcp: s.tailnet_mcp,
     tasks: live.get(s.id)?.tasks ?? [],
   }
 }
@@ -89,6 +115,8 @@ const launch = (s: SessionRow) => ({
   id: s.id, cwd: s.cwd, profile: s.profile, model: s.model, effort: s.effort, permissionMode: s.permission_mode, started: !!s.started,
   fast: !!s.fast_mode, remote: !!s.remote_control, title: s.title,
   instructions: s.instructions, toolPolicy: s.tool_policy ? (JSON.parse(s.tool_policy) as { tools?: string[]; allow?: string[] }) : null,
+  // The agent fills in the actual proxy ports locally (it is the member); here we only say whether to route and where.
+  reachTailnet: !!s.reach_tailnet, tailnetMcp: s.tailnet_mcp,
 })
 
 /** What a DevDash feature can add when it starts a session for someone (a team role's chat or shift, say). */
@@ -135,7 +163,12 @@ function describeRequest(toolName: string, input: Record<string, unknown>) {
   return `Wants to use ${toolName}${what ? `: ${what}` : ''}`
 }
 
-export function claudeService({ db, agents, hub, notify, projects }: { db: Db; agents: AgentsService; hub: Hub; notify: Notify; projects: ProjectsService }) {
+export function claudeService({ db, agents, hub, notify, projects, tailnetConnected }: {
+  db: Db; agents: AgentsService; hub: Hub; notify: Notify; projects: ProjectsService
+  /** Whether the member has a connected tailnet node (so "Reach my tailnet" can only go on when they do). Optional:
+   *  wired late in app.ts like Team's isRole, since the tailnet service is built after this one. */
+  tailnetConnected?: (userId: number) => boolean
+}) {
   const repo = claudeRepo(db)
   // A failing turn can report twice (its result, then the process exiting): one error alert per session per minute.
   const lastError = new Map<string, number>()
@@ -605,12 +638,20 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
     async update(user: User, id: string, p: {
       title?: string; shared?: boolean; sharedCanSend?: boolean; archived?: boolean
       model?: string | null; effort?: string | null; permissionMode?: string; fastMode?: boolean; remoteControl?: boolean
+      reachTailnet?: boolean; tailnetMcp?: string | null
     }) {
       const s = find(user, id)
       const ownerOnly = p.title !== undefined || p.shared !== undefined || p.sharedCanSend !== undefined || p.archived !== undefined
-        || p.remoteControl !== undefined
+        || p.remoteControl !== undefined || p.reachTailnet !== undefined || p.tailnetMcp !== undefined
       if (ownerOnly) requireOwner(user, s)
       else requireSend(user, s)
+      // Tailnet routing (owner-only): only allow turning it on if the owner has a connected tailnet node; validate the
+      // MCP URL points at a tailnet address. An empty MCP clears it. These apply when the session process next starts.
+      if (p.reachTailnet && !tailnetConnected?.(user.id)) {
+        throw new AppError(409, 'no_tailnet', 'Connect your tailnet on the Network page before routing a session through it.')
+      }
+      const tailnetMcp = p.tailnetMcp === undefined ? undefined
+        : !p.tailnetMcp || !p.tailnetMcp.trim() ? null : checkTailnetMcp(p.tailnetMcp)
       const patch: Patch = {
         title: p.title?.trim().slice(0, 120) || undefined,
         shared: p.shared === undefined ? undefined : p.shared ? 1 : 0,
@@ -618,6 +659,8 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
         archived: p.archived === undefined ? undefined : p.archived ? 1 : 0,
         model: p.model, effort: p.effort, permission_mode: p.permissionMode,
         fast_mode: p.fastMode === undefined ? undefined : p.fastMode ? 1 : 0,
+        reach_tailnet: p.reachTailnet === undefined ? undefined : p.reachTailnet ? 1 : 0,
+        tailnet_mcp: tailnetMcp,
       }
       if (patch.title) {
         patch.title_custom = 1
@@ -630,6 +673,11 @@ export function claudeService({ db, agents, hub, notify, projects }: { db: Db; a
       // Turning it on again while it has no link (it failed, or the process went away) tries again.
       if (p.remoteControl !== undefined && (p.remoteControl !== !!s.remote_control || (p.remoteControl && !live.get(id)?.remoteUrl))) {
         await setRemote(s, p.remoteControl)
+      }
+      // Proxy env and the tailnet MCP forwarder are wired when the session process starts, so an already-running but
+      // idle Chat process must restart to pick a change up: the next message relaunches it with the new routing.
+      if ((p.reachTailnet !== undefined || p.tailnetMcp !== undefined) && s.mode === 'chat' && s.status !== 'working' && s.status !== 'waiting') {
+        await agents.request(s.owner_username, { op: 'claude.stop', id }).catch(() => {})
       }
       if (p.archived) {
         await agents.request(s.owner_username, { op: 'claude.stop', id }).catch(() => {})

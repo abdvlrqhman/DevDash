@@ -56,6 +56,8 @@ const PatchInput = z.object({
   permissionMode: Mode.optional(),
   fastMode: z.boolean().optional(),
   remoteControl: z.boolean().optional(),
+  reachTailnet: z.boolean().optional(),
+  tailnetMcp: z.string().max(300).nullable().optional(),
 })
 const ModeInput = z.object({ mode: z.enum(['chat', 'cli']), cols: Size.default(100), rows: z.number().int().min(4).max(200).default(30) })
 const DefaultsInput = z.object({

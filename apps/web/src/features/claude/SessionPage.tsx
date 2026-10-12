@@ -1,7 +1,7 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { Archive, ArchiveRestore, Check, ChevronDown, Circle, Ellipsis, FileCode, Gauge, LoaderCircle, MessageSquare, Pencil, Share2, SquareTerminal, Shield, ShieldOff, SlidersHorizontal, X, Zap } from 'lucide-react'
+import { Archive, ArchiveRestore, Check, ChevronDown, Circle, Ellipsis, FileCode, Gauge, LoaderCircle, MessageSquare, Network, Pencil, Share2, SquareTerminal, Shield, ShieldOff, SlidersHorizontal, X, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
 import { PageHeader } from '@/components/app/page'
@@ -35,6 +35,7 @@ import { useArchiveSession } from './ArchiveSession'
 import { Requests } from './Requests'
 import { PlanUsage } from './Usage'
 import { servicesQuery, stateOf } from '../services/data'
+import { tailnetStatusQuery } from '../network/NetworkPage'
 import { buildTranscript, mergePage, mergeRaw, sessionFacts, type Raw } from './transcript'
 import { useTopic } from '@/lib/live'
 
@@ -69,6 +70,7 @@ function SessionView({ id }: { id: string }) {
   const [pending, setPending] = useState<PendingRequest[]>([])
   const [settings, setSettings] = useState(false)
   const [usage, setUsage] = useState(false)
+  const [tailnet, setTailnet] = useState(false)
   const [viewers, setViewers] = useState<Person[]>([])
   const [commentCount, setCommentCount] = useState(0)
   const [commentsOpen, setCommentsOpen] = useState(false)
@@ -251,7 +253,7 @@ function SessionView({ id }: { id: string }) {
               <TabsTrigger value="cli" disabled={!canSend || switchMode.isPending}><SquareTerminal /><span className="hidden sm:inline">CLI</span></TabsTrigger>
             </TabsList>
           </Tabs>
-          <SessionMenu s={s} isOwner={isOwner} canSend={canSend} writers={info.data!.writers} onUpdate={(v) => update.mutate(v)} onRename={() => setSettings(true)} onUsage={() => setUsage(true)} />
+          <SessionMenu s={s} isOwner={isOwner} canSend={canSend} writers={info.data!.writers} onUpdate={(v) => update.mutate(v)} onRename={() => setSettings(true)} onUsage={() => setUsage(true)} onTailnet={() => setTailnet(true)} />
         </>} />
 
 
@@ -289,6 +291,7 @@ function SessionView({ id }: { id: string }) {
       )}
       <Comments id={id} open={commentsOpen} onOpenChange={setCommentsOpen} me={me.id} />
       {isOwner && <RenameDialog open={settings} onOpenChange={setSettings} s={s} onSave={(title) => update.mutate({ title })} />}
+      {isOwner && <TailnetDialog open={tailnet} onOpenChange={setTailnet} s={s} onUpdate={(v) => update.mutateAsync(v)} />}
       {isOwner && (
         <ResponsiveDialog open={usage} onOpenChange={setUsage} title="Plan usage" description="Your Claude plan's limits, the same as /usage in Claude Code.">
           <PlanUsage profile={s.profile} className="pb-2 text-sm" />
@@ -437,7 +440,7 @@ function CliView({ id, onEnded }: { id: string; onEnded: () => void }) {
 
 type Updater = (v: {
   model?: string | null; effort?: Effort | null; permissionMode?: PermissionMode; shared?: boolean; sharedCanSend?: boolean; archived?: boolean
-  fastMode?: boolean; remoteControl?: boolean
+  fastMode?: boolean; remoteControl?: boolean; reachTailnet?: boolean; tailnetMcp?: string | null
 }) => void
 
 /** Model, effort and permissions, changed in place from the chip row. */
@@ -506,8 +509,8 @@ function SwitchRow({ label, hint, checked, onChange }: { label: string; hint: st
   )
 }
 
-function SessionMenu({ s, isOwner, canSend, writers, onUpdate, onRename, onUsage }: {
-  s: Session; isOwner: boolean; canSend: boolean; writers: Person[]; onUpdate: Updater; onRename: () => void; onUsage: () => void
+function SessionMenu({ s, isOwner, canSend, writers, onUpdate, onRename, onUsage, onTailnet }: {
+  s: Session; isOwner: boolean; canSend: boolean; writers: Person[]; onUpdate: Updater; onRename: () => void; onUsage: () => void; onTailnet: () => void
 }) {
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -529,6 +532,7 @@ function SessionMenu({ s, isOwner, canSend, writers, onUpdate, onRename, onUsage
           <>
             <DropdownMenuItem onSelect={onRename}><Pencil />Rename</DropdownMenuItem>
             <DropdownMenuItem onSelect={onUsage}><Gauge />Plan usage</DropdownMenuItem>
+            <DropdownMenuItem onSelect={onTailnet}><Network />Reach my tailnet{s.reachTailnet ? ' · on' : ''}</DropdownMenuItem>
             <DropdownMenuSeparator />
             <div className="flex items-center justify-between gap-3 px-2 py-1.5 text-sm">
               <span>Share with the team</span>
@@ -585,6 +589,66 @@ function RenameDialog({ open, onOpenChange, s, onSave }: { open: boolean; onOpen
             <FieldDescription>Shown in the session list and on Home.</FieldDescription>
           </Field>
           <Button type="submit" className="h-10" disabled={!title.trim() || title.trim() === s.title}>Save title</Button>
+        </FieldGroup>
+      </form>
+    </ResponsiveDialog>
+  )
+}
+
+/**
+ * Owner-only: route this session's shell tools (ssh/curl/frida) and an optional tailnet MCP through the owner's
+ * private Tailscale node. Only available while they have a connected node; Claude's own API traffic is never proxied.
+ */
+function TailnetDialog({ open, onOpenChange, s, onUpdate }: {
+  open: boolean; onOpenChange: (v: boolean) => void; s: Session; onUpdate: (v: { reachTailnet?: boolean; tailnetMcp?: string | null }) => Promise<unknown>
+}) {
+  const status = useQuery({ ...tailnetStatusQuery, enabled: open })
+  const connected = !!status.data?.connected && !!status.data?.running
+  const [reach, setReach] = useState(s.reachTailnet)
+  const [mcp, setMcp] = useState(s.tailnetMcp ?? '')
+  const [error, setError] = useState<Error | null>(null)
+  const [saving, setSaving] = useState(false)
+  useEffect(() => { if (open) { setReach(s.reachTailnet); setMcp(s.tailnetMcp ?? ''); setError(null) } }, [open, s.reachTailnet, s.tailnetMcp])
+  const save = async (e: FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    setError(null)
+    try {
+      await onUpdate({ reachTailnet: reach, tailnetMcp: reach ? mcp.trim() || null : null })
+      onOpenChange(false)
+    } catch (err) {
+      setError(err as Error)
+    } finally {
+      setSaving(false)
+    }
+  }
+  return (
+    <ResponsiveDialog open={open} onOpenChange={onOpenChange} title="Reach my tailnet"
+      description="Let this session reach your private Tailscale devices by their 100.x addresses. Your own Claude/Anthropic traffic is never routed through it.">
+      <form onSubmit={save}>
+        <FieldGroup>
+          {!connected && (
+            <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+              No connected tailnet node. <Link to="/network" className="underline underline-offset-4" onClick={() => onOpenChange(false)}>Connect it on the Network page</Link> first.
+            </p>
+          )}
+          <label className="flex cursor-pointer items-start justify-between gap-3 text-sm">
+            <span className="flex flex-col">
+              <span className="font-medium">Route this session through my tailnet</span>
+              <span className="text-xs text-muted-foreground">ssh (via the <code>tailnet-connect</code> ProxyCommand helper), curl and frida reach your 100.x devices; net_devices lists them.</span>
+            </span>
+            <Switch checked={reach} disabled={!connected} onCheckedChange={setReach} className="mt-0.5" />
+          </label>
+          {reach && (
+            <Field>
+              <FieldLabel htmlFor="tailnet-mcp">Tailnet MCP URL (optional)</FieldLabel>
+              <Input id="tailnet-mcp" className="h-10 font-mono" placeholder="http://100.x.x.x:13337/mcp" value={mcp} onChange={(e) => setMcp(e.target.value)} />
+              <FieldDescription>An MCP server on your tailnet (e.g. IDA Pro). It's exposed to this session over the proxy. Must be a tailnet address (100.x or a *.ts.net name).</FieldDescription>
+            </Field>
+          )}
+          <ErrorAlert error={error} />
+          <p className="text-xs text-muted-foreground">Takes effect when Claude next starts this session.</p>
+          <Button type="submit" className="h-10" disabled={saving || (reach && !connected)}>{saving ? 'Saving…' : 'Save'}</Button>
         </FieldGroup>
       </form>
     </ResponsiveDialog>

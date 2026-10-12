@@ -22,7 +22,7 @@ import { statusService } from './modules/status/service.ts'
 import { deployService } from './modules/status/deploy.ts'
 import { vaultService } from './modules/vault/service.ts'
 import { tailnetRoutes } from './modules/tailnet/routes.ts'
-import { tailnetService } from './modules/tailnet/service.ts'
+import { tailnetService, type TailnetService } from './modules/tailnet/service.ts'
 import { buildsService } from './modules/builds/service.ts'
 import { notesRoutes } from './modules/notes/routes.ts'
 import { notesService } from './modules/notes/service.ts'
@@ -61,7 +61,10 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   const notes = notesService({ db, hub, activity, search })
   const projects = projectsService({ db, hub, agents, activity, tasks, root: config.projectsRoot, gitSafeDir: (p) => provisioning.gitSafeDir(p) })
   for (const topic of ['projects', 'tasks', 'notes', 'activity']) hub.authorize(topic, () => true)
-  const claude = claudeService({ db, agents, hub, notify: notifications.notify, projects })
+  // Per-user tailnets: claude asks whether the owner has a connected node before letting a session route through it.
+  // The tailnet service is built further down (it needs Team's isRole), so this reads it late, like Team's own wiring.
+  let tailnet: TailnetService | undefined
+  const claude = claudeService({ db, agents, hub, notify: notifications.notify, projects, tailnetConnected: (userId) => !!tailnet?.isConnected(userId) })
 
   // "Give to Claude": a Chat session in the task's project (its own worktree by default), linked to the task.
   const giveToClaude: GiveToClaude = async (user, slug, number, o) => {
@@ -92,7 +95,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   const browser = browserService({ db, runDir: config.runDir, dataDir: config.dataDir, masterKey: config.masterKey, origin: config.origin })
   const team = teamPlugin({ db, hub, agents, claude, projects, activity, tasks, notify: notifications.notify, masterKey: config.masterKey, mw }) // Team
   // Per-user tailnets: keep net_* tools out of team role sessions (Team may be off, so roleOf is optional).
-  const tailnet = tailnetService({ db, agents, masterKey: config.masterKey, runDir: config.runDir, isRole: (u, s) => !!team.service?.roleOf(u, s) })
+  tailnet = tailnetService({ db, agents, masterKey: config.masterKey, runDir: config.runDir, isRole: (u, s) => !!team.service?.roleOf(u, s) })
   const status = statusService({ db, agents, services, browser, runDir: config.runDir, dataDir: config.dataDir, version: config.version })
   const deploys = deployService({ db, agents, projects, notify: notifications.notify, runDir: config.runDir, repo: config.repo, live: status.release })
   const app = new Hono()

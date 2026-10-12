@@ -83,6 +83,11 @@ export function tailnetService({ db, agents, masterKey, runDir, rootHelper, isRo
       return { ...publicStatus(user, s), warning }
     },
 
+    /** Whether this member currently has a connected tailnet node (so a session may be routed through it). */
+    isConnected(userId: number) {
+      return (q.get.get(userId) as Row | undefined)?.connected === 1
+    },
+
     async disconnect(user: Pick<User, 'id' | 'username'>, forgetKey = true) {
       const row = q.get.get(user.id) as Row | undefined
       const s = await agents.request<AgentStatus>(user.username, { op: 'tailscale.down' }, 30_000)

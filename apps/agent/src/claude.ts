@@ -11,6 +11,8 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { CLAUDE_BIN, loadSdk, type PermissionMode, type PermissionResult, type Query, type SDKUserMessage } from './sdk.ts'
 import { hasSession, listSessions, tmux } from './tmux.ts'
+import { getPorts } from './tailscale.ts'
+import { startForwarder, writeSshHelper } from './tailnet-session.ts'
 
 export const PLUGIN_DIR = fileURLToPath(new URL('../../../packages/claude-plugin', import.meta.url))
 export const PROFILE_RE = /^[a-z0-9][a-z0-9-]{0,20}$/
@@ -38,6 +40,10 @@ export type Launch = {
   instructions?: string | null
   /** Limits the session: `tools` = the built-in tools it has, `allow` = the tools that run without asking. */
   toolPolicy?: { tools?: string[]; allow?: string[] } | null
+  /** Reach my tailnet: route the session's shell tools (ssh/curl/frida) through the owner's SOCKS/HTTP proxy. */
+  reachTailnet?: boolean
+  /** A tailnet MCP URL (e.g. IDA Pro at http://100.x:13337/mcp) to expose to the session, reached over the proxy. */
+  tailnetMcp?: string | null
 }
 export type Status = 'working' | 'waiting' | 'idle' | 'stopped' | 'error'
 type Pending = { requestId: string; toolName: string; input: Record<string, unknown>; suggestions?: unknown[]; resolve: (r: PermissionResult) => void }
@@ -51,6 +57,53 @@ let emit: (ev: Record<string, unknown>) => void = () => {}
 export const setEmitter = (fn: typeof emit) => { emit = fn }
 
 const chats = new Map<string, Chat>()
+
+// Per-session tailnet routing. Each entry owns a local TCP→SOCKS forwarder (to a tailnet MCP) that must be torn down
+// when the session's process ends. Keyed by session id; closing an old one before starting a new one is safe.
+const tailnets = new Map<string, { close: () => void }>()
+function teardownTailnet(id: string) {
+  const t = tailnets.get(id)
+  if (!t) return
+  tailnets.delete(id)
+  try { t.close() } catch { /* already gone */ }
+}
+type TailnetSetup = { env: Record<string, string>; mcpServers?: Record<string, unknown> }
+/**
+ * When "Reach my tailnet" is on: build the env that routes the session's shell tools through the owner's SOCKS/HTTP
+ * proxy, write the ssh ProxyCommand helper onto its PATH, and — if a tailnet MCP URL is set — start a local forwarder
+ * and point the MCP at it. Never sets HTTPS_PROXY: Claude's own Anthropic API calls (HTTPS) must stay direct, or the
+ * SDK's traffic would tunnel through the proxy and break. Returns null when routing is off.
+ */
+async function setupTailnet(l: Launch): Promise<TailnetSetup | null> {
+  if (!l.reachTailnet) { teardownTailnet(l.id); return null }
+  const { socksPort, httpPort } = await getPorts()
+  const binDir = join(homedir(), '.cache', 'devdash', 'tailnet', l.id)
+  await writeSshHelper(binDir, socksPort)
+  const env: Record<string, string> = {
+    // Shell tools go through the tailnet proxy; NO HTTPS_PROXY on purpose (see this function's doc comment).
+    ALL_PROXY: `socks5://127.0.0.1:${socksPort}`,
+    all_proxy: `socks5://127.0.0.1:${socksPort}`,
+    HTTP_PROXY: `http://127.0.0.1:${httpPort}`,
+    http_proxy: `http://127.0.0.1:${httpPort}`,
+    DEVDASH_TAILNET_SOCKS: String(socksPort),
+    PATH: `${binDir}:${process.env.PATH ?? ''}`,
+  }
+  let mcpServers: Record<string, unknown> | undefined
+  let close = () => {}
+  if (l.tailnetMcp) {
+    // The SDK/CLI HTTP MCP client can't reach a userspace 100.x address, so forward a localhost port to it over SOCKS
+    // and register the MCP at the forwarded URL, preserving the original scheme and path (e.g. /mcp).
+    const u = new URL(l.tailnetMcp)
+    const dest = { host: u.hostname, port: Number(u.port) || (u.protocol === 'https:' ? 443 : 80) }
+    const fwd = await startForwarder(socksPort, dest.host, dest.port)
+    close = fwd.close
+    const url = `${u.protocol}//127.0.0.1:${fwd.port}${u.pathname}${u.search}`
+    mcpServers = { tailnet: { type: 'http', url } }
+  }
+  teardownTailnet(l.id)
+  tailnets.set(l.id, { close })
+  return { env, mcpServers }
+}
 
 // Mode changes, sends and stops for one session run one at a time (a double tap must not start two processes).
 const queues = new Map<string, Promise<unknown>>()
@@ -114,7 +167,19 @@ Long-running processes (web servers, dev servers, APIs, workers, containers) go 
 - Each service opens in the browser at $DEVDASH_URL (members only, or anyone with the link if made public); \`devdash service add\` prints it. Apps that build absolute URLs should use the base path $DEVDASH_BASE_PATH (Vite: \`--base $DEVDASH_BASE_PATH\`).
 - Services you add are linked to this session. Only stop or change services that belong to this person.`
 
-const systemAppend = (l: Launch) => (l.instructions?.trim() ? `${RULES}\n\n${l.instructions.trim()}` : RULES)
+// Added only when "Reach my tailnet" is on: how the session reaches the owner's private devices.
+const TAILNET_NOTE = `This session can reach the owner's private Tailscale tailnet. Their devices are at 100.x addresses (and *.ts.net MagicDNS names) and are reachable only through the proxy already set in your environment:
+- List the devices and their online status with the net_devices tool; check one before connecting with net_check.
+- ssh: use \`ssh -o ProxyCommand="tailnet-connect %h %p" user@100.x.x.x\` (the tailnet-connect helper is on your PATH).
+- curl, frida (\`frida -H 100.x:port\`) and other tools honour the proxy env (ALL_PROXY / HTTP_PROXY) and reach 100.x directly.
+Your own Anthropic API calls are NOT proxied; they go out directly as usual.`
+
+const systemAppend = (l: Launch) => {
+  const parts = [RULES]
+  if (l.reachTailnet) parts.push(TAILNET_NOTE)
+  if (l.instructions?.trim()) parts.push(l.instructions.trim())
+  return parts.join('\n\n')
+}
 
 // Questions and plan approvals need a person in every mode. Bypass mode skips canUseTool entirely, so these two
 // tools are routed through a PreToolUse hook instead, which always runs.
@@ -125,6 +190,8 @@ async function startChat(l: Launch): Promise<Chat> {
   validate(l)
   await requireLogin(l.profile)
   const sdk = await loadSdk()
+  // Route this session through the owner's tailnet when asked (env + an optional MCP forwarder); off → null.
+  const tn = await setupTailnet(l).catch((err: Error) => { console.error(`[${l.id.slice(0, 8)}] tailnet:`, err.message); return null })
   const inbox = new Inbox()
   const pending = new Map<string, Pending>()
   let chat: Chat | undefined
@@ -144,7 +211,8 @@ async function startChat(l: Launch): Promise<Chat> {
     prompt: inbox,
     options: {
       cwd: l.cwd,
-      env: { ...process.env, ...profileEnv(l.profile), DEVDASH_SESSION_ID: l.id },
+      env: { ...process.env, ...profileEnv(l.profile), DEVDASH_SESSION_ID: l.id, ...(tn?.env ?? {}) },
+      ...(tn?.mcpServers ? { mcpServers: tn.mcpServers } : {}),
       pathToClaudeCodeExecutable: CLAUDE_BIN,
       ...(l.started ? { resume: l.id } : { sessionId: l.id }),
       ...(l.model ? { model: l.model } : {}),
@@ -218,6 +286,7 @@ async function pump(c: Chat) {
     setStatus(c, id, 'error', (err as Error).message.slice(0, 500))
   } finally {
     if (chats.get(id) === c) chats.delete(id)
+    teardownTailnet(id) // the session process is gone: close its tailnet MCP forwarder
     for (const p of c.pending.values()) p.resolve({ behavior: 'deny', message: 'Session closed' })
     if (c.tasks.length) emit({ ev: 'claude.tasks', id, tasks: [] })
     emit({ ev: 'claude.closed', id })
@@ -263,11 +332,12 @@ async function stopChat(c: Chat) {
 
 async function stopCli(id: string) {
   const name = cliName(id)
-  if (!(await hasSession(name))) return
+  if (!(await hasSession(name))) return teardownTailnet(id)
   await tmux('send-keys', '-t', `=${name}`, 'Escape').catch(() => {})
   await tmux('send-keys', '-t', `=${name}`, '/exit', 'Enter').catch(() => {})
   for (let i = 0; i < 40 && (await hasSession(name)); i++) await sleep(100)
   await tmux('kill-session', '-t', `=${name}`).catch(() => {})
+  teardownTailnet(id) // the CLI process is gone: close its tailnet MCP forwarder
 }
 
 /** Sends a user message in Chat mode, starting or resuming the SDK process if needed. */
@@ -342,6 +412,8 @@ async function openCliNow(l: Launch, cols: number, rows: number) {
   if (await hasSession(cliName(l.id))) return
   cliLaunches.set(l.id, l)
   try { trustFolder(claudeConfig(l.profile), l.cwd) } catch { /* Claude Code asks instead */ }
+  // Route this session through the owner's tailnet when asked (env + an optional MCP forwarder); off → null.
+  const tn = await setupTailnet(l).catch((err: Error) => { console.error(`[${l.id.slice(0, 8)}] tailnet:`, err.message); return null })
   const args = [CLAUDE_BIN, ...(l.started ? ['--resume', l.id] : ['--session-id', l.id]), '--plugin-dir', PLUGIN_DIR, '--append-system-prompt', systemAppend(l)]
   if (l.toolPolicy?.tools?.length) args.push('--tools', l.toolPolicy.tools.join(','))
   if (l.toolPolicy?.allow?.length) args.push('--allowedTools', l.toolPolicy.allow.join(','))
@@ -349,10 +421,11 @@ async function openCliNow(l: Launch, cols: number, rows: number) {
   if (l.effort) args.push('--effort', l.effort)
   if (l.fast) args.push('--settings', JSON.stringify({ fastMode: true }))
   if (l.remote) args.push('--remote-control')
+  if (tn?.mcpServers) args.push('--mcp-config', JSON.stringify({ mcpServers: tn.mcpServers }))
   args.push(...(l.permissionMode === 'bypassPermissions' ? ['--dangerously-skip-permissions'] : ['--permission-mode', l.permissionMode]))
   // The classic renderer, not the full-screen one: the conversation flows into the terminal's history, so it scrolls
   // all the way back (phones included) and can be selected and copied in the browser.
-  const env = Object.entries({ ...profileEnv(l.profile), DEVDASH_SESSION_ID: l.id, CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1' }).flatMap(([k, v]) => ['-e', `${k}=${v}`])
+  const env = Object.entries({ ...profileEnv(l.profile), DEVDASH_SESSION_ID: l.id, CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: '1', ...(tn?.env ?? {}) }).flatMap(([k, v]) => ['-e', `${k}=${v}`])
   try {
     await tmux('new-session', '-d', '-s', cliName(l.id), '-c', l.cwd, '-x', String(cols), '-y', String(rows), ...env, ...args)
   } catch (err) {
