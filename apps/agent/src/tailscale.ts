@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -113,7 +113,15 @@ export async function up(r: Record<string, unknown>): Promise<Status> {
   const authKey = r.authKey
   if (typeof authKey !== 'string' || !authKey.trim()) throw new Error('missing auth key')
   await ensureDaemon()
-  await cli('up', `--auth-key=${authKey}`, `--hostname=${hostname()}`, '--accept-routes')
+  // The key goes through a 0600 file, not the command line: `ps` is world-readable, so an argv key would leak it to
+  // other members on this shared box. We remove the file right after.
+  const keyFile = join(STATE_DIR, 'authkey')
+  await writeFile(keyFile, authKey, { mode: 0o600 })
+  try {
+    await cli('up', `--auth-key=file:${keyFile}`, `--hostname=${hostname()}`, '--accept-routes')
+  } finally {
+    await rm(keyFile, { force: true }).catch(() => {})
+  }
   return status()
 }
 

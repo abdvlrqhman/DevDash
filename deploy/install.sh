@@ -36,7 +36,7 @@ fi
 # Tailscale (static binaries only) for per-user userspace tailnet nodes (docs/design/tailnet.md). We never enable a
 # host-level tailscaled; each member runs their own rootless userspace daemon inside their agent. Pinned and idempotent:
 # skip when the pinned version is already installed. Guard against a system daemon that a package may have started.
-TAILSCALE_VERSION=1.78.3
+TAILSCALE_VERSION=1.104.1
 if [[ "$(/usr/local/bin/tailscale --version 2>/dev/null | head -1)" != "$TAILSCALE_VERSION" ]]; then
   case "$(uname -m)" in
     x86_64|amd64) TS_ARCH=amd64 ;;
@@ -46,12 +46,15 @@ if [[ "$(/usr/local/bin/tailscale --version 2>/dev/null | head -1)" != "$TAILSCA
   if [[ -n $TS_ARCH ]]; then
     TS_TMP=$(mktemp -d)
     TS_TGZ="tailscale_${TAILSCALE_VERSION}_${TS_ARCH}.tgz"
-    if curl -fsSL "https://pkgs.tailscale.com/stable/$TS_TGZ" -o "$TS_TMP/$TS_TGZ"; then
+    # Installs a root binary, so verify it against Tailscale's published SHA-256 before trusting it.
+    if curl -fsSL "https://pkgs.tailscale.com/stable/$TS_TGZ" -o "$TS_TMP/$TS_TGZ" \
+       && curl -fsSL "https://pkgs.tailscale.com/stable/$TS_TGZ.sha256" -o "$TS_TMP/$TS_TGZ.sha256" \
+       && (cd "$TS_TMP" && echo "$(cat "$TS_TGZ.sha256")  $TS_TGZ" | sha256sum -c -); then
       tar -xzf "$TS_TMP/$TS_TGZ" -C "$TS_TMP"
       install -m 755 "$TS_TMP/tailscale_${TAILSCALE_VERSION}_${TS_ARCH}/tailscale" /usr/local/bin/tailscale
       install -m 755 "$TS_TMP/tailscale_${TAILSCALE_VERSION}_${TS_ARCH}/tailscaled" /usr/local/bin/tailscaled
     else
-      echo "could not download tailscale $TAILSCALE_VERSION; per-user tailnet will be unavailable until it installs" >&2
+      echo "could not download/verify tailscale $TAILSCALE_VERSION; per-user tailnet will be unavailable until it installs" >&2
     fi
     rm -rf "$TS_TMP"
   fi
