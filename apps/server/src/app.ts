@@ -41,6 +41,8 @@ import { provisioningService } from './modules/provisioning/service.ts'
 import { terminalsRoutes } from './modules/terminals/routes.ts'
 import { terminalsService } from './modules/terminals/service.ts'
 import { teamPlugin } from './modules/team/index.ts' // Team (optional): docs/REMOVING-TEAM.md
+import { reviewsRoutes } from './modules/reviews/routes.ts'
+import { reviewsService } from './modules/reviews/service.ts'
 
 export function createApp({ db, config }: { db: Db; config: Config }) {
   const auth = authService({ db, masterKey: config.masterKey, spaceName: config.spaceName })
@@ -93,7 +95,10 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   const builds = buildsService({ db, agents, projects, shares })
   const vault = vaultService({ db })
   const browser = browserService({ db, runDir: config.runDir, dataDir: config.dataDir, masterKey: config.masterKey, origin: config.origin })
-  const team = teamPlugin({ db, hub, agents, claude, projects, activity, tasks, notify: notifications.notify, masterKey: config.masterKey, mw }) // Team
+  // "Ready to review": a role's approved code proposal, finished with commits, ships in one tap. Team detects it (it has
+  // the proposal context) and calls reviews.record; the claude module never imports Team.
+  const reviews = reviewsService({ db, hub, agents, projects, notify: notifications.notify })
+  const team = teamPlugin({ db, hub, agents, claude, projects, activity, tasks, notify: notifications.notify, masterKey: config.masterKey, mw, onProposalIdle: (s) => void reviews.record(s) }) // Team
   // Per-user tailnets: keep net_* tools out of team role sessions (Team may be off, so roleOf is optional).
   tailnet = tailnetService({ db, agents, masterKey: config.masterKey, runDir: config.runDir, isRole: (u, s) => !!team.service?.roleOf(u, s) })
   const status = statusService({ db, agents, services, browser, runDir: config.runDir, dataDir: config.dataDir, version: config.version })
@@ -127,6 +132,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     .route('/api/browser', browserRoutes(browser, mw))
     .route('/api/status', statusRoutes(status, deploys, mw))
     .route('/api/team', team.routes) // Team
+    .route('/api', reviewsRoutes(reviews, mw)) // "Ready to review" deliveries
     .route('/api', searchRoutes({ db, search, notes, projects, claude, services, activity }, mw))
 
   app.notFound((c) => c.json({ error: { code: 'not_found', message: 'Not found' } }, 404))

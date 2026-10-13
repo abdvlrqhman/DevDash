@@ -44,6 +44,35 @@ const remoteHead = async (path: string) => {
   return ref.trim().replace(/^origin\//, '') || null
 }
 
+// A DevDash worktree branch (projects/service.ts worktree()): dd/<hex>. Everything "Ready to review" acts on is one.
+const BRANCH_RE = /^dd\/[a-z0-9-]{1,40}$/
+const branchName = (b: unknown) => {
+  if (typeof b !== 'string' || !BRANCH_RE.test(b)) throw new Error('invalid branch')
+  return b
+}
+const baseName = (b: unknown) => {
+  if (typeof b !== 'string' || !/^[\w./-]+$/.test(b)) throw new Error('invalid base')
+  return b
+}
+/** The base to diff against, mirroring projects/service.ts baseRef: the remote default branch if we have it, else local. */
+async function baseRef(path: string, base: string) {
+  for (const ref of [`refs/remotes/origin/${base}`, `refs/heads/${base}`]) {
+    if (await git(['-C', path, 'rev-parse', '--verify', '--quiet', ref]).then(() => true, () => false)) return ref
+  }
+  return base
+}
+/** "3 files changed, 40 insertions(+), 5 deletions(-)" → numbers (any part may be absent). */
+function parseShortstat(line: string) {
+  const n = (re: RegExp) => Number(line.match(re)?.[1] ?? 0)
+  return { files: n(/(\d+) files? changed/), insertions: n(/(\d+) insertions?\(\+\)/), deletions: n(/(\d+) deletions?\(-\)/) }
+}
+
+/** Pushes a worktree branch to origin (sets upstream). Shared by gh.pr; reuses git()'s clear auth errors. */
+export async function pushBranch(path: unknown, branch: unknown) {
+  await git(['-C', checked(path), 'push', '-u', 'origin', branchName(branch)], 120_000)
+}
+export { checked as checkedPath }
+
 export const ops = {
   /** Clones into a new shared folder; the repo stays writable for the whole group. */
   async clone(r: Record<string, unknown>) {
@@ -112,5 +141,42 @@ export const ops = {
     if ((await git(['-C', wt, 'status', '--porcelain'])).trim()) return { removed: false }
     await git(['-C', path, 'worktree', 'remove', wt])
     return { removed: true }
+  },
+
+  /** How far a delivery's branch is ahead of the base: commits, and the diffstat (files, +adds/−dels). */
+  async branchStat(r: Record<string, unknown>) {
+    const path = checked(r.path)
+    const branch = branchName(r.branch)
+    const base = await baseRef(path, baseName(r.base))
+    const commits = Number((await git(['-C', path, 'rev-list', '--count', `${base}..${branch}`])).trim()) || 0
+    const shortstat = (await git(['-C', path, 'diff', '--shortstat', `${base}...${branch}`])).trim()
+    return { commits, ...parseShortstat(shortstat) }
+  },
+
+  /** The branch's whole change as a unified diff, for the "View changes" panel; capped (~200 KB) with a truncation flag. */
+  async branchDiff(r: Record<string, unknown>) {
+    const path = checked(r.path)
+    const branch = branchName(r.branch)
+    const base = await baseRef(path, baseName(r.base))
+    const max = Math.min(500_000, Math.max(10_000, Number(r.max) || 200_000))
+    const full = await git(['-C', path, 'diff', `${base}...${branch}`])
+    const truncated = full.length > max
+    return { diff: truncated ? full.slice(0, max) : full, truncated }
+  },
+
+  /** Non-GitHub fallback: merge the branch into the base here, as this member. Conflicts abort, leaving the checkout clean. */
+  async mergeBranch(r: Record<string, unknown>) {
+    const path = checked(r.path)
+    const branch = branchName(r.branch)
+    const base = baseName(r.base)
+    const id = await identity(path)
+    await git(['-C', path, ...id, 'checkout', base])
+    try {
+      await git(['-C', path, ...id, 'merge', '--no-ff', '-m', `Merge ${branch}`, branch])
+    } catch (err) {
+      await git(['-C', path, 'merge', '--abort']).catch(() => {})
+      throw new Error(`Couldn't merge ${branch} into ${base}: ${(err as Error).message}. The merge was rolled back — open a PR, or resolve it by hand.`)
+    }
+    return { ok: true }
   },
 }

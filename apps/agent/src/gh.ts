@@ -1,6 +1,7 @@
 import { execFile, spawn } from 'node:child_process'
 import type { Socket } from 'node:net'
 import { promisify } from 'node:util'
+import { checkedPath, pushBranch } from './git.ts'
 import { send } from './tmux.ts'
 
 // GitHub's API as this member, through their own `gh` login (Account → GitHub). Only repository endpoints.
@@ -40,6 +41,26 @@ export const ops = {
         child.stdin?.end(JSON.stringify(r.body ?? {}))
       })
       return { text: out }
+    } catch (err) {
+      friendly(err)
+    }
+  },
+
+  /** Pushes a delivery's branch and opens a PR into base (CI runs the tests). Returns an existing PR's URL if there is one. */
+  async pr(r: Record<string, unknown>) {
+    const path = checkedPath(r.path)
+    const branch = String(r.branch ?? '')
+    const base = String(r.base ?? '')
+    if (!/^[\w./-]+$/.test(base)) throw new Error('invalid base')
+    const title = (String(r.title ?? '').trim() || branch).slice(0, 250)
+    const body = String(r.body ?? '').slice(0, 4000)
+    await pushBranch(path, branch) // reuses git's clear "connect your GitHub" errors
+    try {
+      const existing = await run('gh', ['pr', 'view', branch, '--json', 'url', '--jq', '.url'], { env: ENV, cwd: path, timeout: 30_000 })
+        .then((o) => o.stdout.trim(), () => '')
+      if (existing) return { url: existing }
+      const { stdout } = await run('gh', ['pr', 'create', '--base', base, '--head', branch, '--title', title, '--body', body], { env: ENV, cwd: path, timeout: 60_000 })
+      return { url: stdout.trim().split('\n').find((l) => l.startsWith('http')) ?? stdout.trim() }
     } catch (err) {
       friendly(err)
     }

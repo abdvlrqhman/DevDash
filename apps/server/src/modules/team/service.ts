@@ -95,9 +95,11 @@ export function activityTrigger(a: { kind: string; summary: string; via_claude: 
   return null
 }
 
-export function teamService({ db, hub, claude, projects, activity, tasks, notify, agents, masterKey, digestAfterMs = DIGEST_AFTER_MS, tickMs = 60_000 }: {
+export function teamService({ db, hub, claude, projects, activity, tasks, notify, agents, masterKey, onProposalIdle, digestAfterMs = DIGEST_AFTER_MS, tickMs = 60_000 }: {
   db: Db; hub: Hub; claude: ClaudeService; projects: ProjectsService; activity: ActivityService; tasks: TasksService; notify: Notify
   agents: AgentsService; masterKey: Buffer; digestAfterMs?: number; tickMs?: number
+  /** An approved code proposal's session went quiet: the reviews module checks its branch for shippable work (Ready to review). */
+  onProposalIdle?: (s: TurnEnd['session']) => void
 }) {
   const repo = teamRepo(db)
   hub.authorize('team', () => true)
@@ -382,6 +384,9 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
     const role = shift ? repo.role(shift.role_id) : repo.roleBySession(s.id)
     if (role) changed(role.project_id)
     if (s.listed && s.project_id && repo.project(s.project_id)) scheduleDigest(s.id)
+    // An approved code proposal's session (execute(), kind 'code') just went quiet: it may have committed shippable work
+    // on its branch. The reviews module turns that into a "Ready to review" delivery. The claude module never imports Team.
+    if (s.origin_kind === 'proposal' && s.worktree && !s.archived) onProposalIdle?.(s)
   }
   const stopListening = claude.onTurnEnd(onTurnEnd)
 
