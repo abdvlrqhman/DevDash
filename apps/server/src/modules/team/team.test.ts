@@ -498,13 +498,13 @@ test('a session started off an approved code proposal is marked and grouped on i
   const [x] = team.approvals('pending')
   assert.equal((await team.decide(abdo, x!.id, true, '')).status, 'done')
 
-  // The session the approver now owns carries where it came from, titled after the role so it reads well.
-  const s = claude.list(abdo, false).find((s) => s.origin?.kind === 'proposal')!
-  assert.deepEqual(s.origin, { kind: 'proposal', role: 'CTO' })
-  assert.equal(s.title, 'CTO: Add a retry button to login')
+  // It's unlisted, so it stays OUT of the approver's global session list.
+  assert.equal(claude.list(abdo, false).some((s) => s.origin?.kind === 'proposal'), false)
 
-  // On the project's Claude page it's its own kind, not the approver's 'mine'.
-  const row = claude.inProject(abdo, 'seevil', false).sessions.find((r) => r.id === s.id)!
+  // On the project's Claude page it still shows (unlisted included), as its own kind, carrying where it came from.
+  const row = claude.inProject(abdo, 'seevil', false).sessions.find((r) => r.origin?.kind === 'proposal')!
+  assert.deepEqual(row.origin, { kind: 'proposal', role: 'CTO' })
+  assert.equal(row.title, 'CTO: Add a retry button to login')
   assert.equal(row.kind, 'proposal')
   assert.deepEqual(row.role, { name: 'CTO' })
 })
