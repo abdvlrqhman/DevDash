@@ -11,6 +11,7 @@ import * as claude from './claude.ts'
 import * as services from './services.ts'
 import * as tailscale from './tailscale.ts'
 import { ops as git } from './git.ts'
+import { startJanitor } from './janitor.ts'
 import * as files from './files.ts'
 import * as memory from './memory.ts'
 import * as mentions from './mentions.ts'
@@ -242,3 +243,6 @@ const server = createServer((conn) => void handle(conn))
 if (process.env.LISTEN_FDS === '1') server.listen({ fd: 3 }) // socket activation
 else server.listen(process.env.DEVDASH_AGENT_SOCKET)
 server.on('listening', () => console.log(`devdash agent for ${process.env.USER} ready`))
+
+// Periodically prune stale, provably-safe Claude Code subagent worktrees so they stop filling the shared disk.
+startJanitor()
