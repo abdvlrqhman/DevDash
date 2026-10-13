@@ -213,7 +213,7 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       const s = await claude.create(user, {
         prompt, images: [], cwd: '', profile: d.profile, model: d.model, effort: d.effort, permissionMode: d.permission_mode,
         mode: 'chat', project: x.project_slug, worktree: true,
-      })
+      }, { title: `${x.role_name}: ${x.title}`, origin: { kind: 'proposal', role: x.role_name } })
       return `Claude started on it in its own branch: [${s.title}](/claude/${s.id}).`
     }
     if (x.kind === 'goal') {

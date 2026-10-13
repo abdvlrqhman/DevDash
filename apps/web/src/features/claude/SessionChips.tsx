@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useMutation } from '@tanstack/react-query'
-import { Copy, ExternalLink, Network, Smartphone, Zap } from 'lucide-react'
+import { BadgeCheck, Copy, ExternalLink, Network, Smartphone, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
 import { Button } from '@/components/ui/button'
@@ -99,6 +99,15 @@ export function SessionChips({ s, isOwner, canSend, working, onUpdate, onCompact
     : s.fast && s.fast.state !== 'on' ? (s.fast.reason && FAST_REASON[s.fast.reason]) ?? 'Fast mode is not available right now.' : null
   return (
     <>
+      {s.origin?.kind === 'proposal' && (
+        <Popover>
+          <Chip label={`From ${s.origin.role}'s approval`}><BadgeCheck className="size-3.5" /><span className="max-sm:hidden">From {s.origin.role}'s approval</span><span className="sm:hidden">Approval</span></Chip>
+          <PopoverContent align="start" className="w-72 text-sm">
+            <p className="font-medium">From an approval</p>
+            <p className="mt-1 text-xs text-muted-foreground">This session started from the {s.origin.role} role's code proposal when it was approved. It runs as the approver, on its own branch.</p>
+          </PopoverContent>
+        </Popover>
+      )}
       {s.tasks.length > 0 && <BackgroundTasks id={s.id} tasks={s.tasks} canStop={canSend} />}
       {ctx && (
         <Popover>

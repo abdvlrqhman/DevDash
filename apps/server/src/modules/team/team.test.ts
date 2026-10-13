@@ -488,6 +488,27 @@ test('proposals: an operator adds tasks itself; code waits for a person, runs as
   await assert.rejects(team.decide(youssef, other.id, true, ''), /Already answered/)
 })
 
+test('a session started off an approved code proposal is marked and grouped on its own, not blended into the approver\'s', async (t) => {
+  const { team, claude, youssef, abdo } = setup()
+  t.after(() => team.stop())
+  team.enable(youssef, 'seevil')
+  const cto = team.createRole(youssef, 'seevil', { name: 'CTO', summary: '', instructions: '', model: null })
+  const code = await team.propose(cto.id, { kind: 'code', title: 'Add a retry button to login', why: 'Users get stuck.', prompt: 'Add a retry button to the login screen.' })
+  assert.equal(code.status, 'pending')
+  const [x] = team.approvals('pending')
+  assert.equal((await team.decide(abdo, x!.id, true, '')).status, 'done')
+
+  // The session the approver now owns carries where it came from, titled after the role so it reads well.
+  const s = claude.list(abdo, false).find((s) => s.origin?.kind === 'proposal')!
+  assert.deepEqual(s.origin, { kind: 'proposal', role: 'CTO' })
+  assert.equal(s.title, 'CTO: Add a retry button to login')
+
+  // On the project's Claude page it's its own kind, not the approver's 'mine'.
+  const row = claude.inProject(abdo, 'seevil', false).sessions.find((r) => r.id === s.id)!
+  assert.equal(row.kind, 'proposal')
+  assert.deepEqual(row.role, { name: 'CTO' })
+})
+
 test('advisors only suggest; goals are proposed, approved and updated by the role; unanswered proposals expire', async (t) => {
   const { team, tasks, youssef, db } = setup()
   t.after(() => team.stop())

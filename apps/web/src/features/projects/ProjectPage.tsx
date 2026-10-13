@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { Bot, ChevronRight, Copy, GitBranch, GitCommitHorizontal, Lock, Plus, RefreshCw, Search, Share2, Sparkles, StickyNote } from 'lucide-react'
+import { BadgeCheck, Bot, ChevronRight, Copy, GitBranch, GitCommitHorizontal, Lock, Plus, RefreshCw, Search, Share2, Sparkles, StickyNote } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
 import { PageBody, PageHeader, Section } from '@/components/app/page'
@@ -125,6 +125,7 @@ const branch = (s: Session) => (s.worktree ? `dd/${s.worktree.split('/').pop()}`
 
 /** Whose it is: you, a teammate, or a team role (which runs as a person, but people know it by the role). */
 function Who({ s }: { s: ProjectSession }) {
+  if (s.kind === 'proposal' && s.role) return <span className="flex items-center gap-1"><BadgeCheck className="size-3.5" />{s.role.name}'s approval</span>
   if (s.role) return <span className="flex items-center gap-1"><Bot className="size-3.5" />{s.role.name}</span>
   if (s.kind === 'mine') return <span className="flex items-center gap-1">{s.shared ? <Share2 className="size-3" aria-label="Shared" /> : <Lock className="size-3" aria-label="Private" />}You</span>
   return <span>{firstName(s.owner.name)}</span>
@@ -144,40 +145,54 @@ function SessionRow({ s, nested }: { s: ProjectSession; nested?: boolean }) {
   )
 }
 
-/** A role's shifts under one row, so dozens of them don't bury everything else: "CEO · 14 shifts, last 2 h ago". */
-function ShiftGroup({ role, shifts, open: forced }: { role: { id: number; name: string }; shifts: ProjectSession[]; open?: boolean }) {
+/** Many kindred sessions under one foldaway row, so dozens don't bury everything else: a role's shifts ("CEO · 14
+ *  shifts"), or the sessions started off approved proposals ("From approvals · 3 sessions"). */
+function SessionGroup({ icon, label, noun, sessions, open: forced }: { icon: ReactNode; label: string; noun: [string, string]; sessions: ProjectSession[]; open?: boolean }) {
   const [open, setOpen] = useState(false)
   const shown = open || !!forced
-  const top = shifts[0]!
-  const busy = shifts.some(isActive)
+  const top = sessions[0]!
+  const busy = sessions.some(isActive)
   return (
     <>
       <button onClick={() => setOpen(!shown)} aria-expanded={shown} className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-accent/50">
         <StatusLight state={busy ? light(top) : 'idle'} />
         <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 items-center gap-1.5"><Bot className="size-3.5 shrink-0 text-muted-foreground" /><span className="truncate">{role.name}</span>
-            <span className="shrink-0 text-muted-foreground">· {shifts.length} {shifts.length === 1 ? 'shift' : 'shifts'}</span></span>
+          <span className="flex min-w-0 items-center gap-1.5">{icon}<span className="truncate">{label}</span>
+            <span className="shrink-0 text-muted-foreground">· {sessions.length} {sessions.length === 1 ? noun[0] : noun[1]}</span></span>
           {busy && <span className="block text-xs text-muted-foreground">{STATUS_LABEL[top.status]}</span>}
         </span>
         <span className="shrink-0 text-xs text-muted-foreground">last {relativeTime(top.lastActivityAt)}</span>
         <ChevronRight className={cn('size-4 shrink-0 text-muted-foreground transition-transform', shown && 'rotate-90')} />
       </button>
-      {shown && <ul className="border-t bg-muted/30">{shifts.map((s) => <li key={s.id} className="border-b last:border-b-0"><SessionRow s={s} nested /></li>)}</ul>}
+      {shown && <ul className="border-t bg-muted/30">{sessions.map((s) => <li key={s.id} className="border-b last:border-b-0"><SessionRow s={s} nested /></li>)}</ul>}
     </>
   )
 }
 
-type Row = { key: string; at: Session } & ({ s: ProjectSession } | { role: { id: number; name: string }; shifts: ProjectSession[] })
-/** Sessions in order, each role's shifts folded into one row that sits where its latest shift would. */
+type Group = { icon: ReactNode; label: string; noun: [string, string]; sessions: ProjectSession[] }
+type Row = { key: string; at: Session } & ({ s: ProjectSession } | { group: Group })
+/** Sessions in order, with each role's shifts and all approval-born sessions folded into one row that sits where its
+ *  latest member would. */
 function rows(sessions: ProjectSession[]): Row[] {
   const sorted = [...sessions].sort(byUrgency)
-  const shifts = new Map<number, ProjectSession[]>()
+  const shifts = new Map<number, { role: { id: number; name: string }; list: ProjectSession[] }>()
+  const proposals: ProjectSession[] = []
   const out: Row[] = []
   for (const s of sorted) {
-    if (s.kind === 'shift' && s.role) shifts.set(s.role.id, [...(shifts.get(s.role.id) ?? []), s])
+    const role = s.role
+    if (s.kind === 'shift' && role && 'id' in role) {
+      const g = shifts.get(role.id) ?? { role, list: [] }
+      g.list.push(s)
+      shifts.set(role.id, g)
+    } else if (s.kind === 'proposal') proposals.push(s)
     else out.push({ key: s.id, at: s, s })
   }
-  for (const [id, list] of shifts) out.push({ key: `shifts:${id}`, at: list[0]!, role: list[0]!.role!, shifts: list })
+  for (const [id, g] of shifts) {
+    out.push({ key: `shifts:${id}`, at: g.list[0]!, group: { icon: <Bot className="size-3.5 shrink-0 text-muted-foreground" />, label: g.role.name, noun: ['shift', 'shifts'], sessions: g.list } })
+  }
+  if (proposals.length) {
+    out.push({ key: 'proposals', at: proposals[0]!, group: { icon: <BadgeCheck className="size-3.5 shrink-0 text-muted-foreground" />, label: 'From approvals', noun: ['session', 'sessions'], sessions: proposals } })
+  }
   return out.sort((a, b) => byUrgency(a.at, b.at))
 }
 
@@ -186,7 +201,7 @@ function SessionList({ sessions, expand }: { sessions: ProjectSession[]; expand?
     <ul className="overflow-hidden rounded-xl border">
       {rows(sessions).map((r) => (
         <li key={r.key} className="border-b last:border-b-0">
-          {'s' in r ? <SessionRow s={r.s} /> : <ShiftGroup role={r.role} shifts={r.shifts} open={expand} />}
+          {'s' in r ? <SessionRow s={r.s} /> : <SessionGroup {...r.group} open={expand} />}
         </li>
       ))}
     </ul>
@@ -198,6 +213,7 @@ const FILTERS = [
   { value: 'mine', label: 'Mine', test: (s: ProjectSession) => s.kind === 'mine' },
   { value: 'teammates', label: 'Teammates', test: (s: ProjectSession) => s.kind === 'shared' },
   { value: 'roles', label: 'Team roles', test: (s: ProjectSession) => s.kind === 'role' || s.kind === 'shift' },
+  { value: 'approvals', label: 'From approvals', test: (s: ProjectSession) => s.kind === 'proposal' },
 ] as const
 
 /** "2 private sessions by Ahmed": counted by the server, never listed. */

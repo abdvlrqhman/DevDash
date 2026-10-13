@@ -115,6 +115,7 @@ export function toDto(s: SessionRow) {
     fastMode: !!s.fast_mode, fast: live.get(s.id)?.fast ?? null, context: context(s),
     remoteControl: !!s.remote_control, remoteUrl: live.get(s.id)?.remoteUrl ?? null, remoteError: live.get(s.id)?.remoteError ?? null,
     reachTailnet: !!s.reach_tailnet, tailnetMcps: parseTailnetMcps(s),
+    origin: s.origin_kind ? { kind: s.origin_kind, role: s.origin_role } : null,
     tasks: live.get(s.id)?.tasks ?? [],
   }
 }
@@ -150,11 +151,13 @@ export type SessionExtras = {
   listed?: boolean
   shared?: boolean
   sharedCanSend?: boolean
+  /** Where it came from when a person didn't start it themselves (a team role's approved code proposal). */
+  origin?: { kind: 'proposal'; role: string }
 }
 
 /** What a feature that starts sessions says about them on a project's page (a team role's chat or one of its shifts). */
 export type SessionLabel = { kind: 'role' | 'shift'; role: { id: number; name: string } }
-export type SessionKind = 'mine' | 'shared' | SessionLabel['kind']
+export type SessionKind = 'mine' | 'shared' | 'proposal' | SessionLabel['kind']
 
 /** A Claude turn ended: what features that watch sessions (e.g. a project journal) are told. */
 /** `costUsd`: what the turn would cost on the API (Claude Code reports it on subscriptions too). */
@@ -518,8 +521,11 @@ export function claudeService({ db, agents, hub, notify, projects, tailnetConnec
       const p = projects.bySlug(slug)
       const label = labels(p.id)
       const sessions = repo.inProject(p.id, user.id, archived).map((s) => {
+        const dto = toDto(s)
         const l = label.get(s.id)
-        return { ...toDto(s), kind: (l?.kind ?? (s.owner_id === user.id ? 'mine' : 'shared')) as SessionKind, role: l?.role ?? null }
+        // A session from an approved code proposal is grouped on its own, not under the approver's "Mine".
+        if (dto.origin?.kind === 'proposal') return { ...dto, kind: 'proposal' as SessionKind, role: { name: dto.origin.role } }
+        return { ...dto, kind: (l?.kind ?? (s.owner_id === user.id ? 'mine' : 'shared')) as SessionKind, role: l?.role ?? null }
       })
       const hidden = repo.hiddenInProject(p.id, user.id, archived)
       return { sessions, hidden: { count: hidden.reduce((n, h) => n + h.n, 0), people: hidden.map((h) => h.name) } }
@@ -575,6 +581,7 @@ export function claudeService({ db, agents, hub, notify, projects, tailnetConnec
         instructions: extra.instructions, tool_policy: extra.toolPolicy ? JSON.stringify(extra.toolPolicy) : undefined,
         listed: extra.listed === false ? 0 : undefined,
         shared: sharing.shared ? 1 : undefined, shared_can_send: sharing.shared && sharing.canSend ? 1 : undefined,
+        origin_kind: extra.origin?.kind, origin_role: extra.origin?.role,
       })
       const s = repo.byId(id)!
       try {
