@@ -471,6 +471,17 @@ function withProfile<T>(profile: string, fn: () => Promise<T>): Promise<T> {
 }
 
 export type HistoryMessage = { type: string; uuid: string; parent_tool_use_id: string | null; message?: { content?: unknown } }
+/** A raw transcript line as Claude Code writes it to the `.jsonl` (a superset of HistoryMessage). */
+type TranscriptLine = {
+  type?: string
+  subtype?: string
+  uuid?: string
+  parent_tool_use_id?: string | null
+  message?: { content?: unknown }
+  isSidechain?: boolean
+  isCompactSummary?: boolean
+  timestamp?: string
+}
 
 /** A message the person typed (not a tool result Claude Code sends back as a "user" message). */
 function isPrompt(m: HistoryMessage) {
@@ -500,35 +511,72 @@ export function pageOf(all: HistoryMessage[], o: { before?: string; turns?: numb
   return { start, end }
 }
 
+/** A transcript line we can show as pre-compaction history: not subagent noise, not the compaction summary itself. */
+function recoverable(m: TranscriptLine) {
+  if (m.isSidechain === true || m.isCompactSummary === true) return false
+  if (m.type === 'system') return m.subtype === 'compact_boundary' // the "Conversation compacted" note, kept; drop other system lines
+  return (m.type === 'user' || m.type === 'assistant') && !!m.message
+}
+
 /**
- * When each message was written, from the session's transcript file (the SDK's history leaves it out).
- * Cached per file size: a growing transcript is read again, a finished one once.
+ * The full chronological history: the SDK's active thread with the turns Claude Code dropped when it compacted
+ * prepended. getSessionMessages returns only the live thread (the last compaction's summary onward), so once a session
+ * has compacted the earlier turns vanish from it — but the `.jsonl` on disk still has every line. We take the active
+ * thread as given, then prepend every earlier transcript line up to the first active message, deduped by uuid and with
+ * subagent sidechains and the compaction summary left out, so scrolling up reaches the very first message. A session
+ * that never compacted has its active thread start at the first line, so nothing is prepended and the result is
+ * exactly what getSessionMessages gave.
  */
-const timeCache = new Map<string, { size: number; times: Map<string, string> }>()
-function transcriptTimes(l: Launch) {
+export function mergeHistory(active: HistoryMessage[], raw: TranscriptLine[]): HistoryMessage[] {
+  const activeUuids = new Set(active.map((m) => m.uuid).filter(Boolean))
+  const pos = new Map<string, number>()
+  raw.forEach((m, i) => { if (m.uuid && !pos.has(m.uuid)) pos.set(m.uuid, i) })
+  let first = Infinity
+  for (const m of active) {
+    const p = pos.get(m.uuid)
+    if (p !== undefined && p < first) first = p
+  }
+  if (!Number.isFinite(first)) return active // the active thread isn't on disk (yet): leave it exactly as given
+  const older: HistoryMessage[] = []
+  const seen = new Set<string>()
+  for (let i = 0; i < first; i++) {
+    const m = raw[i]!
+    if (!recoverable(m) || !m.uuid || activeUuids.has(m.uuid) || seen.has(m.uuid)) continue
+    seen.add(m.uuid)
+    older.push({ ...m, type: m.type!, uuid: m.uuid, parent_tool_use_id: m.parent_tool_use_id ?? null } as HistoryMessage)
+  }
+  return [...older, ...active]
+}
+
+/**
+ * The session's transcript lines, parsed, in the order Claude Code wrote them — the whole on-disk record, which is
+ * more than getSessionMessages returns once a session has compacted. Cached per file size: a growing transcript is
+ * read again, a finished one once.
+ */
+const transcriptCache = new Map<string, { size: number; lines: TranscriptLine[] }>()
+function transcriptLines(l: Launch) {
   const root = join(profileDir(l.profile), 'projects')
   let file = join(root, l.cwd.replace(/[^a-zA-Z0-9]/g, '-'), `${l.id}.jsonl`)
   if (!existsSync(file)) {
     // Very long folder paths are shortened by Claude Code; look for the file instead.
     const dir = existsSync(root) ? readdirSync(root).find((d) => existsSync(join(root, d, `${l.id}.jsonl`))) : undefined
-    if (!dir) return new Map<string, string>()
+    if (!dir) return []
     file = join(root, dir, `${l.id}.jsonl`)
   }
   const size = statSync(file).size
-  const hit = timeCache.get(file)
-  if (hit?.size === size) return hit.times
-  const times = new Map<string, string>()
+  const hit = transcriptCache.get(file)
+  if (hit?.size === size) return hit.lines
+  const lines: TranscriptLine[] = []
   for (const line of readFileSync(file, 'utf8').split('\n')) {
     if (!line) continue
     try {
-      const e = JSON.parse(line) as { uuid?: string; timestamp?: string }
-      if (e.uuid && e.timestamp) times.set(e.uuid, e.timestamp)
+      lines.push(JSON.parse(line) as TranscriptLine)
     } catch {
       // a line being written right now
     }
   }
-  timeCache.set(file, { size, times })
-  return times
+  transcriptCache.set(file, { size, lines })
+  return lines
 }
 
 /**
@@ -538,14 +586,18 @@ function transcriptTimes(l: Launch) {
 export async function history(l: Launch, o: { before?: string; turns?: number } = {}) {
   if (!ID_RE.test(l.id) || !PROFILE_RE.test(l.profile)) throw new Error('invalid session')
   const sdk = await loadSdk()
-  const all = (await withProfile(l.profile, () => sdk.getSessionMessages(l.id, { dir: l.cwd }))) as HistoryMessage[]
-  const { start, end } = pageOf(all, o)
-  let times = new Map<string, string>()
+  const active = (await withProfile(l.profile, () => sdk.getSessionMessages(l.id, { dir: l.cwd }))) as HistoryMessage[]
+  let all = active
+  const times = new Map<string, string>()
   try {
-    times = transcriptTimes(l)
+    // The transcript on disk carries the pre-compaction turns the SDK drops, and the timestamps it leaves out.
+    const lines = transcriptLines(l)
+    all = mergeHistory(active, lines)
+    for (const e of lines) if (e.uuid && e.timestamp) times.set(e.uuid, e.timestamp)
   } catch {
-    // no times rather than no history
+    // an unreadable transcript shouldn't lose the active thread
   }
+  const { start, end } = pageOf(all, o)
   const messages = all.slice(start, end).map((m) => (times.has(m.uuid) ? { ...m, timestamp: times.get(m.uuid) } : m))
   return { messages, more: start > 0 }
 }
