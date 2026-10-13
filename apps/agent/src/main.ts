@@ -14,6 +14,7 @@ import { ops as git } from './git.ts'
 import * as files from './files.ts'
 import * as memory from './memory.ts'
 import * as mentions from './mentions.ts'
+import { ops as project } from './project.ts'
 import * as sqlite from './sqlite.ts'
 import * as gh from './gh.ts'
 import { attachPty, hasSession, listSessions, send, tmux, TMUX_CONF } from './tmux.ts'
@@ -123,6 +124,9 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
   'git.log': (r) => git.log(r),
   'git.worktree.add': (r) => git.worktreeAdd(r),
   'git.worktree.remove': (r) => git.worktreeRemove(r),
+  'project.zipChunk': (r) => project.zipChunk(r),
+  'project.zipAbort': (r) => project.zipAbort(r),
+  'project.fromZip': (r) => project.fromZip(r),
   'service.start': async (r) => (await services.start(r), { ok: true }),
   'service.stop': async (r) => (await services.stop(r), { ok: true }),
   'service.status': async () => ({ services: await services.status() }),

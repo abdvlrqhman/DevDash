@@ -169,6 +169,33 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
       return dto(byId(id, user.id)!)
     },
 
+    // Uploading a .zip from the member's PC: the browser streams the zip to this member's agent in 8 MB pieces (temp
+    // file keyed to the upload id), then createFromZip unzips it + inits a repo + inserts the row — all in one step, so
+    // a failed or garbage zip never leaves a dangling project. See apps/agent/src/project.ts for the safe extraction.
+    uploadZip(user: User, uploadId: string, offset: number, data: Buffer) {
+      return agents.request<{ size: number }>(user.username, { op: 'project.zipChunk', id: uploadId, offset, data: data.toString('base64') }, 120_000)
+    },
+    abortZip(user: User, uploadId: string) {
+      return agents.request(user.username, { op: 'project.zipAbort', id: uploadId }, 10_000).catch(() => ({ ok: true }))
+    },
+
+    async createFromZip(user: User, input: { name: string; slug?: string; uploadId: string }) {
+      const name = input.name.trim()
+      if (!name) throw new AppError(400, 'bad_name', 'Give the project a name.')
+      const slug = input.slug?.trim() || slugify(name)
+      if (!SLUG_RE.test(slug)) throw new AppError(400, 'bad_slug', 'The short name uses lowercase letters, digits and dashes (up to 40).')
+      if (q.bySlug.get(me(), slug)) throw new AppError(409, 'taken', `A project called ${slug} already exists.`)
+      // Extract first (as the uploader): only insert the row once the folder is a real repo.
+      const r = await agents.request<{ defaultBranch: string }>(user.username, { op: 'project.fromZip', id: input.uploadId, dest: path(slug) }, 16 * 60_000)
+      await gitSafeDir(path(slug))
+      const { id } = q.insert.get(slug, name, null, r.defaultBranch || 'main', user.id) as { id: number }
+      await scan(byId(id)!).catch(() => {})
+      q.fetched.run(null, null, id)
+      activity.record({ projectId: id, userId: user.id, kind: 'project.created', summary: `added project ${name}`, url: `/projects/${slug}` })
+      changed()
+      return dto(byId(id, user.id)!)
+    },
+
     /** Any member renames it or sets how new sessions start out; archiving is for whoever added it, or an admin. */
     update(user: User, slug: string, patch: { name?: string; archived?: boolean; sessionSharing?: SessionSharing }) {
       const p = find(slug)
