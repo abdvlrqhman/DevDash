@@ -1,6 +1,7 @@
 // Team tools (optional feature: docs/REMOVING-TEAM.md). Listed only in a team role's own sessions: devdash.mjs asks
 // DevDash once, when the tool server starts, whether this session is a role.
 const obj = (properties, required = []) => ({ type: 'object', properties, required, additionalProperties: false })
+const project = { type: 'string', description: "The project's short name. Omit to use this session's project." }
 
 export const TEAM_TOOLS = [
   {
@@ -122,8 +123,9 @@ const MANAGE = [
   },
   {
     name: 'team_role_update',
-    description: 'Change a role when the person asks: its name, summary, instructions, model, schedule, triggers, autonomy, lead, or pause it.',
+    description: 'Change a role when the person asks: its name, summary, instructions, model, schedule, triggers, autonomy, lead, pause it, or tune its limits (daily_limit, monthly_budget) and what it may run without asking (auto_approve).',
     inputSchema: obj({
+      project,
       role: { type: ['string', 'integer'], description: 'Its name or #id (see team_roles).' },
       name: { type: 'string' }, summary: { type: 'string' }, instructions: { type: 'string' },
       model: { type: ['string', 'null'], enum: ['opus', 'sonnet', 'haiku', null] },
@@ -131,6 +133,9 @@ const MANAGE = [
       triggers: { type: 'array', items: { type: 'string', enum: ['work', 'task_done', 'task_created'] } },
       autonomy: { type: 'string', enum: ['advisor', 'operator'] },
       paused: { type: 'boolean' }, lead: { type: 'boolean' },
+      daily_limit: { type: 'integer', description: 'Shifts it may start on its own per day (0–48).' },
+      monthly_budget: { type: ['number', 'null'], description: 'Most it may spend per month in USD, or null for no cap.' },
+      auto_approve: { type: 'array', items: { type: 'string', enum: ['code', 'goal'] }, description: 'Kinds it may run on its own without a person.' },
     }, ['role']),
   },
   {
@@ -174,13 +179,73 @@ const MANAGE = [
   },
 ]
 
-/** The team tools this session gets: all role tools in a role's own sessions; team_message and managing roles in a
- *  person's sessions of a project with Team on; none otherwise (or when DevDash can't tell: Team off, an older server). */
+// A member's own session can run the whole AI team as that member — the same authority as the Team tab in the web app
+// (approvals, threads, the brief and priorities, and archiving roles). Every tool takes an optional `project`.
+const MEMBER = [
+  {
+    name: 'team_overview',
+    description: 'The AI team at a glance: whether it\'s on, the brief, what matters now (priorities), each role with its settings (autonomy, schedule, triggers, model, paused, daily limit, monthly budget, lead, auto-approve), the goals, and how many proposals wait for a person.',
+    inputSchema: obj({ project }),
+  },
+  {
+    name: 'team_approvals',
+    description: 'Proposals the roles raised that wait for a person (default), or the ones already decided. Answer them with team_approval_decide.',
+    inputSchema: obj({ project, status: { type: 'string', enum: ['pending', 'decided'] } }),
+  },
+  {
+    name: 'team_approval_decide',
+    description: 'Approve or reject a proposal (its id is in team_approvals), as the member — full authority. Approving a "code" proposal starts a Claude session on its own branch; "task"/"goal"/"other" are carried out or handed over, exactly as on the Team tab.',
+    inputSchema: obj({ id: { type: 'integer' }, approve: { type: 'boolean' }, reply: { type: 'string', description: 'One line for the role\'s notebook: why.' } }, ['id', 'approve']),
+  },
+  {
+    name: 'team_threads',
+    description: 'The project\'s threads between the roles and people: open, waiting for people, closed, or all (default). Read one with team_thread.',
+    inputSchema: obj({ project, status: { type: 'string', enum: ['open', 'waiting', 'closed', 'all'] } }),
+  },
+  {
+    name: 'team_thread',
+    description: 'Read one thread in full: its messages and evidence, the proposals in it, the current ask, its priority and whether it waits for people.',
+    inputSchema: obj({ id: { type: 'integer' } }, ['id']),
+  },
+  {
+    name: 'team_thread_resolve',
+    description: 'Close a thread, as the member. Default "done" with a one-line outcome; or decline it ("declined", "duplicate" with duplicate_of, "not_needed", "elsewhere") with the reason.',
+    inputSchema: obj({ id: { type: 'integer' }, resolution: { type: 'string' }, as: { type: 'string', enum: ['done', 'declined', 'duplicate', 'not_needed', 'elsewhere'] }, duplicate_of: { type: 'integer' } }, ['id']),
+  },
+  {
+    name: 'team_thread_reopen',
+    description: 'Reopen a closed thread so the roles can work on it again.',
+    inputSchema: obj({ id: { type: 'integer' } }, ['id']),
+  },
+  {
+    name: 'team_thread_priority',
+    description: 'Mark a thread a blocker (the owning role treats it as top priority on its next shift) or clear it back to normal.',
+    inputSchema: obj({ id: { type: 'integer' }, priority: { type: 'string', enum: ['normal', 'blocker'] } }, ['id', 'priority']),
+  },
+  {
+    name: 'team_set_priorities',
+    description: 'Set "what matters now" for the team, in your own words: it outranks the roles\' own plans in every role\'s context.',
+    inputSchema: obj({ project, body: { type: 'string', description: 'Markdown: a short list of what matters now.' } }, ['body']),
+  },
+  {
+    name: 'team_set_brief',
+    description: 'Set the project brief the whole team reads: what it is, who it\'s for, where it stands.',
+    inputSchema: obj({ project, body: { type: 'string', description: 'Markdown.' } }, ['body']),
+  },
+  {
+    name: 'team_role_archive',
+    description: 'Archive an AI team member (role) when the person asks: it stops working and no longer appears to the team. Resolve it by name or #id (see team_roles).',
+    inputSchema: obj({ project, role: { type: ['string', 'integer'], description: 'Its name or #id.' } }, ['role']),
+  },
+]
+
+/** The team tools this session gets: all role tools in a role's own sessions; team_message plus full team management in a
+ *  member's sessions of a project with Team on; none otherwise (or when DevDash can't tell: Team off, an older server). */
 export async function teamTools(call, context) {
   try {
     const who = await call('mcp.team_role', { ...context, args: {} })
     if (who?.role) return [...TEAM_TOOLS, MESSAGE_TOOL, ...ROLE_ONLY]
-    if (who?.session) return [MESSAGE_TOOL, ...MANAGE]
+    if (who?.session) return [MESSAGE_TOOL, ...MANAGE, ...MEMBER]
   } catch {
     // no team here
   }

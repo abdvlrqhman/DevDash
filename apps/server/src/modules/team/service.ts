@@ -1100,13 +1100,14 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       return `Created #${role.id} ${role.name}. It works ${role.schedule.length ? 'on its schedule' : 'when started'}; see and change it at /projects/${p.slug}/team/${role.id}.\n\nInstructions:\n${instructions}`
     },
 
-    /** Changes a role from a person's session: its words, model, schedule, triggers, autonomy, lead, or pauses it. */
+    /** Changes a role from a member's session: its words, model, schedule, triggers, autonomy, lead, pause, limits, budget
+     *  and auto-approve. `project` picks the project (else the session's own). Full member authority, as on the Team tab. */
     sessionUpdateRole(username: string, sessionId: string, input: {
       role: string | number; name?: string; summary?: string; instructions?: string; model?: string | null
       schedule?: unknown[]; triggers?: string[]; autonomy?: string; paused?: boolean; lead?: boolean
+      project?: string; dailyLimit?: number; monthlyBudget?: number | null; autoApprove?: string[]
     }) {
-      const who = this.sessionAuthor(username, sessionId)
-      if (!who) throw new AppError(403, 'not_team', 'This session is not in a project with Team on.')
+      const who = this.sessionActor(username, sessionId, input.project)
       const r = typeof input.role === 'number' ? repo.role(input.role) : roleNamed(who.projectId, String(input.role))
       if (!r || r.archived || r.project_id !== who.projectId) throw new AppError(404, 'not_found', `There is no role ${input.role} in this project. See team_roles.`)
       if (input.name !== undefined || input.summary !== undefined || input.instructions !== undefined || input.model !== undefined) {
@@ -1118,10 +1119,13 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       }
       const s = settingsOf(repo.role(r.id)!)
       this.roleSettings(r.id, {
-        ...s, autoApprove: s.autoApprove,
+        ...s,
+        autoApprove: input.autoApprove ? input.autoApprove.filter((k) => k === 'code' || k === 'goal') : s.autoApprove,
         autonomy: input.autonomy === 'advisor' || input.autonomy === 'operator' ? input.autonomy : s.autonomy,
         schedule: input.schedule ?? s.schedule, triggers: input.triggers ?? s.triggers,
         paused: input.paused ?? s.paused, lead: input.lead,
+        dailyLimit: input.dailyLimit ?? s.dailyLimit,
+        monthlyBudget: input.monthlyBudget !== undefined ? input.monthlyBudget : s.monthlyBudget,
       })
       return `Updated ${repo.role(r.id)!.name}.`
     },
@@ -1186,6 +1190,99 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       const who = this.sessionAuthor(username, sessionId)
       if (!who) throw new AppError(403, 'not_team', 'This session is not in a project with Team on.')
       return message(who.projectId, who.author, input)
+    },
+
+    // ---- Full team management from a member's own Claude session (same authority as the Team tab in the web app) ----
+
+    /** The member whose own session this is (by the session's owner), never a role's session. */
+    sessionMember(username: string, sessionId: string | null) {
+      if (!sessionId) throw new AppError(403, 'not_team', 'These tools work in your own Claude session.')
+      if (repo.roleBySession(sessionId)) throw new AppError(403, 'role', 'A role manages nothing: raise team changes with the lead or in your report.')
+      const s = repo.session(sessionId)
+      const owner = s && userById(s.owner_id)
+      if (!s || !owner || owner.username !== username) throw new AppError(403, 'not_team', 'This is not your own Claude session.')
+      return { user: owner, session: s }
+    },
+    /** That member and the project to act on with full authority: the `project` slug, or the session's own. Team must be on. */
+    sessionActor(username: string, sessionId: string | null, slug?: string) {
+      const { user, session } = this.sessionMember(username, sessionId)
+      const target = slug?.trim() || (session.project_id ? (db.prepare('select slug from projects where id = ?').get(session.project_id) as { slug: string } | undefined)?.slug : undefined)
+      if (!target) throw new AppError(400, 'bad_args', 'Say which project with `project` (this session has none).')
+      const { p } = on(target)
+      return { user, slug: p.slug, projectId: p.id }
+    },
+
+    /** The team at a glance for a member's session: brief, priorities, each role with its settings, goals, pending count. */
+    sessionOverview(username: string, sessionId: string, slug?: string) {
+      const o = this.overview(this.sessionActor(username, sessionId, slug).slug)
+      return {
+        project: o.project, enabled: o.enabled, paused: o.paused, tz: o.tz, pending: o.pending,
+        brief: o.brief.body, priorities: o.priorities,
+        goals: o.goals.map((g) => ({ id: g.id, title: g.title, measure: g.measure, due: g.due, status: g.status, progress: g.progress, owner: g.owner })),
+        roles: o.roles.map((r) => ({
+          id: r.id, name: r.name, summary: r.summary, model: r.model, lead: r.lead, paused: r.paused, autonomy: r.autonomy,
+          autoApprove: r.autoApprove, schedule: r.schedule, triggers: r.triggers, dailyLimit: r.dailyLimit, monthlyBudget: r.monthlyBudget,
+        })),
+      }
+    },
+    /** Proposals for a member's session: pending (default, the ones a person must answer) or decided, shaped short. */
+    sessionApprovals(username: string, sessionId: string, slug: string | undefined, status: 'pending' | 'decided' = 'pending') {
+      const s = this.sessionActor(username, sessionId, slug).slug
+      return this.approvals(status === 'decided' ? 'decided' : 'pending', s)
+        .map((x) => ({ id: x.id, role: x.role.name, kind: x.kind, title: x.title, why: x.why, status: x.status, awaiting: x.awaiting, createdAt: x.createdAt }))
+    },
+    /** A member answers a proposal (full authority). Approving a code proposal starts a session as them, as on the web. */
+    sessionDecide(username: string, sessionId: string, id: number, approve: boolean, reply: string) {
+      return this.decide(this.sessionMember(username, sessionId).user, id, approve, reply)
+    },
+    /** A member lists the project's threads (open, waiting, closed or all), shaped short. */
+    sessionThreads(username: string, sessionId: string, slug: string | undefined, status: 'open' | 'waiting' | 'closed' | 'all' = 'all') {
+      const r = this.threads(this.sessionActor(username, sessionId, slug).slug, { status })
+      return {
+        counts: r.counts,
+        threads: r.threads.map((t) => ({ id: t.id, title: t.title, status: t.status, needsPeople: t.needsPeople, priority: t.priority, ask: t.ask, owner: t.owner?.name ?? null, messages: t.messages, lastAt: t.lastAt })),
+      }
+    },
+    /** A member reads one thread, as the web does. */
+    sessionThread(username: string, sessionId: string, id: number) {
+      this.sessionMember(username, sessionId)
+      return this.thread(id)
+    },
+    /** A member closes a thread as a person (full authority). */
+    sessionResolveThread(username: string, sessionId: string, id: number, resolution: string, as: CloseAs = 'done', duplicateOf?: number) {
+      this.resolveAsPerson(this.sessionMember(username, sessionId).user, id, resolution, as, duplicateOf)
+      return as === 'done' ? `Thread #${id} resolved.` : `Thread #${id} closed (${as.replace('_', ' ')}).`
+    },
+    /** A member reopens a closed thread. */
+    sessionReopenThread(username: string, sessionId: string, id: number) {
+      this.reopen(this.sessionMember(username, sessionId).user, id)
+      return `Thread #${id} reopened.`
+    },
+    /** A member marks a thread a blocker or clears it. */
+    sessionThreadPriority(username: string, sessionId: string, id: number, priority: 'normal' | 'blocker') {
+      this.setThreadPriority(this.sessionMember(username, sessionId).user, id, priority)
+      return priority === 'blocker' ? `Thread #${id} marked a blocker.` : `Thread #${id} blocker cleared.`
+    },
+    /** A member sets the team's "what matters now". */
+    sessionSetPriorities(username: string, sessionId: string, slug: string | undefined, body: string) {
+      const s = this.sessionActor(username, sessionId, slug).slug
+      this.savePriorities(s, body)
+      return `Saved what matters now for ${s}.`
+    },
+    /** A member sets the project brief. */
+    sessionSetBrief(username: string, sessionId: string, slug: string | undefined, body: string) {
+      const who = this.sessionActor(username, sessionId, slug)
+      this.saveBrief(who.user, who.slug, body)
+      return `Brief saved for ${who.slug}.`
+    },
+    /** A member archives a role (resolved by name or #id, like team_role_update). */
+    sessionArchiveRole(username: string, sessionId: string, slug: string | undefined, ref: string | number) {
+      const who = this.sessionActor(username, sessionId, slug)
+      const r = typeof ref === 'number' ? repo.role(ref) : roleNamed(who.projectId, String(ref))
+      if (!r || r.archived || r.project_id !== who.projectId) throw new AppError(404, 'not_found', `There is no role ${ref} in this project. See team_roles.`)
+      const name = r.name
+      this.archiveRole(r.id)
+      return `Archived ${name}. It no longer works or appears to the team.`
     },
 
     /** The report of the shift this session is; returns false outside a shift. */

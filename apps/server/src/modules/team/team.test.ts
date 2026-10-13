@@ -657,6 +657,60 @@ test('threads: an ask and a person-set blocker are stored and returned; prioriti
   assert.deepEqual([after.needsPeople, after.ask], [false, null])
 })
 
+test('a member\'s Claude session runs the whole team as that member: approvals, threads, priorities, role limits, archive', async (t) => {
+  const { team, claude, youssef } = setup()
+  t.after(() => team.stop())
+  team.enable(youssef, 'seevil')
+  const cto = team.createRole(youssef, 'seevil', { name: 'CTO', summary: 'Code health', instructions: '', model: null })
+  const s = await claude.create(youssef, { prompt: 'Run the team', images: [], cwd: '', profile: 'default', model: null, effort: null, permissionMode: 'default', mode: 'chat', project: 'seevil' })
+
+  // Brief and priorities set from the session round-trip through the glance (project taken from the session).
+  team.sessionSetBrief('youssef', s.id, undefined, 'Seevil: an Android app in beta.')
+  team.sessionSetPriorities('youssef', s.id, undefined, 'Ship the test build.')
+  const glance = team.sessionOverview('youssef', s.id, undefined)
+  assert.deepEqual([glance.brief, glance.priorities], ['Seevil: an Android app in beta.', 'Ship the test build.'])
+  assert.ok(glance.roles.some((r) => r.name === 'CTO'))
+
+  // Pending approvals: the member approves a code proposal (starts a session as them) and rejects another.
+  await team.propose(cto.id, { kind: 'code', title: 'Add retry', why: 'stuck users', prompt: 'Add a retry button to the login screen.' })
+  await team.propose(cto.id, { kind: 'other', title: 'Post on IG', why: 'launch' })
+  const pending = team.sessionApprovals('youssef', s.id, undefined, 'pending')
+  assert.deepEqual(pending.map((p) => p.title).sort(), ['Add retry', 'Post on IG'])
+  assert.equal(pending[0]!.role, 'CTO')
+  const retry = pending.find((p) => p.title === 'Add retry')!
+  const ig = pending.find((p) => p.title === 'Post on IG')!
+  const approved = await team.sessionDecide('youssef', s.id, retry.id, true, 'go')
+  assert.equal(approved.status, 'done')
+  assert.match(approved.outcome!, /Claude started on it/)
+  assert.equal((await team.sessionDecide('youssef', s.id, ig.id, false, 'later')).status, 'rejected')
+  assert.equal(team.sessionApprovals('youssef', s.id, undefined, 'pending').length, 0)
+  assert.ok(team.sessionApprovals('youssef', s.id, undefined, 'decided').some((p) => p.title === 'Add retry'))
+
+  // Threads: list, read, blocker, resolve as a person, reopen.
+  const th = team.roleMessage(cto.id, 'x', { to: 'cto', title: 'Login crashes', kind: 'request', body: 'Users stuck.', evidence: 'crash logs' })
+  assert.ok(team.sessionThreads('youssef', s.id, undefined, 'all').threads.some((x) => x.id === th.thread))
+  assert.equal(team.sessionThread('youssef', s.id, th.thread).thread.title, 'Login crashes')
+  team.sessionThreadPriority('youssef', s.id, th.thread, 'blocker')
+  assert.equal(team.thread(th.thread).thread.priority, 'blocker')
+  team.sessionResolveThread('youssef', s.id, th.thread, 'Fixed.', 'done')
+  assert.equal(team.thread(th.thread).thread.status, 'resolved')
+  team.sessionReopenThread('youssef', s.id, th.thread)
+  assert.equal(team.thread(th.thread).thread.status, 'open')
+
+  // Role tuning (limits, budget, auto-approve), then archive.
+  team.sessionUpdateRole('youssef', s.id, { role: 'CTO', dailyLimit: 3, monthlyBudget: 25, autoApprove: ['code'] })
+  const tuned = team.overview('seevil').roles.find((r) => r.name === 'CTO')!
+  assert.deepEqual({ d: tuned.dailyLimit, m: tuned.monthlyBudget, a: tuned.autoApprove }, { d: 3, m: 25, a: ['code'] })
+  assert.match(team.sessionArchiveRole('youssef', s.id, undefined, 'CTO'), /Archived CTO/)
+  assert.equal(team.overview('seevil').roles.some((r) => r.name === 'CTO'), false)
+
+  // A role's own session is not a member's: it can't manage the team.
+  const pm = team.createRole(youssef, 'seevil', { name: 'PM', summary: '', instructions: '', model: null })
+  await team.runShift(pm.id)
+  const shiftSession = team.role(pm.id).shifts[0]!.sessionId!
+  assert.throws(() => team.sessionOverview('youssef', shiftSession, undefined), /role manages nothing/)
+})
+
 test('a project\'s Claude page shows each role\'s chat and shifts, unlisted as they are, named after the role', async (t) => {
   const { team, db, claude, youssef, abdo } = setup()
   t.after(() => team.stop())

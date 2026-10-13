@@ -76,6 +76,10 @@ export function registerTeamMcp(agents: AgentsService, team: TeamService) {
       triggers: Array.isArray(a.triggers) ? a.triggers.filter((x): x is string => typeof x === 'string') : undefined,
       autonomy: typeof a.autonomy === 'string' ? a.autonomy : undefined,
       paused: typeof a.paused === 'boolean' ? a.paused : undefined, lead: typeof a.lead === 'boolean' ? a.lead : undefined,
+      project: typeof a.project === 'string' ? a.project : undefined,
+      dailyLimit: Number.isInteger(a.daily_limit) ? (a.daily_limit as number) : undefined,
+      monthlyBudget: a.monthly_budget === null ? null : typeof a.monthly_budget === 'number' ? a.monthly_budget : undefined,
+      autoApprove: Array.isArray(a.auto_approve) ? a.auto_approve.filter((x): x is string => typeof x === 'string') : undefined,
     })
   })
   // Data sources: a person's own sessions too ("connect our database for the team"). Keys are best pasted on the Team tab.
@@ -113,10 +117,77 @@ export function registerTeamMcp(agents: AgentsService, team: TeamService) {
     const c = personSession(username, params)
     return team.sessionTestSource(username, c.sessionId, sourceRef(c.args))
   })
+  // Full team management from a member's own session (same authority as the Team tab). `project` picks the project;
+  // without it, the session's own. The service rejects a role's session and a project without Team on.
+  const member = (params: unknown) => {
+    const c = (params ?? {}) as Ctx
+    return { sessionId: c.sessionId ?? '', args: c.args ?? {} }
+  }
+  const slugOf = (a: Record<string, unknown>) => (typeof a.project === 'string' && a.project.trim() ? a.project : undefined)
+  const threadId = (a: Record<string, unknown>) => {
+    if (!Number.isInteger(a.id)) throw new AppError(400, 'bad_args', 'Give the thread id.')
+    return a.id as number
+  }
+  agents.onRpc('mcp.team_overview', (username, params) => {
+    const c = member(params)
+    return team.sessionOverview(username, c.sessionId, slugOf(c.args))
+  })
+  agents.onRpc('mcp.team_approvals', (username, params) => {
+    const c = member(params)
+    return team.sessionApprovals(username, c.sessionId, slugOf(c.args), c.args.status === 'decided' ? 'decided' : 'pending')
+  })
+  agents.onRpc('mcp.team_approval_decide', (username, params) => {
+    const c = member(params)
+    const a = c.args
+    if (!Number.isInteger(a.id)) throw new AppError(400, 'bad_args', 'Give the proposal id (see team_approvals).')
+    if (typeof a.approve !== 'boolean') throw new AppError(400, 'bad_args', 'Set approve: true to approve, false to reject.')
+    return team.sessionDecide(username, c.sessionId, a.id as number, a.approve, typeof a.reply === 'string' ? a.reply : '')
+  })
+  agents.onRpc('mcp.team_threads', (username, params) => {
+    const c = member(params)
+    const s = String(c.args.status ?? 'all')
+    const status = (['open', 'waiting', 'closed', 'all'] as const).includes(s as 'all') ? (s as 'open' | 'waiting' | 'closed' | 'all') : 'all'
+    return team.sessionThreads(username, c.sessionId, slugOf(c.args), status)
+  })
+  agents.onRpc('mcp.team_thread_resolve', (username, params) => {
+    const c = member(params)
+    const a = c.args
+    const as = String(a.as ?? 'done')
+    if (!(CLOSE_AS as readonly string[]).includes(as)) throw new AppError(400, 'bad_args', `as is one of: ${CLOSE_AS.join(', ')}.`)
+    return team.sessionResolveThread(username, c.sessionId, threadId(a), typeof a.resolution === 'string' ? a.resolution : '', as as CloseAs,
+      Number.isInteger(a.duplicate_of) ? (a.duplicate_of as number) : undefined)
+  })
+  agents.onRpc('mcp.team_thread_reopen', (username, params) => {
+    const c = member(params)
+    return team.sessionReopenThread(username, c.sessionId, threadId(c.args))
+  })
+  agents.onRpc('mcp.team_thread_priority', (username, params) => {
+    const c = member(params)
+    const p = String(c.args.priority)
+    if (p !== 'normal' && p !== 'blocker') throw new AppError(400, 'bad_args', 'priority is "normal" or "blocker".')
+    return team.sessionThreadPriority(username, c.sessionId, threadId(c.args), p)
+  })
+  agents.onRpc('mcp.team_set_priorities', (username, params) => {
+    const c = member(params)
+    return team.sessionSetPriorities(username, c.sessionId, slugOf(c.args), text(c.args.body, 'priorities'))
+  })
+  agents.onRpc('mcp.team_set_brief', (username, params) => {
+    const c = member(params)
+    return team.sessionSetBrief(username, c.sessionId, slugOf(c.args), text(c.args.body, 'brief'))
+  })
+  agents.onRpc('mcp.team_role_archive', (username, params) => {
+    const c = member(params)
+    const a = c.args
+    if (a.role === undefined) throw new AppError(400, 'bad_args', 'Give the role (its name or #id).')
+    return team.sessionArchiveRole(username, c.sessionId, slugOf(a), typeof a.role === 'number' ? a.role : String(a.role).replace(/^#/, ''))
+  })
+  // team_thread serves both a role's own session (its scoped read) and a member's session (the full web read).
   agents.onRpc('mcp.team_thread', (username, params) => {
-    const c = role(username, params)
-    if (!Number.isInteger(c.args.id)) throw new AppError(400, 'bad_args', 'Give the thread id.')
-    return team.roleThread(c.r.id, c.args.id as number)
+    const c = (params ?? {}) as Ctx
+    const a = c.args ?? {}
+    if (!Number.isInteger(a.id)) throw new AppError(400, 'bad_args', 'Give the thread id.')
+    const found = team.roleOf(username, c.sessionId ?? null)
+    return found ? team.roleThread(found.r.id, a.id as number) : team.sessionThread(username, c.sessionId ?? '', a.id as number)
   })
   agents.onRpc('mcp.team_resolve', (username, params) => {
     const c = role(username, params)
