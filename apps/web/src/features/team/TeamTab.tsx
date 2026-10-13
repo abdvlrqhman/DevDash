@@ -125,6 +125,7 @@ function TeamView({ t }: { t: Team }) {
           </Block>
         </div>
         <div className="flex min-w-0 flex-col gap-6">
+          <Priorities slug={slug} priorities={t.priorities} />
           <Goals slug={slug} goals={t.goals} />
           <Brief slug={slug} brief={t.brief} />
           <Decisions slug={slug} decisions={t.decisions} />
@@ -221,6 +222,7 @@ function Threads({ slug, threads, roles }: { slug: string; threads: Team['thread
               <Link to="/projects/$slug/team/threads/$thread" params={{ slug, thread: String(x.id) }} className={cn('flex flex-wrap items-center gap-x-3 gap-y-1 px-3.5 py-2.5 text-sm hover:bg-accent/40', x.status === 'resolved' && 'opacity-60')}>
                 <StatusLight state={x.status === 'resolved' ? 'idle' : x.needsPeople ? 'waiting' : 'live'} />
                 <span className="min-w-0 flex-1 truncate font-medium">{x.title}</span>
+                {x.status !== 'resolved' && x.priority === 'blocker' && <span className="shrink-0 rounded-full bg-destructive/15 px-2 py-0.5 text-[11px] font-medium text-destructive">Blocker</span>}
                 {x.status === 'resolved' && <OutcomeBadge as={x.closedAs} />}
                 <span className="text-xs text-muted-foreground">
                   {x.status === 'resolved' ? (x.closedBy ? `By ${x.closedBy}` : 'Closed') : x.needsPeople ? 'Needs you' : x.owner ? x.owner.name : 'Nobody owns it'} · {x.messages} · {relativeTime(x.lastAt)}
@@ -317,6 +319,40 @@ function Goals({ slug, goals }: { slug: string; goals: Team['goals'] }) {
           })}
         </ul>
       ) : !adding && <p className="text-sm text-muted-foreground">No goals yet. Add one, or let the CEO propose some.</p>}
+    </Block>
+  )
+}
+
+/** What matters now, in the founder's words. It outranks the roles' own plans in every role's context. */
+function Priorities({ slug, priorities }: { slug: string; priorities: string }) {
+  const qc = useQueryClient()
+  const [body, setBody] = useState(priorities)
+  const [editing, setEditing] = useState(!priorities)
+  useEffect(() => setBody(priorities), [priorities])
+  const save = useMutation({
+    mutationFn: () => unwrap(api.api.team.projects[':slug'].priorities.$put({ param: { slug }, json: { body } })),
+    onSuccess: () => { setEditing(false); void qc.invalidateQueries({ queryKey: ['team'] }) },
+    onError: (e) => toast.error(e.message),
+  })
+  return (
+    <Block title="What matters now" description="Your priorities, in your words. Every role weighs these above its own plans."
+      action={!editing && <Button size="sm" variant="ghost" onClick={() => setEditing(true)}>Edit</Button>}>
+      {editing ? (
+        <form className="flex flex-col gap-2" onSubmit={(e) => { e.preventDefault(); save.mutate() }}>
+          <Textarea rows={4} value={body} maxLength={4000} onChange={(e) => setBody(e.target.value)} aria-label="What matters now"
+            placeholder={'Fix the crashes users are hitting before anything else.\nHold the test build until login works.'} />
+          <div className="flex gap-2">
+            <Button size="sm" type="submit" disabled={save.isPending || body.trim() === priorities}>Save</Button>
+            {priorities && <Button size="sm" type="button" variant="ghost" onClick={() => { setBody(priorities); setEditing(false) }}>Cancel</Button>}
+          </div>
+        </form>
+      ) : priorities ? (
+        <div className="rounded-xl border border-attention/40 bg-attention-soft p-3.5 text-sm whitespace-pre-wrap text-attention-foreground dark:bg-attention/10 dark:text-attention">{priorities}</div>
+      ) : (
+        <button onClick={() => setEditing(true)} className="rounded-xl border border-dashed p-3.5 text-left text-sm text-muted-foreground hover:bg-accent/40">
+          Say what matters most right now, so the team works on that first.
+        </button>
+      )}
     </Block>
   )
 }

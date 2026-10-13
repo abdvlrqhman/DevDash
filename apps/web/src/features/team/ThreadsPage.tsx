@@ -97,6 +97,7 @@ function Row({ slug, x }: { slug: string; x: ThreadItem }) {
         <div className="flex items-center gap-x-3">
           <StatusLight state={closed ? 'idle' : x.needsPeople ? 'waiting' : 'live'} />
           <span className={cn('min-w-0 flex-1 truncate font-medium', closed && 'text-muted-foreground')}>{x.title}</span>
+          {!closed && x.priority === 'blocker' && <span className="shrink-0 rounded-full bg-destructive/15 px-2 py-0.5 text-[11px] font-medium text-destructive">Blocker</span>}
           {closed ? <OutcomeBadge as={x.closedAs} /> : x.needsPeople && <span className="shrink-0 text-xs font-medium text-attention-foreground dark:text-attention">Needs you</span>}
         </div>
         <div className="flex flex-wrap gap-x-1.5 pl-5 text-xs text-muted-foreground">

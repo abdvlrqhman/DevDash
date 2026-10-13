@@ -19,6 +19,7 @@ const Message = z.object({
   evidence: z.string().max(8000).optional(),
   to: z.string().max(60).optional(),
   cc: z.array(z.string().max(60)).max(6).optional(),
+  ask: z.string().max(300).optional(),
 })
 const Source = z.object({
   name: z.string().trim().min(1).max(60),
@@ -93,6 +94,10 @@ export function teamRoutes(team: TeamService | null, mw: ReturnType<typeof authM
       t().reopen(c.get('user'), id(c.req.param('id')))
       return c.json({ ok: true })
     })
+    .post('/threads/:id/priority', json(z.object({ priority: z.enum(['normal', 'blocker']) })), (c) => {
+      t().setThreadPriority(c.get('user'), id(c.req.param('id')), c.req.valid('json').priority)
+      return c.json({ ok: true })
+    })
     .post('/projects/:slug/sources', json(Source), (c) => {
       t().addSource(c.get('user'), c.req.param('slug'), c.req.valid('json'))
       return c.json({ ok: true })
@@ -118,6 +123,10 @@ export function teamRoutes(team: TeamService | null, mw: ReturnType<typeof authM
     })
     .put('/projects/:slug/brief', json(z.object({ body: z.string().max(20_000) })), (c) => {
       t().saveBrief(c.get('user'), c.req.param('slug'), c.req.valid('json').body)
+      return c.json({ ok: true })
+    })
+    .put('/projects/:slug/priorities', json(z.object({ body: z.string().max(4000) })), (c) => {
+      t().savePriorities(c.req.param('slug'), c.req.valid('json').body)
       return c.json({ ok: true })
     })
     .post('/projects/:slug/decisions', json(Body(2000)), (c) => {

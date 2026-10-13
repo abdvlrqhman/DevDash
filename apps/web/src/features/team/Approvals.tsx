@@ -79,7 +79,8 @@ export function ProposalCard({ x, showProject = true }: { x: Proposal; showProje
         </>
       ) : (
         <div className={cn('text-sm', x.status === 'rejected' ? 'text-destructive' : x.status === 'expired' ? 'text-muted-foreground' : 'text-live')}>
-          {x.status === 'done' ? (x.decidedBy ? `Approved by ${x.decidedBy}` : 'Done on its own') : x.status === 'rejected' ? `Rejected by ${x.decidedBy}` : 'Expired without an answer'}
+          {x.status === 'done' ? (x.decidedBy ? `Approved by ${x.decidedBy}` : x.decidedByRole ? `Approved by ${x.decidedByRole} (lead)` : 'Done on its own')
+            : x.status === 'rejected' ? `Rejected by ${x.decidedBy ?? (x.decidedByRole ? `${x.decidedByRole} (lead)` : 'someone')}` : 'Expired without an answer'}
           {x.decidedAt ? `, ${relativeTime(x.decidedAt)}` : ''}
           {x.reply && <span className="text-muted-foreground">: "{x.reply}"</span>}
           {x.outcome && <div className="mt-1 text-foreground"><Prose text={x.outcome} /></div>}
@@ -152,6 +153,7 @@ export function ApprovalsProjectPage() {
   const name = pending.data?.proposals[0]?.project.name ?? decided.data?.proposals[0]?.project.name ?? slug
   const waiting = pending.data?.proposals ?? []
   const done = decided.data?.proposals ?? []
+  const cleared = done.filter((x) => x.decidedByRole).length
   return (
     <>
       <PageHeader title={name} description="Approvals" back="/approvals" />
@@ -166,6 +168,7 @@ export function ApprovalsProjectPage() {
             ) : (
               <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">Nothing waiting in this project.</p>
             )}
+            {cleared > 0 && <p className="mt-3 text-xs text-muted-foreground">{cleared} routine {cleared === 1 ? 'proposal' : 'proposals'} cleared by the lead for the team.</p>}
           </Section>
         )}
         {done.length > 0 && (

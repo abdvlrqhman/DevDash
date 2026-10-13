@@ -52,9 +52,10 @@ const MESSAGE_TOOL = {
     title: { type: 'string', description: 'For a new thread: the issue in a few words.' },
     thread: { type: 'integer', description: 'To add to an existing thread instead.' },
     kind: { type: 'string', enum: ['fyi', 'question', 'request', 'alert', 'reply'] },
-    body: { type: 'string', description: 'The message. Markdown.' },
+    body: { type: 'string', description: 'The message. A few sentences at most: the point, one evidence link, your recommendation. Markdown.' },
     evidence: { type: 'string', description: 'Numbers, files, links that show it. Required for a new thread.' },
     cc: { type: 'array', items: { type: 'string' }, description: 'Other roles to include, by name.' },
+    ask: { type: 'string', description: 'When this needs a person: the one decision you need from them, in one line (with your recommendation). Sets the thread to wait for people, who see it first.' },
   }, ['body']),
 }
 
@@ -63,6 +64,15 @@ const ROLE_ONLY = [
     name: 'team_thread',
     description: 'Read a thread (all messages, evidence and proposals in it) before answering.',
     inputSchema: obj({ id: { type: 'integer' } }, ['id']),
+  },
+  {
+    name: 'team_decide',
+    description: 'Lead only. Clear a teammate\'s routine proposal that is awaiting you (see team_context): approve the clearly-good ones (it runs for the team), reject the rest with one line, or escalate to people only what truly needs them. Don\'t rubber-stamp risky work.',
+    inputSchema: obj({
+      id: { type: 'integer', description: 'The proposal id (the number after # in team_context).' },
+      action: { type: 'string', enum: ['approve', 'reject', 'escalate'] },
+      reason: { type: 'string', description: 'One line: why. The proposer sees it in its notebook (and people, if you escalate).' },
+    }, ['id', 'action']),
   },
   {
     name: 'team_resolve',

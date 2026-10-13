@@ -177,8 +177,8 @@ test('threads: a session raises an alert with a role, the owner wakes, people he
   const again = team.sessionMessage('youssef', s.id, { to: 'marketing', title: 'last 3 videos: 1k views, 0 likes ', kind: 'fyi', body: 'Still no likes.', evidence: 'same numbers' })
   assert.equal(again.thread, first.thread)
 
-  // Roles talking among themselves stop after 6 messages without a person, and the thread waits for people.
-  for (let i = 0; i < 6; i++) team.roleMessage(i % 2 ? fin.id : ms.id, 'x', { thread: first.thread, kind: 'reply', body: `point ${i}` })
+  // Roles talking among themselves stop after 4 messages without a person, and the thread waits for people.
+  for (let i = 0; i < 4; i++) team.roleMessage(i % 2 ? fin.id : ms.id, 'x', { thread: first.thread, kind: 'reply', body: `point ${i}` })
   assert.equal(team.thread(first.thread).thread.needsPeople, true)
   assert.throws(() => team.roleMessage(ms.id, 'x', { thread: first.thread, kind: 'reply', body: 'one more' }), /waits for people/)
   assert.ok(notified.some((n) => /needs a person/.test(n.title)))
@@ -557,6 +557,104 @@ test('approvals landing: projects that have proposals, with per-project counts, 
   assert.ok(seevil!.lastAt > 0)
   assert.deepEqual({ pending: oss!.pending, decided: oss!.decided }, { pending: 1, decided: 0 })
   assert.deepEqual(oss!.roles.map((r) => r.name), ['QA'])
+})
+
+test('one voice: a role can\'t post into a thread it isn\'t on; it messages the owner instead', async (t) => {
+  const { team, youssef, db } = setup()
+  t.after(() => team.stop())
+  team.enable(youssef, 'seevil')
+  const ceo = team.createRole(youssef, 'seevil', { name: 'CEO', summary: '', instructions: '', model: null })
+  const cto = team.createRole(youssef, 'seevil', { name: 'CTO', summary: '', instructions: '', model: null })
+  const fin = team.createRole(youssef, 'seevil', { name: 'Finance', summary: '', instructions: '', model: null })
+  // CEO opens a thread owned by CTO; Finance is not on it.
+  const th = team.roleMessage(ceo.id, 'x', { to: 'cto', title: 'Login crashes on Android 12', kind: 'request', body: 'Users stuck.', evidence: 'crash logs' })
+  assert.throws(() => team.roleMessage(fin.id, 'x', { thread: th.thread, kind: 'reply', body: 'I think it\'s the token.' }), /not on thread #\d+/)
+  // The owner and an addressed role can post; once cc'd, Finance is on it and may.
+  team.roleMessage(cto.id, 'x', { thread: th.thread, kind: 'reply', body: 'Looking.' })
+  team.roleMessage(ceo.id, 'x', { thread: th.thread, cc: ['finance'], kind: 'reply', body: 'Pulling Finance in.' })
+  db.prepare("update team_shifts set status = 'done', ended_at = unixepoch()").run()
+  team.roleMessage(fin.id, 'x', { thread: th.thread, kind: 'reply', body: 'On it now.' })
+  assert.equal(team.thread(th.thread).messages.at(-1)!.body, 'On it now.')
+})
+
+test('the lead clears routine task/goal proposals for the team; code and the lead\'s own still go to people', async (t) => {
+  const { team, tasks, youssef, notified } = setup()
+  t.after(() => team.stop())
+  team.enable(youssef, 'seevil')
+  const ceo = team.createRole(youssef, 'seevil', { name: 'CEO', summary: '', instructions: '', model: null })
+  const cto = team.createRole(youssef, 'seevil', { name: 'CTO', summary: '', instructions: '', model: null })
+  team.roleSettings(cto.id, { autonomy: 'advisor', autoApprove: [], schedule: [], triggers: [], paused: false, dailyLimit: 6, monthlyBudget: null })
+
+  // An advisor's task proposal waits for the lead, not a person: no phone, not on the founder's list.
+  assert.equal((await team.propose(cto.id, { kind: 'task', title: 'Write a privacy policy', why: 'Store needs it' })).status, 'pending')
+  assert.equal(team.pendingCount(), 0)
+  assert.equal(team.approvals('pending', 'seevil').length, 0)
+  assert.equal(team.overview('seevil').pending, 0)
+  assert.equal(notified.length, 0)
+  // The lead sees it in its context and clears it; it executes as the team.
+  assert.match(team.context(ceo.id), /Proposals awaiting your approval[^]*Write a privacy policy/)
+  const awaiting = team.role(cto.id).proposals.find((p) => p.title === 'Write a privacy policy')!
+  assert.equal(awaiting.awaiting, 'lead')
+  await assert.rejects(team.leadDecide(cto.id, awaiting.id, 'approve', ''), /Only the team lead/)
+  assert.match(await team.leadDecide(ceo.id, awaiting.id, 'approve', 'fine'), /Approved for the team/)
+  assert.equal(tasks.list({ project: 'seevil', status: 'backlog' })[0]!.title, 'Write a privacy policy')
+  const cleared = team.approvals('decided', 'seevil').find((p) => p.title === 'Write a privacy policy')!
+  assert.equal(cleared.decidedByRole, 'CEO')
+  assert.equal(cleared.decidedBy, null)
+  assert.match(team.role(cto.id).notebook[0]!.body, /Approved by CEO \(lead\): Write a privacy policy\. They said: "fine"/)
+  await assert.rejects(team.leadDecide(ceo.id, awaiting.id, 'approve', ''), /isn't waiting for you/)
+
+  // A code proposal still goes to people, and shows on the founder's list.
+  const code = await team.propose(cto.id, { kind: 'code', title: 'Add retry', why: 'stuck users', prompt: 'Add a retry button to the login screen.' })
+  assert.equal(code.status, 'pending')
+  assert.equal(team.pendingCount(), 1)
+  assert.equal(team.approvals('pending', 'seevil')[0]!.title, 'Add retry')
+  assert.deepEqual(notified.map((n) => n.userId).sort(), [1, 2])
+
+  // The lead can escalate one it doesn't want to decide; then it reaches people.
+  const goal = await team.propose(cto.id, { kind: 'goal', title: 'Ship v1', why: 'launch', goal: { title: 'Ship v1' } })
+  assert.equal(goal.status, 'pending')
+  const g = team.role(cto.id).proposals.find((p) => p.title === 'Ship v1')!
+  assert.match(await team.leadDecide(ceo.id, g.id, 'escalate', 'your call'), /Escalated to people/)
+  assert.equal(team.pendingCount(), 2)
+  assert.ok(team.approvals('pending', 'seevil').some((p) => p.title === 'Ship v1'))
+})
+
+test('threads: an ask and a person-set blocker are stored and returned; priorities round-trip into context', async (t) => {
+  const { team, youssef, db, notified } = setup()
+  t.after(() => team.stop())
+  team.enable(youssef, 'seevil')
+  const cto = team.createRole(youssef, 'seevil', { name: 'CTO', summary: '', instructions: '', model: null })
+
+  // The founder's priorities round-trip and lead every role's context, above the brief and goals.
+  team.saveBrief(youssef, 'seevil', 'Seevil: an Android app.')
+  team.savePriorities('seevil', 'Fix the login crashes before the test build.')
+  assert.equal(team.overview('seevil').priorities, 'Fix the login crashes before the test build.')
+  assert.match(team.context(cto.id), /## What matters now \(the founder's priorities[^]*Fix the login crashes before the test build/)
+
+  // A role owns a thread and hands it to people with a one-line ask.
+  const th = team.roleMessage(cto.id, 'x', { to: 'cto', title: 'Ship the test build now?', kind: 'request', body: 'Login still crashes for some.', evidence: 'crash logs' })
+  const quiet = notified.length
+  team.roleMessage(cto.id, 'x', { thread: th.thread, kind: 'reply', body: 'Crashes down to 1%.', ask: 'Ship the test build now, or wait for the last crash fix?' })
+  const got = team.thread(th.thread).thread
+  assert.equal(got.needsPeople, true)
+  assert.equal(got.ask, 'Ship the test build now, or wait for the last crash fix?')
+  assert.ok(notified.slice(quiet).some((n) => /needs a person/.test(n.title)))
+
+  // A person marks it a blocker, then clears it; the role context flags the blocker.
+  team.setThreadPriority(youssef, th.thread, 'blocker')
+  assert.equal(team.thread(th.thread).thread.priority, 'blocker')
+  assert.equal(team.threads('seevil', { status: 'open' }).threads.find((x) => x.id === th.thread)!.priority, 'blocker')
+  assert.match(team.roleThread(cto.id, th.thread), /BLOCKER/)
+  db.prepare("update team_shifts set status = 'done', ended_at = unixepoch()").run()
+  assert.match(team.context(cto.id), /#\d+ Ship the test build now\? \[BLOCKER/)
+  team.setThreadPriority(youssef, th.thread, 'normal')
+  assert.equal(team.thread(th.thread).thread.priority, 'normal')
+
+  // A person's reply answers the ask and lets the roles carry on.
+  team.postAsPerson(youssef, 'seevil', { thread: th.thread, kind: 'reply', body: 'Wait for the fix.' })
+  const after = team.thread(th.thread).thread
+  assert.deepEqual([after.needsPeople, after.ask], [false, null])
 })
 
 test('a project\'s Claude page shows each role\'s chat and shifts, unlisted as they are, named after the role', async (t) => {

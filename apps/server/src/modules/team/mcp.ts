@@ -38,6 +38,7 @@ export function registerTeamMcp(agents: AgentsService, team: TeamService) {
       to: typeof a.to === 'string' ? a.to : undefined, title: typeof a.title === 'string' ? a.title : undefined,
       cc: Array.isArray(a.cc) ? a.cc.filter((x): x is string => typeof x === 'string').slice(0, 6) : undefined,
       evidence: typeof a.evidence === 'string' ? a.evidence : undefined,
+      ask: typeof a.ask === 'string' ? a.ask : undefined,
     }
   }
   const sent = (r: { thread: number; note: string }) => `Posted in thread #${r.thread}.${r.note}`
@@ -161,6 +162,14 @@ export function registerTeamMcp(agents: AgentsService, team: TeamService) {
       goal: a.goal as ProposalInput['goal'], details: typeof a.details === 'string' ? a.details : undefined,
     }, ((params ?? {}) as Ctx).sessionId ?? undefined)
     return r.status === 'done' ? `Done (you may do this on your own): ${r.outcome}` : 'Sent to the team for approval. You will find their answer in your notebook.'
+  })
+  agents.onRpc('mcp.team_decide', async (username, params) => {
+    const c = role(username, params)
+    const a = c.args
+    if (!Number.isInteger(a.id)) throw new AppError(400, 'bad_args', 'Give the proposal id (the number after # in team_context).')
+    const action = String(a.action)
+    if (!['approve', 'reject', 'escalate'].includes(action)) throw new AppError(400, 'bad_args', 'action is one of: approve, reject, escalate.')
+    return team.leadDecide(c.r.id, a.id as number, action as 'approve' | 'reject' | 'escalate', typeof a.reason === 'string' ? a.reason : '')
   })
   agents.onRpc('mcp.team_goal_update', (username, params) => {
     const c = role(username, params)

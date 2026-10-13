@@ -24,7 +24,7 @@ const STALE_SHIFT_S = 120
 const PROPOSAL_DAYS = 7 // unanswered proposals expire, so stale plans don't run weeks later
 const TRIGGER_COOLDOWN_S = 3600 // a trigger wakes a role at most once an hour
 const PRIORITIES = new Set<Priority>(['none', 'low', 'medium', 'high', 'urgent'])
-const HOP_LIMIT = 6 // role messages in a thread since a person last spoke, before it waits for people
+const HOP_LIMIT = 4 // role messages in a thread since a person last spoke, before it waits for people
 const ALERTS_PER_DAY = 5 // per sender, so one noisy session or role can't keep waking everyone
 export const MESSAGE_KINDS = ['fyi', 'question', 'request', 'alert', 'reply'] as const
 export { CLOSE_AS, type CloseAs } from './repo.ts'
@@ -39,7 +39,7 @@ export type Author =
   | { kind: 'person'; user: User }
   | { kind: 'role'; roleId: number; sessionId?: string }
   | { kind: 'session'; sessionId: string; title: string; owner: User }
-export type MessageInput = { thread?: number; to?: string; cc?: string[]; title?: string; kind: MessageKind; body: string; evidence?: string }
+export type MessageInput = { thread?: number; to?: string; cc?: string[]; title?: string; kind: MessageKind; body: string; evidence?: string; ask?: string }
 export type SourceInput = { name: string; kind: SourceKind; description: string; config: SourceConfig; secret?: string | null }
 
 export type RoleInput = { name: string; summary: string; instructions: string; model: string | null }
@@ -190,7 +190,8 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
   })
   const proposalDto = (x: ProposalRow) => ({
     id: x.id, kind: x.kind, title: x.title, why: x.why, payload: json<Record<string, unknown>>(x.payload, {}), status: x.status,
-    reply: x.reply, outcome: x.outcome, decidedBy: x.decided_by_name, decidedAt: x.decided_at, createdAt: x.created_at, expiresAt: x.expires_at,
+    reply: x.reply, outcome: x.outcome, decidedBy: x.decided_by_name, decidedByRole: x.decided_by_role_name, awaiting: x.awaiting,
+    decidedAt: x.decided_at, createdAt: x.created_at, expiresAt: x.expires_at,
     role: { id: x.role_id, name: x.role_name }, project: { slug: x.project_slug, name: x.project_name },
   })
 
@@ -234,20 +235,31 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
     const { r, p } = findRole(roleId)
     const { runsAs } = on(p.slug)
     const s = settingsOf(r)
+    // Routine task/goal proposals go to the lead to clear (fewer reach a person); the proposer's own, code, other, or
+    // no lead at all, go to people as before.
+    const lead = repo.lead(p.id)
+    const awaiting = lead && lead.id !== r.id && (input.kind === 'task' || input.kind === 'goal') ? 'lead' as const : 'people' as const
     const id = repo.insertProposal({
       projectId: p.id, roleId: r.id, kind: input.kind, title: input.title.trim().slice(0, 200), why: input.why.trim().slice(0, 4000),
-      payload: input, expiresAt: Math.floor(Date.now() / 1000) + PROPOSAL_DAYS * 86_400,
+      payload: input, expiresAt: Math.floor(Date.now() / 1000) + PROPOSAL_DAYS * 86_400, awaiting,
     })
     // Proposed during a shift about a thread: it shows in that thread too.
     const threadId = sessionId ? repo.shiftBySession(sessionId)?.thread_id : null
     if (threadId) repo.setProposalThread(id, threadId)
-    // What the role may do on its own goes ahead now, run as the member the team runs as; the rest waits for a person.
+    // What the role may do on its own goes ahead now, run as the member the team runs as; the rest waits.
     const alone = (input.kind === 'task' && s.autonomy === 'operator') || s.autoApprove.includes(input.kind)
     if (alone) {
       const outcome = await execute(repo.proposal(id)!, runsAs)
       repo.decide(id, 'done', { outcome, by: null })
       changed(p.id)
       return { status: 'done' as const, outcome }
+    }
+    if (awaiting === 'lead') {
+      // Wake the lead to clear it; if it can't start now, it finds the proposal in its next shift's context.
+      auto(lead!, `a teammate's proposal to clear: "${clipText(input.title, 80)}"`)
+      changed(p.id)
+      hub.publish('team', { type: 'approvals' })
+      return { status: 'pending' as const, outcome: null }
     }
     for (const uid of members()) {
       void notify(uid, 'needs_you', { title: `${r.name} (${p.name}): ${input.title}`, body: 'Waiting for your approval', url: '/approvals', tag: `team-proposal:${id}` }).catch(() => {})
@@ -392,7 +404,7 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
   // ---- Threads: one issue, one thread, between roles, Claude sessions and people ----
 
   const threadDto = (t: ThreadRow) => ({
-    id: t.id, title: t.title, status: t.status, needsPeople: !!t.needs_people, openedBy: t.opened_by, resolution: t.resolution,
+    id: t.id, title: t.title, status: t.status, needsPeople: !!t.needs_people, ask: t.ask, priority: t.priority, openedBy: t.opened_by, resolution: t.resolution,
     closedAs: t.closed_as, closedBy: t.closed_by, resolvedAt: t.resolved_at,
     owner: t.owner_role_id ? { id: t.owner_role_id, name: t.owner_name } : null, messages: t.messages, lastAt: t.last_at ?? t.created_at,
     createdAt: t.created_at, roles: repo.threadRoles(t.id).map((r) => ({ id: r.id, name: r.name })),
@@ -409,8 +421,9 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
   /** Posts to a thread (or opens one): routes it to the right role, wakes whoever must act, and keeps roles from looping. */
   function message(projectId: number, a: Author, input: MessageInput) {
     const label = authorLabel(a)
-    const body = input.body.trim().slice(0, 8000)
-    const evidence = input.evidence?.trim().slice(0, 8000) || null
+    // Roles are kept short so threads stay readable (the point, one link, the recommendation); people and sessions aren't clipped.
+    const body = input.body.trim().slice(0, a.kind === 'role' ? 900 : 8000)
+    const evidence = input.evidence?.trim().slice(0, a.kind === 'role' ? 1200 : 8000) || null
     if (!body) throw new AppError(400, 'bad_args', 'Write the message.')
     const now = Math.floor(Date.now() / 1000)
     let kind = input.kind
@@ -442,6 +455,12 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
         else repo.needsPeople(t.id, true)
       }
     }
+    // One thread, one voice: a role may post only in a thread it owns or was asked into. For input from someone else's
+    // thread, it messages that owner (opening/adding) instead of piling into it uninvited.
+    if (input.thread && a.kind === 'role') {
+      const belongs = t.owner_role_id === a.roleId || repo.threadRoles(t.id).some((x) => x.id === a.roleId)
+      if (!belongs) throw new AppError(403, 'not_in_thread', `You're not on thread #${t.id} — message its owner with team_message \`to:\` instead of posting in it.`)
+    }
     if (kind === 'reply' && !input.thread) kind = 'fyi'
     for (const name of [input.to, ...(input.cc ?? [])]) {
       const r = name && roleNamed(projectId, name)
@@ -454,18 +473,24 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       roleId: a.kind === 'role' ? a.roleId : undefined, sessionId: a.kind === 'person' ? undefined : a.sessionId,
     })
     if (a.kind === 'role') repo.seen(t.id, a.roleId, id)
-    // A person stepped in: the roles may carry on (an ownerless thread keeps waiting for people).
-    if (a.kind === 'person' && t.needs_people && t.owner_role_id) repo.needsPeople(t.id, false)
+    // A person stepped in: the roles may carry on, and the ask is answered (an ownerless thread keeps waiting).
+    if (a.kind === 'person' && t.needs_people && t.owner_role_id) {
+      repo.needsPeople(t.id, false)
+      repo.setThreadAsk(t.id, null)
+    }
     repo.touchThread(t.id)
     const p = db.prepare('select slug, name from projects where id = ?').get(projectId) as { slug: string; name: string }
     const url = `/projects/${p.slug}/team/threads/${t.id}`
 
-    // Roles going back and forth without a person: stop and hand it to people.
+    // A role hands a thread to people, either because it set an explicit ask or because roles went back and forth too long.
     let note = ''
-    if (a.kind === 'role' && repo.rolesSincePerson(t.id) >= HOP_LIMIT) {
+    const ask = a.kind === 'role' ? input.ask?.trim().replace(/\s+/g, ' ').slice(0, 300) || null : null
+    if (a.kind === 'role' && (ask || repo.rolesSincePerson(t.id) >= HOP_LIMIT)) {
+      if (ask) repo.setThreadAsk(t.id, ask)
       repo.needsPeople(t.id, true)
-      tell(`${p.name}: "${t.title}" needs a person`, `${HOP_LIMIT} messages between roles without a decision.`, url, `team-thread:${t.id}`)
-      note = ' The roles have gone back and forth enough: this thread now waits for people.'
+      const decision = ask ?? repo.thread(t.id)?.ask
+      tell(`${p.name}: "${t.title}" needs a person`, decision ? `Decision needed: ${decision}` : `${HOP_LIMIT} messages between roles without a decision.`, url, `team-thread:${t.id}`)
+      note = ask ? ` Handed to people — asked: "${ask}".` : ' The roles have gone back and forth enough: this thread now waits for people.'
     } else if (kind === 'alert') {
       tell(`Alert in ${p.name}: ${t.title}`, clipText(body, 200), url, `team-thread:${t.id}`)
     }
@@ -528,6 +553,8 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
     return [
       `# Thread #${t.id}: ${t.title}`,
       `Status: ${t.status === 'resolved' ? `closed (${t.closed_as ?? 'done'}) by ${t.closed_by ?? 'someone'}` : 'open'}${t.needs_people ? ', waiting for people' : ''} · owner: ${t.owner_name ?? 'nobody (people decide)'} · opened by ${t.opened_by}`,
+      t.priority === 'blocker' ? '**BLOCKER** — a person marked this top priority: deal with it before other work this shift.' : '',
+      t.ask && t.needs_people ? `**Decision asked of people:** ${t.ask}` : '',
       ...msgs.map((m) => `## ${m.author_label} · ${m.kind} · ${day(m.created_at)}\n${m.body}${m.evidence ? `\n\nEvidence:\n${m.evidence}` : ''}`),
       proposals.length ? `## Proposals in this thread\n${proposals.map((x) => `- [${x.status}] ${x.title}${x.reply ? ` (reply: "${x.reply}")` : ''}`).join('\n')}` : '',
     ].filter(Boolean).join('\n\n')
@@ -604,10 +631,11 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
         tz: t?.tz ?? 'UTC',
         runsAs: t ? { id: t.runs_as, name: t.name } : null,
         brief: { body: brief?.body ?? '', updatedAt: brief?.updated_at ?? null, updatedBy: brief?.updated_by ?? null },
+        priorities: t?.priorities ?? '',
         decisions: repo.decisions(p.id).map((d) => ({ id: d.id, body: d.body, at: d.created_at, by: d.role_name ?? d.user_name })),
         roles: t ? repo.roles(p.id).map(roleDto) : [],
         goals: t ? repo.goals(p.id).map(goalDto) : [],
-        pending: t ? repo.proposals(p.id, 'pending').length : 0,
+        pending: t ? repo.proposals(p.id, 'pending', 200, 'people').length : 0,
         journal: t ? journal(p.id) : [],
         threads: t ? repo.threads(p.id).map(threadDto) : [],
         sources: t ? repo.sources(p.id).map(sourceDto) : [],
@@ -648,6 +676,18 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       if (t.status === 'open') return
       repo.threadState(id, 'open', null)
       repo.insertMessage({ threadId: id, kind: 'fyi', body: `Reopened by ${user.name}.`, evidence: null, label: user.name, userId: user.id })
+      changed(t.project_id)
+    },
+    /** A person marks a thread a blocker (or clears it): the owning role treats it as top priority this shift. */
+    setThreadPriority(user: User, id: number, priority: 'normal' | 'blocker') {
+      const t = repo.thread(id)
+      if (!t) throw new AppError(404, 'not_found', 'No such thread.')
+      if (t.priority === priority) return
+      repo.setThreadPriority(id, priority)
+      repo.insertMessage({ threadId: id, kind: 'fyi', body: priority === 'blocker' ? `${user.name} marked this a blocker: top priority.` : `${user.name} cleared the blocker.`, evidence: null, label: user.name, userId: user.id })
+      // Wake the owner so it picks up the new priority straight away.
+      const owner = t.owner_role_id ? repo.role(t.owner_role_id) : undefined
+      if (priority === 'blocker' && owner && !owner.archived) auto(owner, `a blocker in thread "${clipText(t.title, 80)}"`, t.id)
       changed(t.project_id)
     },
     /** All of a project's threads, open and closed, a page at a time (`offset` is the cursor `next` gave). */
@@ -720,6 +760,12 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
     saveBrief(user: User, slug: string, body: string) {
       const p = projects.bySlug(slug)
       repo.saveBrief(p.id, body.trim(), user.id)
+      changed(p.id)
+    },
+    /** The founder's "what matters now", in their words: it outranks the roles' own plans in every role's context. */
+    savePriorities(slug: string, body: string) {
+      const { p } = on(slug)
+      repo.savePriorities(p.id, body.trim().slice(0, 4000))
       changed(p.id)
     },
     addDecision(user: User, slug: string, body: string) {
@@ -843,8 +889,9 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
     },
 
     // ---- Approvals ----
+    // People see only proposals awaiting a person; the ones the lead can clear stay off their list.
     approvals: (status: 'pending' | 'decided', slug?: string) =>
-      repo.proposals(slug ? projects.bySlug(slug).id : null, status, status === 'pending' ? 200 : 40).map(proposalDto),
+      repo.proposals(slug ? projects.bySlug(slug).id : null, status, status === 'pending' ? 200 : 40, status === 'pending' ? 'people' : null).map(proposalDto),
     pendingCount: () => repo.pendingCount(),
     /** Each project with any proposals: how many wait, how many are decided, who's waiting, and when it last stirred. */
     approvalProjects() {
@@ -855,7 +902,7 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
         byProject.set(r.project_id, list)
       }
       return repo.proposalProjects().map((p) => ({
-        slug: p.slug, name: p.name, pending: p.pending, decided: p.decided, lastAt: p.last_at, roles: byProject.get(p.project_id) ?? [],
+        slug: p.slug, name: p.name, pending: p.pending, decided: p.decided, cleared: p.cleared, lastAt: p.last_at, roles: byProject.get(p.project_id) ?? [],
       }))
     },
     /** A person answers a proposal. Either way the role finds the answer (and the reason) in its notebook. */
@@ -896,6 +943,8 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       const since = last ?? Math.floor(Date.now() / 1000) - 7 * 86_400
       const day = (t: number) => new Date(t * 1000).toISOString().slice(0, 16).replace('T', ' ')
       const brief = repo.brief(p.id)?.body.trim()
+      const priorities = repo.project(p.id)?.priorities.trim()
+      const toApprove = r.lead ? repo.proposals(p.id, 'pending', 50, 'lead') : []
       const others = repo.roles(p.id).filter((x) => x.id !== r.id)
       const notes = repo.notebook(r.id, 60)
       const decisions = repo.decisions(p.id, 20)
@@ -908,6 +957,7 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       const closed = repo.roleClosed(r.id, since)
       return [
         `# ${p.name}: team context (${day(Date.now() / 1000)} UTC)`,
+        ...(priorities ? [`## What matters now (the founder's priorities — these outrank your own plans)\n${priorities}`] : []),
         `## Brief\n${brief || '(No brief yet. Ask the team for one, or suggest one in your report.)'}`,
         `## Goals\n${goals.length ? goals.map((g) => `- #${g.id} ${g.title}${g.measure ? ` (measure: ${g.measure})` : ''}${g.due ? `, due ${g.due}` : ''}: ${g.progress}%${g.note ? `, ${g.note}` : ''}${g.owner_name ? ` [owner: ${g.owner_name}]` : ''}`).join('\n') : '(none yet: propose some with team_propose, kind "goal")'}`,
         `## Decisions, newest first\n${decisions.length ? decisions.map((d) => `- ${d.body} (${d.role_name ?? d.user_name ?? 'someone'}, ${day(d.created_at)})`).join('\n') : '(none yet)'}`,
@@ -915,10 +965,11 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
           const s = latest(x)
           return `- ${x.name}${x.summary ? `: ${x.summary}` : ''}${s ? `\n  Latest report (${day(s.ended_at ?? s.started_at)}): ${clipText(s.report!.replace(/\s+/g, ' '), 600)}` : ''}`
         }).join('\n')}`.trim(),
-        `## Your proposals waiting for people\n${waiting.length ? waiting.map((x) => `- [${x.kind}] ${x.title} (since ${day(x.created_at)})`).join('\n') : '(none)'}`,
-        `## Your threads\n${mine.length ? mine.map((t) => `- #${t.id} ${t.title}${t.owner_role_id === r.id ? ' (you own it)' : ' (you\'re in it: you may decline it)'}${t.needs_people ? ' (waiting for people)' : ''}${(t.last_id ?? 0) > t.seen ? ' — NEW MESSAGES: read with team_thread' : ''}`).join('\n') : '(none)'}`,
+        `## Your proposals waiting for people\n${waiting.length ? waiting.map((x) => `- [${x.kind}] ${x.title} (since ${day(x.created_at)})${x.awaiting === 'lead' ? ' — with the lead' : ''}`).join('\n') : '(none)'}`,
+        ...(r.lead ? [`## Proposals awaiting your approval (you can clear these for the team — team_decide)\n${toApprove.length ? toApprove.map((x) => `- #${x.id} [${x.kind}] ${x.title} — from ${x.role_name}: ${clipText(x.why.replace(/\s+/g, ' '), 200)}`).join('\n') : '(none)'}`] : []),
+        `## Your threads\n${mine.length ? mine.map((t) => `- #${t.id} ${t.title}${t.priority === 'blocker' ? ' [BLOCKER — top priority this shift]' : ''}${t.owner_role_id === r.id ? ' (you own it)' : ' (you\'re in it: you may decline it)'}${t.needs_people ? ' (waiting for people)' : ''}${(t.last_id ?? 0) > t.seen ? ' — NEW MESSAGES: read with team_thread' : ''}`).join('\n') : '(none)'}`,
         ...(closed.length ? [`## Your threads closed since your last shift (people may reopen them)\n${closed.map((t) => `- #${t.id} ${t.title}: ${t.closed_as === 'done' || !t.closed_as ? 'resolved' : `closed as ${t.closed_as.replace('_', ' ')}`} by ${t.closed_by ?? 'someone'}${t.resolution ? ` (${clipText(t.resolution, 200)})` : ''}`).join('\n')}`] : []),
-        `## Other open threads (add to these instead of opening the same one)\n${openThreads.length ? openThreads.map((t) => `- #${t.id} ${t.title} (owner: ${t.owner_name ?? 'people'})`).join('\n') : '(none)'}`,
+        `## Open threads owned by others (don't post in these unless asked; if you have something, team_message the owner)\n${openThreads.length ? openThreads.map((t) => `- #${t.id} ${t.title}${t.priority === 'blocker' ? ' [blocker]' : ''} (owner: ${t.owner_name ?? 'people'})`).join('\n') : '(none)'}`,
         `## Data sources\n${repo.sources(p.id).length ? repo.sources(p.id).map((x) => `- ${x.name} (${x.kind})${x.description ? `: ${x.description}` : ''}`).join('\n') : '(none yet)'}`,
         `## Your notebook, newest first\n${notes.length ? notes.map((n) => `- ${n.body}${n.source === 'person' ? ` (${n.user_name ?? 'a person'})` : ''} [${day(n.created_at)}]`).join('\n') : '(empty)'}`,
         `## What happened ${last ? `since your last shift (${day(last)})` : 'in the last 7 days'}\n${lines.length ? lines.map((l) => `- ${day(l.at)} ${l.who ? `${l.who}: ` : ''}${l.text}`).join('\n') : '(nothing recorded)'}`,
@@ -957,6 +1008,39 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       const t = repo.thread(threadId)
       if (!t || t.project_id !== p.id) throw new AppError(404, 'not_found', `There is no thread #${threadId} in this project.`)
       closeThread(threadId, { kind: 'role', roleId }, { as, reason: resolution, duplicateOf })
+    },
+    /** The lead clears a routine proposal for the team: approve (runs it), reject (with a reason), or escalate to people. */
+    async leadDecide(roleId: number, id: number, action: 'approve' | 'reject' | 'escalate', reason: string) {
+      const { r, p } = findRole(roleId)
+      if (!r.lead) throw new AppError(403, 'not_lead', 'Only the team lead clears proposals. Put your view in the thread or your report instead.')
+      const { runsAs } = on(p.slug)
+      const x = repo.proposal(id)
+      if (!x || x.project_id !== p.id) throw new AppError(404, 'not_found', `There is no proposal #${id} in this project.`)
+      if (x.status !== 'pending' || x.awaiting !== 'lead') throw new AppError(409, 'not_awaiting', `Proposal #${id} isn't waiting for you to clear.`)
+      const note = reason.trim().replace(/\s+/g, ' ').slice(0, 1000)
+      if (action === 'approve') {
+        const outcome = await execute(x, runsAs)
+        repo.decide(id, 'done', { reply: note || null, outcome, by: null, byRole: r.id })
+        repo.addNote(x.role_id, `Approved by ${r.name} (lead): ${x.title}${note ? `. They said: "${note}"` : ''}`, {})
+        changed(p.id)
+        hub.publish('team', { type: 'approvals' })
+        return `Approved for the team. ${outcome}`
+      }
+      if (action === 'reject') {
+        repo.decide(id, 'rejected', { reply: note || null, by: null, byRole: r.id })
+        repo.addNote(x.role_id, `Rejected by ${r.name} (lead): ${x.title}. ${note ? `Reason: "${note}"` : 'No reason given.'}`, {})
+        changed(p.id)
+        hub.publish('team', { type: 'approvals' })
+        return `Rejected. ${x.role_name} will see your reason in its notebook.`
+      }
+      // Escalate: it becomes a person's call and their phones go off, as a normal proposal would.
+      repo.setProposalAwaiting(id, 'people')
+      for (const uid of members()) {
+        void notify(uid, 'needs_you', { title: `${x.role_name} (${p.name}): ${x.title}`, body: note ? `${r.name} escalated: ${note}` : `${r.name} escalated this to you`, url: '/approvals', tag: `team-proposal:${id}` }).catch(() => {})
+      }
+      changed(p.id)
+      hub.publish('team', { type: 'approvals' })
+      return 'Escalated to people. It now waits for them.'
     },
     roleSources(roleId: number) {
       const { p } = findRole(roleId)

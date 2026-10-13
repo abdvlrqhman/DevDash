@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { CheckCheck, RotateCcw, SendHorizontal, SquareTerminal } from 'lucide-react'
+import { CheckCheck, RotateCcw, SendHorizontal, SquareTerminal, TriangleAlert } from 'lucide-react'
 import { toast } from 'sonner'
 import { initials, StatusLight } from '@/components/app/brand'
 import { PageBody, PageHeader } from '@/components/app/page'
@@ -39,6 +39,11 @@ function ThreadView({ slug, id }: { slug: string; id: number }) {
     onSuccess: refresh,
   })
   const reopen = useMutation({ mutationFn: () => unwrap(api.api.team.threads[':id'].reopen.$post({ param: { id: String(id) } })), onSuccess: refresh })
+  const setPriority = useMutation({
+    mutationFn: (priority: 'normal' | 'blocker') => unwrap(api.api.team.threads[':id'].priority.$post({ param: { id: String(id) }, json: { priority } })),
+    onSuccess: refresh,
+    onError: (e) => toast.error(e.message),
+  })
 
   if (q.error) return <><PageHeader title="Thread" back={`/projects/${slug}`} /><PageBody><ErrorAlert error={q.error} /></PageBody></>
   if (!q.data) return <><PageHeader title="Thread" back={`/projects/${slug}`} /><PageBody><Skeleton className="h-64" /></PageBody></>
@@ -55,14 +60,28 @@ function ThreadView({ slug, id }: { slug: string; id: number }) {
           <span className="truncate">· {t.owner ? `${t.owner.name} owns it` : 'Nobody owns it'}{t.roles.length > 1 ? ` · with ${t.roles.filter((r) => r.id !== t.owner?.id).map((r) => r.name).join(', ')}` : ''}</span>
         </span>}
         actions={open
-          ? <Button size="sm" variant="outline" disabled={resolve.isPending} onClick={() => resolve.mutate()}><CheckCheck />Resolve</Button>
+          ? <div className="flex gap-2">
+              <Button size="sm" variant={t.priority === 'blocker' ? 'default' : 'outline'} disabled={setPriority.isPending}
+                onClick={() => setPriority.mutate(t.priority === 'blocker' ? 'normal' : 'blocker')}>
+                <TriangleAlert />{t.priority === 'blocker' ? 'Blocker' : 'Mark blocker'}
+              </Button>
+              <Button size="sm" variant="outline" disabled={resolve.isPending} onClick={() => resolve.mutate()}><CheckCheck />Resolve</Button>
+            </div>
           : !declined && <Button size="sm" variant="outline" disabled={reopen.isPending} onClick={() => reopen.mutate()}><RotateCcw />Reopen</Button>} />
       <PageBody>
         <div className="flex max-w-3xl flex-col gap-5">
-          {open && t.needsPeople && (
-            <p className="rounded-xl border border-attention/40 bg-attention-soft px-4 py-3 text-sm text-attention-foreground dark:bg-attention/10 dark:text-attention">
-              {t.owner ? 'The roles went back and forth without a decision. Reply to settle it; they carry on after you.' : 'No role owns this. Reply, or resolve it.'}
+          {open && t.priority === 'blocker' && (
+            <p className="flex items-center gap-2 rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive">
+              <TriangleAlert className="size-4 shrink-0" />Blocker — the owning role treats this as top priority.
             </p>
+          )}
+          {open && t.needsPeople && (
+            <div className="rounded-xl border border-attention/40 bg-attention-soft px-4 py-3 text-sm text-attention-foreground dark:bg-attention/10 dark:text-attention">
+              {t.ask && <p className="text-base font-semibold">Decision needed: {t.ask}</p>}
+              <p className={cn(t.ask && 'mt-1 opacity-90')}>
+                {t.owner ? 'The roles need you to decide. Reply to settle it; they carry on after you.' : 'No role owns this. Reply, or resolve it.'}
+              </p>
+            </div>
           )}
           {declined && (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border bg-muted/40 px-4 py-3 text-sm">

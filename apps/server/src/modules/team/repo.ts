@@ -15,7 +15,8 @@ export type ProposalRow = {
   id: number; project_id: number; role_id: number; kind: ProposalKind; title: string; why: string; payload: string
   status: 'pending' | 'approved' | 'rejected' | 'expired' | 'done'; reply: string | null; outcome: string | null
   decided_by: number | null; decided_at: number | null; created_at: number; expires_at: number; thread_id: number | null
-  role_name: string; project_slug: string; project_name: string; decided_by_name: string | null
+  awaiting: 'people' | 'lead'; decided_by_role: number | null
+  role_name: string; project_slug: string; project_name: string; decided_by_name: string | null; decided_by_role_name: string | null
 }
 export type GoalRow = {
   id: number; project_id: number; title: string; measure: string; due: string | null; status: 'active' | 'done' | 'dropped'
@@ -24,7 +25,8 @@ export type GoalRow = {
 export type ThreadRow = {
   id: number; project_id: number; title: string; owner_role_id: number | null; status: 'open' | 'resolved'; needs_people: number
   opened_by: string; resolution: string | null; created_at: number; updated_at: number; resolved_at: number | null
-  closed_as: CloseAs | null; closed_by: string | null; owner_name: string | null; messages: number; last_at: number | null
+  closed_as: CloseAs | null; closed_by: string | null; ask: string | null; priority: 'normal' | 'blocker'
+  owner_name: string | null; messages: number; last_at: number | null
 }
 /** How a thread was closed: done by its owner, or declined by a role in it (with a reason). */
 export const CLOSE_AS = ['done', 'declined', 'duplicate', 'not_needed', 'elsewhere'] as const
@@ -50,7 +52,7 @@ const all = <T>(rows: unknown[]) => rows.map((r) => ({ ...(r as object) }) as T)
 
 export function teamRepo(db: Db) {
   const s = {
-    project: db.prepare(`select t.project_id, t.runs_as, t.enabled_at, t.paused, t.tz, t.activity_seen, u.username, u.name
+    project: db.prepare(`select t.project_id, t.runs_as, t.enabled_at, t.paused, t.tz, t.activity_seen, t.priorities, u.username, u.name
       from team_projects t join users u on u.id = t.runs_as where t.project_id = ?`),
     projects: db.prepare(`select t.project_id, t.paused, t.tz, t.activity_seen, p.slug from team_projects t join projects p on p.id = t.project_id
       where p.archived = 0`),
@@ -65,26 +67,32 @@ export function teamRepo(db: Db) {
     autoShiftsSince: db.prepare(`select count(*) as n from team_shifts where role_id = ? and trigger != 'manual' and started_at >= ?`),
     costSince: db.prepare(`select coalesce(sum(cost_usd), 0) as usd from team_shifts where role_id = ? and started_at >= ?`),
     shiftCost: db.prepare(`update team_shifts set cost_usd = cost_usd + ? where id = ?`),
-    proposals: db.prepare(`select x.*, r.name as role_name, p.slug as project_slug, p.name as project_name, u.name as decided_by_name
-      from team_proposals x join team_roles r on r.id = x.role_id join projects p on p.id = x.project_id left join users u on u.id = x.decided_by
+    proposals: db.prepare(`select x.*, r.name as role_name, p.slug as project_slug, p.name as project_name, u.name as decided_by_name, lr.name as decided_by_role_name
+      from team_proposals x join team_roles r on r.id = x.role_id join projects p on p.id = x.project_id
+      left join users u on u.id = x.decided_by left join team_roles lr on lr.id = x.decided_by_role
       where (?1 is null or x.project_id = ?1) and (case when ?2 = 'pending' then x.status = 'pending' else x.status != 'pending' end)
+      and (?4 is null or x.awaiting = ?4)
       order by x.id desc limit ?3`),
-    proposal: db.prepare(`select x.*, r.name as role_name, p.slug as project_slug, p.name as project_name, u.name as decided_by_name
-      from team_proposals x join team_roles r on r.id = x.role_id join projects p on p.id = x.project_id left join users u on u.id = x.decided_by
+    proposal: db.prepare(`select x.*, r.name as role_name, p.slug as project_slug, p.name as project_name, u.name as decided_by_name, lr.name as decided_by_role_name
+      from team_proposals x join team_roles r on r.id = x.role_id join projects p on p.id = x.project_id
+      left join users u on u.id = x.decided_by left join team_roles lr on lr.id = x.decided_by_role
       where x.id = ?`),
-    pendingCount: db.prepare(`select count(*) as n from team_proposals x join projects p on p.id = x.project_id where x.status = 'pending' and p.archived = 0`),
-    // Projects that have any proposals, with pending/decided counts and the latest; those with pending first, then most recent.
+    // People's badge: only proposals awaiting a person, not ones the lead can clear.
+    pendingCount: db.prepare(`select count(*) as n from team_proposals x join projects p on p.id = x.project_id where x.status = 'pending' and x.awaiting = 'people' and p.archived = 0`),
+    // Projects that have proposals a person must see: pending (awaiting people) or already decided. Pending first, then recent.
     proposalProjects: db.prepare(`select p.id as project_id, p.slug, p.name,
-      count(*) filter (where x.status = 'pending') as pending,
+      count(*) filter (where x.status = 'pending' and x.awaiting = 'people') as pending,
       count(*) filter (where x.status != 'pending') as decided,
+      count(*) filter (where x.status != 'pending' and x.decided_by_role is not null) as cleared,
       max(x.created_at) as last_at
       from team_proposals x join projects p on p.id = x.project_id where p.archived = 0
-      group by p.id, p.slug, p.name order by pending desc, last_at desc`),
-    // The distinct roles with a pending proposal, per project (for the avatars on each project's card).
+      group by p.id, p.slug, p.name having pending > 0 or decided > 0 order by pending desc, last_at desc`),
+    // The distinct roles with a proposal awaiting a person, per project (for the avatars on each project's card).
     proposalRoles: db.prepare(`select distinct x.project_id, r.id, r.name from team_proposals x join team_roles r on r.id = x.role_id
-      join projects p on p.id = x.project_id where x.status = 'pending' and p.archived = 0 order by r.id`),
-    insertProposal: db.prepare(`insert into team_proposals (project_id, role_id, kind, title, why, payload, expires_at) values (?, ?, ?, ?, ?, ?, ?) returning id`),
-    decide: db.prepare(`update team_proposals set status = ?, reply = ?, outcome = ?, decided_by = ?, decided_at = unixepoch() where id = ? and status = 'pending'`),
+      join projects p on p.id = x.project_id where x.status = 'pending' and x.awaiting = 'people' and p.archived = 0 order by r.id`),
+    insertProposal: db.prepare(`insert into team_proposals (project_id, role_id, kind, title, why, payload, expires_at, awaiting) values (?, ?, ?, ?, ?, ?, ?, ?) returning id`),
+    setProposalAwaiting: db.prepare(`update team_proposals set awaiting = ? where id = ?`),
+    decide: db.prepare(`update team_proposals set status = ?, reply = ?, outcome = ?, decided_by = ?, decided_by_role = ?, decided_at = unixepoch() where id = ? and status = 'pending'`),
     expire: db.prepare(`update team_proposals set status = 'expired', decided_at = unixepoch() where status = 'pending' and expires_at < ? returning id, role_id, title`),
     goals: db.prepare(`select g.*, r.name as owner_name from team_goals g left join team_roles r on r.id = g.owner_role_id
       where g.project_id = ? and (g.status = 'active' or g.updated_at > unixepoch() - 14 * 86400) order by g.status = 'active' desc, g.due is null, g.due, g.id`),
@@ -98,7 +106,8 @@ export function teamRepo(db: Db) {
     threads: db.prepare(`select t.*, r.name as owner_name, (select count(*) from team_messages m where m.thread_id = t.id) as messages,
       (select max(created_at) from team_messages m where m.thread_id = t.id) as last_at
       from team_threads t left join team_roles r on r.id = t.owner_role_id
-      where t.project_id = ?1 and (t.status = 'open' or t.updated_at > unixepoch() - 7 * 86400) order by t.status = 'open' desc, t.updated_at desc limit ?2`),
+      where t.project_id = ?1 and (t.status = 'open' or t.updated_at > unixepoch() - 7 * 86400)
+      order by t.status = 'open' desc, t.priority = 'blocker' desc, t.updated_at desc limit ?2`),
     thread: db.prepare(`select t.*, r.name as owner_name, (select count(*) from team_messages m where m.thread_id = t.id) as messages,
       (select max(created_at) from team_messages m where m.thread_id = t.id) as last_at
       from team_threads t left join team_roles r on r.id = t.owner_role_id where t.id = ?`),
@@ -111,7 +120,7 @@ export function teamRepo(db: Db) {
       and (?3 is null or t.closed_as = ?3)
       and (?4 is null or t.owner_role_id = ?4 or exists (select 1 from team_thread_roles tr where tr.thread_id = t.id and tr.role_id = ?4))
       and (?5 is null or instr(lower(t.title), lower(?5)) > 0)
-      order by case when t.status = 'resolved' then 2 when t.needs_people then 0 else 1 end, t.updated_at desc, t.id desc limit ?6 offset ?7`),
+      order by case when t.status = 'resolved' then 2 when t.priority = 'blocker' then -1 when t.needs_people then 0 else 1 end, t.updated_at desc, t.id desc limit ?6 offset ?7`),
     threadCounts: db.prepare(`select count(*) filter (where status = 'open') as open, count(*) filter (where status = 'open' and needs_people = 1) as waiting,
       count(*) filter (where status = 'resolved') as closed, count(*) as "all" from team_threads where project_id = ?`),
     openByTitle: db.prepare(`select id from team_threads where project_id = ? and status = 'open' and lower(trim(title)) = lower(trim(?))`),
@@ -120,12 +129,15 @@ export function teamRepo(db: Db) {
     threadState: db.prepare(`update team_threads set status = ?1, resolution = ?2, resolved_at = case when ?1 = 'resolved' then unixepoch() else null end,
       needs_people = case when ?1 = 'open' then 0 else needs_people end, closed_as = ?3, closed_by = ?4, updated_at = unixepoch() where id = ?5`),
     needsPeople: db.prepare(`update team_threads set needs_people = ? where id = ?`),
+    setThreadAsk: db.prepare(`update team_threads set ask = ? where id = ?`),
+    setThreadPriority: db.prepare(`update team_threads set priority = ? where id = ?`),
     threadRoles: db.prepare(`select r.id, r.name, tr.seen from team_thread_roles tr join team_roles r on r.id = tr.role_id where tr.thread_id = ?`),
     addThreadRole: db.prepare(`insert or ignore into team_thread_roles (thread_id, role_id) values (?, ?)`),
     seen: db.prepare(`update team_thread_roles set seen = ? where thread_id = ? and role_id = ?`),
-    roleThreads: db.prepare(`select t.id, t.title, t.status, t.needs_people, t.owner_role_id, tr.seen,
+    roleThreads: db.prepare(`select t.id, t.title, t.status, t.needs_people, t.priority, t.owner_role_id, tr.seen,
       (select max(id) from team_messages m where m.thread_id = t.id) as last_id
-      from team_thread_roles tr join team_threads t on t.id = tr.thread_id where tr.role_id = ? and t.status = 'open' order by t.updated_at desc`),
+      from team_thread_roles tr join team_threads t on t.id = tr.thread_id where tr.role_id = ? and t.status = 'open'
+      order by t.priority = 'blocker' desc, t.updated_at desc`),
     roleClosed: db.prepare(`select t.id, t.title, t.closed_as, t.closed_by, t.resolution from team_thread_roles tr join team_threads t on t.id = tr.thread_id
       where tr.role_id = ? and t.status = 'resolved' and t.resolved_at >= ? order by t.resolved_at desc limit 20`),
     messages: db.prepare(`select * from team_messages where thread_id = ? order by id`),
@@ -134,8 +146,9 @@ export function teamRepo(db: Db) {
     rolesSincePerson: db.prepare(`select count(*) as n from team_messages where thread_id = ?1 and author_role_id is not null
       and id > coalesce((select max(id) from team_messages where thread_id = ?1 and author_user_id is not null), 0)`),
     alertsToday: db.prepare(`select count(*) as n from team_messages where kind = 'alert' and author_label = ? and created_at >= ?`),
-    threadProposals: db.prepare(`select x.*, r.name as role_name, p.slug as project_slug, p.name as project_name, u.name as decided_by_name
-      from team_proposals x join team_roles r on r.id = x.role_id join projects p on p.id = x.project_id left join users u on u.id = x.decided_by
+    threadProposals: db.prepare(`select x.*, r.name as role_name, p.slug as project_slug, p.name as project_name, u.name as decided_by_name, lr.name as decided_by_role_name
+      from team_proposals x join team_roles r on r.id = x.role_id join projects p on p.id = x.project_id
+      left join users u on u.id = x.decided_by left join team_roles lr on lr.id = x.decided_by_role
       where x.thread_id = ? order by x.id`),
     setProposalThread: db.prepare(`update team_proposals set thread_id = ? where id = ?`),
     shiftThread: db.prepare(`update team_shifts set thread_id = ? where id = ?`),
@@ -150,6 +163,7 @@ export function teamRepo(db: Db) {
     brief: db.prepare(`select b.body, b.updated_at, u.name as updated_by from team_briefs b left join users u on u.id = b.updated_by where b.project_id = ?`),
     saveBrief: db.prepare(`insert into team_briefs (project_id, body, updated_by, updated_at) values (?1, ?2, ?3, unixepoch())
       on conflict(project_id) do update set body = ?2, updated_by = ?3, updated_at = unixepoch()`),
+    savePriorities: db.prepare(`update team_projects set priorities = ? where project_id = ?`),
     decisions: db.prepare(`select d.id, d.body, d.created_at, u.name as user_name, r.name as role_name from team_decisions d
       left join users u on u.id = d.user_id left join team_roles r on r.id = d.role_id where d.project_id = ? order by d.id desc limit ?`),
     addDecision: db.prepare(`insert into team_decisions (project_id, body, user_id, role_id) values (?, ?, ?, ?)`),
@@ -181,7 +195,7 @@ export function teamRepo(db: Db) {
   }
   return {
     project: (projectId: number) => plain<{
-      project_id: number; runs_as: number; enabled_at: number; paused: number; tz: string; activity_seen: number; username: string; name: string
+      project_id: number; runs_as: number; enabled_at: number; paused: number; tz: string; activity_seen: number; priorities: string; username: string; name: string
     }>(s.project.get(projectId)),
     projects: () => all<{ project_id: number; paused: number; tz: string; activity_seen: number; slug: string }>(s.projects.all()),
     projectSettings: (projectId: number, o: { paused?: boolean; tz?: string }) =>
@@ -196,15 +210,17 @@ export function teamRepo(db: Db) {
     autoShiftsSince: (roleId: number, since: number) => (s.autoShiftsSince.get(roleId, since) as { n: number }).n,
     costSince: (roleId: number, since: number) => (s.costSince.get(roleId, since) as { usd: number }).usd,
     addShiftCost: (shiftId: number, usd: number) => void s.shiftCost.run(usd, shiftId),
-    proposals: (projectId: number | null, status: 'pending' | 'decided', limit = 50) => all<ProposalRow>(s.proposals.all(projectId, status, limit)),
+    proposals: (projectId: number | null, status: 'pending' | 'decided', limit = 50, awaiting: 'people' | 'lead' | null = null) =>
+      all<ProposalRow>(s.proposals.all(projectId, status, limit, awaiting)),
     proposal: (id: number) => plain<ProposalRow>(s.proposal.get(id)),
     pendingCount: () => (s.pendingCount.get() as { n: number }).n,
-    proposalProjects: () => all<{ project_id: number; slug: string; name: string; pending: number; decided: number; last_at: number }>(s.proposalProjects.all()),
+    proposalProjects: () => all<{ project_id: number; slug: string; name: string; pending: number; decided: number; cleared: number; last_at: number }>(s.proposalProjects.all()),
     proposalRoles: () => all<{ project_id: number; id: number; name: string }>(s.proposalRoles.all()),
-    insertProposal: (p: { projectId: number; roleId: number; kind: ProposalKind; title: string; why: string; payload: object; expiresAt: number }) =>
-      (s.insertProposal.get(p.projectId, p.roleId, p.kind, p.title, p.why, JSON.stringify(p.payload), p.expiresAt) as { id: number }).id,
-    decide: (id: number, status: ProposalRow['status'], o: { reply?: string | null; outcome?: string | null; by: number | null }) =>
-      Number(s.decide.run(status, o.reply ?? null, o.outcome ?? null, o.by, id).changes) > 0,
+    insertProposal: (p: { projectId: number; roleId: number; kind: ProposalKind; title: string; why: string; payload: object; expiresAt: number; awaiting?: 'people' | 'lead' }) =>
+      (s.insertProposal.get(p.projectId, p.roleId, p.kind, p.title, p.why, JSON.stringify(p.payload), p.expiresAt, p.awaiting ?? 'people') as { id: number }).id,
+    setProposalAwaiting: (id: number, awaiting: 'people' | 'lead') => void s.setProposalAwaiting.run(awaiting, id),
+    decide: (id: number, status: ProposalRow['status'], o: { reply?: string | null; outcome?: string | null; by: number | null; byRole?: number | null }) =>
+      Number(s.decide.run(status, o.reply ?? null, o.outcome ?? null, o.by, o.byRole ?? null, id).changes) > 0,
     expire: (now: number) => all<{ id: number; role_id: number; title: string }>(s.expire.all(now)),
     goals: (projectId: number) => all<GoalRow>(s.goals.all(projectId)),
     goal: (id: number) => plain<GoalRow>(s.goal.get(id)),
@@ -227,11 +243,13 @@ export function teamRepo(db: Db) {
     threadState: (id: number, status: 'open' | 'resolved', resolution: string | null, closed?: { as: CloseAs; by: string }) =>
       void s.threadState.run(status, resolution, closed?.as ?? null, closed?.by ?? null, id),
     needsPeople: (id: number, on: boolean) => void s.needsPeople.run(on ? 1 : 0, id),
+    setThreadAsk: (id: number, ask: string | null) => void s.setThreadAsk.run(ask, id),
+    setThreadPriority: (id: number, priority: 'normal' | 'blocker') => void s.setThreadPriority.run(priority, id),
     threadRoles: (threadId: number) => all<{ id: number; name: string; seen: number }>(s.threadRoles.all(threadId)),
     addThreadRole: (threadId: number, roleId: number) => void s.addThreadRole.run(threadId, roleId),
     seen: (threadId: number, roleId: number, messageId: number) => void s.seen.run(messageId, threadId, roleId),
     roleThreads: (roleId: number) =>
-      all<{ id: number; title: string; status: string; needs_people: number; owner_role_id: number | null; seen: number; last_id: number | null }>(s.roleThreads.all(roleId)),
+      all<{ id: number; title: string; status: string; needs_people: number; priority: 'normal' | 'blocker'; owner_role_id: number | null; seen: number; last_id: number | null }>(s.roleThreads.all(roleId)),
     roleClosed: (roleId: number, since: number) =>
       all<{ id: number; title: string; closed_as: CloseAs | null; closed_by: string | null; resolution: string | null }>(s.roleClosed.all(roleId, since)),
     messages: (threadId: number) => all<MessageRow>(s.messages.all(threadId)),
@@ -254,6 +272,7 @@ export function teamRepo(db: Db) {
     disable: (projectId: number) => void s.disable.run(projectId),
     brief: (projectId: number) => plain<{ body: string; updated_at: number; updated_by: string | null }>(s.brief.get(projectId)),
     saveBrief: (projectId: number, body: string, userId: number | null) => void s.saveBrief.run(projectId, body, userId),
+    savePriorities: (projectId: number, body: string) => void s.savePriorities.run(body, projectId),
     decisions: (projectId: number, limit = 30) =>
       all<{ id: number; body: string; created_at: number; user_name: string | null; role_name: string | null }>(s.decisions.all(projectId, limit)),
     addDecision: (projectId: number, body: string, by: { userId?: number; roleId?: number }) =>
