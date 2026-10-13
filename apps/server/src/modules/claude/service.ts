@@ -121,6 +121,20 @@ export function toDto(s: SessionRow) {
 }
 export type SessionDto = ReturnType<typeof toDto>
 
+/** This session's own running total, summed from its saved answers: cost (Claude Code's cumulative), tokens and turns. */
+export function sumTurns(turns: TurnRow[]) {
+  let inputTokens = 0, outputTokens = 0, cacheReadTokens = 0, cacheWriteTokens = 0
+  for (const t of turns) {
+    inputTokens += t.input_tokens
+    outputTokens += t.output_tokens
+    cacheReadTokens += t.cache_read_tokens
+    cacheWriteTokens += t.cache_write_tokens
+  }
+  // Claude Code reports the running total on each result, so the last answer's is the session's cost to date.
+  return { cost: turns.length ? turns[turns.length - 1]!.cost_usd : 0, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, turns: turns.length }
+}
+export type SessionUsage = ReturnType<typeof sumTurns>
+
 /** claude-mem for one member, as their agent reports it (apps/agent/src/memory.ts). */
 export type MemoryHealth = {
   on: string[]
@@ -548,6 +562,9 @@ export function claudeService({ db, agents, hub, notify, projects, tailnetConnec
         viewers: hub.viewers(`session:${id}`), comments: repo.commentCount(id), writers: isOwner ? repo.writers(id) : [],
       }
     },
+
+    /** This session's own usage so far (cost + tokens + turns). Same visibility as any other session read. */
+    sessionUsage: (user: User, id: string) => (find(user, id), sumTurns(repo.turns(id))),
 
     async create(user: User, input: {
       prompt: string; images: Image[]; cwd: string; profile: string; model: string | null; effort: string | null

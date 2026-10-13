@@ -5,7 +5,8 @@ import { createHub } from '../../core/hub.ts'
 import type { AgentsService } from '../agents/service.ts'
 import type { User } from '../auth/repo.ts'
 import type { ProjectsService } from '../projects/service.ts'
-import { claudeService, checkTailnetMcp, isTailnetHost } from './service.ts'
+import { claudeService, checkTailnetMcp, isTailnetHost, sumTurns } from './service.ts'
+import type { TurnRow } from './repo.ts'
 
 function setup({ tailnetConnected }: { tailnetConnected?: (userId: number) => boolean } = {}) {
   const db = openDb(':memory:')
@@ -213,4 +214,18 @@ test('new sessions in a project start out as the project says, unless the person
 
   const watch = inProject('shared')
   assert.deepEqual(sharing(await watch.claude.create(watch.ann, base)), [true, false])
+})
+
+test('sumTurns: session total is the last answer’s cumulative cost, with tokens and turns summed', () => {
+  const turn = (over: Partial<TurnRow>): TurnRow => ({
+    session_id: 's1', result_uuid: 'r', after_uuid: null, prompt_uuid: null, ok: 1, duration_ms: 0,
+    cost_usd: 0, turn_cost_usd: 0, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0,
+    num_turns: 1, model: null, created_at: 0, ...over,
+  })
+  assert.deepEqual(sumTurns([]), { cost: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, turns: 0 })
+  const total = sumTurns([
+    turn({ cost_usd: 0.1, input_tokens: 10, output_tokens: 2, cache_read_tokens: 100, cache_write_tokens: 5 }),
+    turn({ cost_usd: 0.3, input_tokens: 20, output_tokens: 4, cache_read_tokens: 200, cache_write_tokens: 7 }),
+  ])
+  assert.deepEqual(total, { cost: 0.3, inputTokens: 30, outputTokens: 6, cacheReadTokens: 300, cacheWriteTokens: 12, turns: 2 })
 })
