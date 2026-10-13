@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Activity, ArrowLeftRight, ChevronRight, Download, Globe, HardDrive, Inbox, KeyRound, LogOut, Network, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Users } from 'lucide-react'
+import { Activity, ArrowLeftRight, ChevronRight, Download, Globe, HardDrive, Inbox, KeyRound, LogOut, Network, PocketKnife, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Users } from 'lucide-react'
 import { initials } from '@/components/app/brand'
 import { PageBody, PageHeader, Section } from '@/components/app/page'
 import { useSignOut } from '@/components/app/shell'
@@ -14,6 +14,7 @@ import { setTheme, useTheme, type ThemePref } from '@/lib/theme'
 
 const LINKS = [
   { to: '/approvals', label: 'Approvals', description: 'What your AI team wants to do that needs a person', icon: Inbox }, // Team
+  { to: '/tools', label: 'Tools', description: 'Offline developer utilities — JSON, base64, cron and more', icon: PocketKnife },
   { to: '/vault', label: 'Vault', description: 'Passwords and 2FA codes, encrypted on your device', icon: KeyRound },
   { to: '/network', label: 'Network', description: 'Reach your own devices over your private tailnet', icon: Network },
   { to: '/notes', label: 'Notes', description: 'Decisions, setup steps and links for the team', icon: StickyNote },
