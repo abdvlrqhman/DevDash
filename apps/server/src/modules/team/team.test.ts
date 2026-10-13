@@ -532,6 +532,33 @@ test('advisors only suggest; goals are proposed, approved and updated by the rol
   assert.match(team.role(ceo.id).notebook[0]!.body, /Expired without an answer/)
 })
 
+test('approvals landing: projects that have proposals, with per-project counts, the waiting roles, and pending-first ordering', async (t) => {
+  const { team, db, youssef } = setup()
+  t.after(() => team.stop())
+  team.enable(youssef, 'seevil')
+  const cto = team.createRole(youssef, 'seevil', { name: 'CTO', summary: '', instructions: '', model: null })
+  const pm = team.createRole(youssef, 'seevil', { name: 'Product', summary: '', instructions: '', model: null })
+  await team.propose(cto.id, { kind: 'code', title: 'A', why: 'x', prompt: 'do A' }) // pending
+  await team.propose(pm.id, { kind: 'goal', title: 'B', why: 'y', goal: { title: 'B' } }) // pending
+  await team.propose(cto.id, { kind: 'other', title: 'C', why: 'z' }) // becomes decided below
+  const c = team.approvals('pending', 'seevil').find((p) => p.title === 'C')!
+  await team.decide(youssef, c.id, false, 'no')
+
+  // A second project, with one pending proposal from a role of its own.
+  db.prepare("insert into projects (id, slug, name, created_by) values (2, 'oss', 'OSS', 1)").run()
+  const qa = (db.prepare("insert into team_roles (project_id, name, summary, instructions, model, created_by) values (2, 'QA', '', '', null, 1) returning id").get() as { id: number }).id
+  db.prepare("insert into team_proposals (project_id, role_id, kind, title, why, payload, expires_at) values (2, ?, 'code', 'Q', 'w', '{}', 9999999999)").run(qa)
+
+  const projects = team.approvalProjects()
+  assert.deepEqual(projects.map((p) => p.slug), ['seevil', 'oss']) // most pending first
+  const [seevil, oss] = projects
+  assert.deepEqual({ pending: seevil!.pending, decided: seevil!.decided }, { pending: 2, decided: 1 })
+  assert.deepEqual(seevil!.roles.map((r) => r.name).sort(), ['CTO', 'Product']) // only roles with a pending proposal
+  assert.ok(seevil!.lastAt > 0)
+  assert.deepEqual({ pending: oss!.pending, decided: oss!.decided }, { pending: 1, decided: 0 })
+  assert.deepEqual(oss!.roles.map((r) => r.name), ['QA'])
+})
+
 test('a project\'s Claude page shows each role\'s chat and shifts, unlisted as they are, named after the role', async (t) => {
   const { team, db, claude, youssef, abdo } = setup()
   t.after(() => team.stop())

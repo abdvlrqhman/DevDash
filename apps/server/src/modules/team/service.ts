@@ -846,6 +846,18 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
     approvals: (status: 'pending' | 'decided', slug?: string) =>
       repo.proposals(slug ? projects.bySlug(slug).id : null, status, status === 'pending' ? 200 : 40).map(proposalDto),
     pendingCount: () => repo.pendingCount(),
+    /** Each project with any proposals: how many wait, how many are decided, who's waiting, and when it last stirred. */
+    approvalProjects() {
+      const byProject = new Map<number, { id: number; name: string }[]>()
+      for (const r of repo.proposalRoles()) {
+        const list = byProject.get(r.project_id) ?? []
+        list.push({ id: r.id, name: r.name })
+        byProject.set(r.project_id, list)
+      }
+      return repo.proposalProjects().map((p) => ({
+        slug: p.slug, name: p.name, pending: p.pending, decided: p.decided, lastAt: p.last_at, roles: byProject.get(p.project_id) ?? [],
+      }))
+    },
     /** A person answers a proposal. Either way the role finds the answer (and the reason) in its notebook. */
     async decide(user: User, id: number, approve: boolean, reply: string) {
       const x = repo.proposal(id)

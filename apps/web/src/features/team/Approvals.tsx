@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
-import { Check, X } from 'lucide-react'
+import { Link, useParams } from '@tanstack/react-router'
+import { Check, ChevronRight, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { PageBody, PageHeader } from '@/components/app/page'
+import { PageBody, PageHeader, Section } from '@/components/app/page'
 import { Button } from '@/components/ui/button'
 import { SidebarMenuBadge } from '@/components/ui/sidebar'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils'
 import { ErrorAlert } from '../auth/LoginPage'
 import { relativeTime } from '../claude/data'
 import { Prose } from '../claude/Prose'
-import { approvalsCountQuery, approvalsQuery, KIND_LABELS, useLiveTeam, type Proposal } from './data'
+import { approvalProjectsQuery, approvalsCountQuery, approvalsQuery, KIND_LABELS, useLiveTeam, type ApprovalProject, type Proposal } from './data'
 import { RoleMark } from './TeamTab'
 
 /** What a role wants to do that needs a person: approve, reject, or reply with what you think. */
@@ -89,30 +89,92 @@ export function ProposalCard({ x, showProject = true }: { x: Proposal; showProje
   )
 }
 
-/** Everything waiting for the team, across projects. */
+/** One project's card on the Approvals landing: how many wait, how many are done, and who's waiting. */
+function ProjectCard({ p }: { p: ApprovalProject }) {
+  return (
+    <Link to="/approvals/$slug" params={{ slug: p.slug }}
+      className={cn('flex flex-col gap-3 rounded-xl border p-4 transition-colors hover:bg-accent/40', p.pending > 0 && 'border-attention/40')}>
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="truncate font-medium">{p.name}</div>
+          <div className="mt-0.5 truncate text-xs text-muted-foreground">
+            {p.decided > 0 && `${p.decided} decided · `}latest {relativeTime(p.lastAt)}
+          </div>
+        </div>
+        {p.pending > 0
+          ? <span className="shrink-0 rounded-full bg-attention-soft px-2.5 py-0.5 text-xs font-semibold text-attention-foreground">{p.pending} waiting</span>
+          : <span className="shrink-0 rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground">All clear</span>}
+        <ChevronRight className="-mr-1 size-4 shrink-0 text-muted-foreground" />
+      </div>
+      {p.roles.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+          {p.roles.map((r) => (
+            <span key={r.id} className="flex items-center gap-1.5">
+              <RoleMark id={r.id} name={r.name} className="size-6 rounded-md text-[9px]" />
+              <span className="text-muted-foreground">{r.name}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </Link>
+  )
+}
+
+/** The projects your AI team needs a person for: open one to answer its approvals. */
 export function ApprovalsPage() {
   useLiveTeam()
-  const pending = useQuery(approvalsQuery('pending'))
-  const decided = useQuery(approvalsQuery('decided'))
+  const q = useQuery(approvalProjectsQuery)
   return (
     <>
-      <PageHeader title="Approvals" description="What your AI team wants to do that needs a person" />
+      <PageHeader title="Approvals" description="Projects your AI team needs a person for" />
       <PageBody>
-        <ErrorAlert error={pending.error} />
-        {!pending.data ? <Skeleton className="h-48" /> : pending.data.proposals.length ? (
-          <div className="flex max-w-3xl flex-col gap-3">
-            {pending.data.proposals.map((x) => <ProposalCard key={x.id} x={x} />)}
+        <ErrorAlert error={q.error} />
+        {!q.data ? <Skeleton className="h-40" /> : q.data.projects.length ? (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {q.data.projects.map((p) => <ProjectCard key={p.slug} p={p} />)}
           </div>
         ) : (
           <p className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
             Nothing waiting. When a role wants a coding job, a new goal, or something only people can do, it shows up here and on your phone.
           </p>
         )}
-        {!!decided.data?.proposals.length && (
-          <section className="flex max-w-3xl flex-col gap-3">
-            <h2 className="mt-4 text-sm font-semibold">Recently decided</h2>
-            {decided.data.proposals.map((x) => <ProposalCard key={x.id} x={x} />)}
-          </section>
+      </PageBody>
+    </>
+  )
+}
+
+/** One project's approvals: what's unanswered up top, with the decided ones tucked away below. */
+export function ApprovalsProjectPage() {
+  const { slug } = useParams({ from: '/app/approvals/$slug' })
+  useLiveTeam()
+  const pending = useQuery(approvalsQuery('pending', slug))
+  const decided = useQuery(approvalsQuery('decided', slug))
+  const name = pending.data?.proposals[0]?.project.name ?? decided.data?.proposals[0]?.project.name ?? slug
+  const waiting = pending.data?.proposals ?? []
+  const done = decided.data?.proposals ?? []
+  return (
+    <>
+      <PageHeader title={name} description="Approvals" back="/approvals" />
+      <PageBody>
+        <ErrorAlert error={pending.error} />
+        {!pending.data ? <Skeleton className="h-48" /> : (
+          <Section title={waiting.length ? `Pending (${waiting.length})` : 'Pending'} description="Unanswered — waiting for a person.">
+            {waiting.length ? (
+              <div className="flex max-w-3xl flex-col gap-3">
+                {waiting.map((x) => <ProposalCard key={x.id} x={x} showProject={false} />)}
+              </div>
+            ) : (
+              <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">Nothing waiting in this project.</p>
+            )}
+          </Section>
+        )}
+        {done.length > 0 && (
+          <details className="max-w-3xl rounded-xl border">
+            <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">Completed approvals ({done.length})</summary>
+            <div className="flex flex-col gap-3 px-4 pb-4">
+              {done.map((x) => <ProposalCard key={x.id} x={x} showProject={false} />)}
+            </div>
+          </details>
         )}
       </PageBody>
     </>

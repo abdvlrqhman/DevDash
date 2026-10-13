@@ -12,15 +12,21 @@ export const roleQuery = (id: number) => queryOptions({
   queryFn: () => unwrap(api.api.team.roles[':id'].$get({ param: { id: String(id) } })),
 })
 
-export const approvalsQuery = (status: 'pending' | 'decided') => queryOptions({
-  queryKey: ['team', 'approvals', status],
-  queryFn: () => unwrap(api.api.team.approvals.$get({ query: { status } })),
+export const approvalsQuery = (status: 'pending' | 'decided', project?: string) => queryOptions({
+  queryKey: ['team', 'approvals', status, project ?? null],
+  queryFn: () => unwrap(api.api.team.approvals.$get({ query: { status, project } })),
 })
 export const approvalsCountQuery = queryOptions({
   queryKey: ['team', 'approvals', 'count'],
   queryFn: () => unwrap(api.api.team.approvals.count.$get()),
   staleTime: 30_000,
 })
+/** The projects that have approvals, each with its pending/decided counts and the roles waiting. */
+export const approvalProjectsQuery = queryOptions({
+  queryKey: ['team', 'approvals', 'projects'],
+  queryFn: () => unwrap(api.api.team.approvals.projects.$get()),
+})
+export type ApprovalProject = InferResponseType<typeof api.api.team.approvals.projects['$get']>['projects'][number]
 export type Proposal = InferResponseType<typeof api.api.team.approvals['$get']>['proposals'][number]
 export const threadQuery = (id: number) => queryOptions({
   queryKey: ['team', 'thread', id],

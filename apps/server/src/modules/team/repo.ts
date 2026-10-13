@@ -73,6 +73,16 @@ export function teamRepo(db: Db) {
       from team_proposals x join team_roles r on r.id = x.role_id join projects p on p.id = x.project_id left join users u on u.id = x.decided_by
       where x.id = ?`),
     pendingCount: db.prepare(`select count(*) as n from team_proposals x join projects p on p.id = x.project_id where x.status = 'pending' and p.archived = 0`),
+    // Projects that have any proposals, with pending/decided counts and the latest; those with pending first, then most recent.
+    proposalProjects: db.prepare(`select p.id as project_id, p.slug, p.name,
+      count(*) filter (where x.status = 'pending') as pending,
+      count(*) filter (where x.status != 'pending') as decided,
+      max(x.created_at) as last_at
+      from team_proposals x join projects p on p.id = x.project_id where p.archived = 0
+      group by p.id, p.slug, p.name order by pending desc, last_at desc`),
+    // The distinct roles with a pending proposal, per project (for the avatars on each project's card).
+    proposalRoles: db.prepare(`select distinct x.project_id, r.id, r.name from team_proposals x join team_roles r on r.id = x.role_id
+      join projects p on p.id = x.project_id where x.status = 'pending' and p.archived = 0 order by r.id`),
     insertProposal: db.prepare(`insert into team_proposals (project_id, role_id, kind, title, why, payload, expires_at) values (?, ?, ?, ?, ?, ?, ?) returning id`),
     decide: db.prepare(`update team_proposals set status = ?, reply = ?, outcome = ?, decided_by = ?, decided_at = unixepoch() where id = ? and status = 'pending'`),
     expire: db.prepare(`update team_proposals set status = 'expired', decided_at = unixepoch() where status = 'pending' and expires_at < ? returning id, role_id, title`),
@@ -189,6 +199,8 @@ export function teamRepo(db: Db) {
     proposals: (projectId: number | null, status: 'pending' | 'decided', limit = 50) => all<ProposalRow>(s.proposals.all(projectId, status, limit)),
     proposal: (id: number) => plain<ProposalRow>(s.proposal.get(id)),
     pendingCount: () => (s.pendingCount.get() as { n: number }).n,
+    proposalProjects: () => all<{ project_id: number; slug: string; name: string; pending: number; decided: number; last_at: number }>(s.proposalProjects.all()),
+    proposalRoles: () => all<{ project_id: number; id: number; name: string }>(s.proposalRoles.all()),
     insertProposal: (p: { projectId: number; roleId: number; kind: ProposalKind; title: string; why: string; payload: object; expiresAt: number }) =>
       (s.insertProposal.get(p.projectId, p.roleId, p.kind, p.title, p.why, JSON.stringify(p.payload), p.expiresAt) as { id: number }).id,
     decide: (id: number, status: ProposalRow['status'], o: { reply?: string | null; outcome?: string | null; by: number | null }) =>

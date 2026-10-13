@@ -111,6 +111,7 @@ export function teamRoutes(team: TeamService | null, mw: ReturnType<typeof authM
       return c.json({ proposals: t().approvals(status, project) })
     })
     .get('/approvals/count', (c) => c.json({ pending: team ? team.pendingCount() : 0 }))
+    .get('/approvals/projects', (c) => c.json({ projects: t().approvalProjects() }))
     .post('/proposals/:id/decide', json(z.object({ approve: z.boolean(), reply: z.string().max(4000).default('') })), async (c) => {
       const { approve, reply } = c.req.valid('json')
       return c.json({ proposal: await t().decide(c.get('user'), id(c.req.param('id')), approve, reply) })
