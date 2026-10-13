@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { ErrorAlert } from '../auth/LoginPage'
 import { bytes } from '../files/FilesPage'
 import { commandsQuery } from './data'
+import { loadDraft, saveDraft } from './draft'
 
 export type Img = { mediaType: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp'; data: string }
 /** Any other file: PDFs and text go to Claude as documents, anything else is saved on the server for Claude to open. */
@@ -55,7 +56,17 @@ export function Composer({ sessionId, profile, working, disabledReason, footer, 
   onSend: (text: string, images: Img[], files: Doc[]) => Promise<unknown>
   onStop: () => void
 }) {
-  const [text, setText] = useState('')
+  // The text draft is kept per session (see draft.ts): restore this session's on mount, and keep it written as it
+  // changes so switching away and back doesn't lose it. Attachments stay in memory — they're blobs, not worth saving.
+  const [text, setText] = useState(() => loadDraft(sessionId))
+  const draftFor = useRef(sessionId)
+  const write = (next: string) => { setText(next); saveDraft(sessionId, next) }
+  // Swap in the right draft only when the session id actually changes, so we never clobber a newer one with a load.
+  useEffect(() => {
+    if (draftFor.current === sessionId) return
+    draftFor.current = sessionId
+    setText(loadDraft(sessionId))
+  }, [sessionId])
   const [caret, setCaret] = useState(0)
   const [images, setImages] = useState<Img[]>([])
   const [files, setFiles] = useState<Doc[]>([])
@@ -86,7 +97,7 @@ export function Composer({ sessionId, profile, working, disabledReason, footer, 
 
   const insert = (value: string, start: number, end: number) => {
     const next = text.slice(0, start) + value + text.slice(end)
-    setText(next)
+    write(next)
     const at = start + value.length
     setCaret(at)
     requestAnimationFrame(() => {
@@ -144,21 +155,25 @@ export function Composer({ sessionId, profile, working, disabledReason, footer, 
     }
   }
   const empty = !text.trim() && !images.length && !files.length
-  const submit = async () => {
+  const submit = () => {
     if (sending || empty || disabledReason) return
+    const sent = { text, images, files }
     setSending(true)
     setError(null)
-    try {
-      await onSend(text, images, files)
-      setText('')
-      setImages([])
-      setFiles([])
-    } catch (e) {
-      setError(e)
-    } finally {
-      setSending(false)
-      area.current?.focus()
-    }
+    // Dispatch the POST first and synchronously (hono fires the fetch on the call, before it awaits), so an immediate
+    // session switch that unmounts us can't pre-empt it. Clear the box right away so the text can't reappear, but keep
+    // the stored draft until the server has it — if the send fails we put everything back and show why.
+    const posting = onSend(sent.text, sent.images, sent.files)
+    setText('')
+    setImages([])
+    setFiles([])
+    posting.then(
+      () => { saveDraft(sessionId, ''); setSending(false); area.current?.focus() },
+      (e: unknown) => {
+        write(sent.text); setImages(sent.images); setFiles(sent.files)
+        setError(e); setSending(false); area.current?.focus()
+      },
+    )
   }
   const onKey = (e: KeyboardEvent) => {
     if (items.length) {
@@ -167,7 +182,7 @@ export function Composer({ sessionId, profile, working, disabledReason, footer, 
       if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) { e.preventDefault(); items[Math.min(sel, items.length - 1)]!.apply(); return }
       if (e.key === 'Escape') {
         e.preventDefault()
-        if (text.startsWith('/')) setText('')
+        if (text.startsWith('/')) write('')
         else setDismissed(mentionKey)
         return
       }
@@ -181,7 +196,7 @@ export function Composer({ sessionId, profile, working, disabledReason, footer, 
     // Enter sends on a keyboard; on phones Enter adds a line and the button sends.
     if (e.key === 'Enter' && !e.shiftKey && !matchMedia('(pointer: coarse)').matches) {
       e.preventDefault()
-      void submit()
+      submit()
     }
   }
   const onPaste = (e: ClipboardEvent) => {
@@ -242,7 +257,7 @@ export function Composer({ sessionId, profile, working, disabledReason, footer, 
         </div>
       )}
       <Textarea ref={area} value={text} rows={1} onKeyDown={onKey} onPaste={onPaste} aria-label="Message Claude"
-        onChange={(e) => { setText(e.target.value); setCaret(e.target.selectionStart) }}
+        onChange={(e) => { write(e.target.value); setCaret(e.target.selectionStart) }}
         onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
         placeholder={working ? 'Add a message for Claude' : 'Message Claude, @ to mention a file'}
         className="max-h-[40vh] min-h-9 resize-none rounded-none border-0 bg-transparent px-1.5 py-1 text-base leading-6 shadow-none [field-sizing:content] placeholder:truncate focus-visible:ring-0 md:text-sm md:leading-6 dark:bg-transparent" />
@@ -257,7 +272,7 @@ export function Composer({ sessionId, profile, working, disabledReason, footer, 
           </Button>
         )}
         {(!working || !empty) && (
-          <Button size="icon" className="size-9 shrink-0 rounded-full" aria-label={working ? 'Send after Claude finishes' : 'Send'} disabled={sending || empty} onClick={() => void submit()}><ArrowUp /></Button>
+          <Button size="icon" className="size-9 shrink-0 rounded-full" aria-label={working ? 'Send after Claude finishes' : 'Send'} disabled={sending || empty} onClick={submit}><ArrowUp /></Button>
         )}
       </div>
       </div>
