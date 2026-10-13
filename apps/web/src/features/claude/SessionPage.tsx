@@ -293,8 +293,8 @@ function SessionView({ id }: { id: string }) {
       {isOwner && <RenameDialog open={settings} onOpenChange={setSettings} s={s} onSave={(title) => update.mutate({ title })} />}
       {isOwner && <TailnetDialog open={tailnet} onOpenChange={setTailnet} s={s} onUpdate={(v) => update.mutateAsync(v)} />}
       {isOwner && (
-        <ResponsiveDialog open={usage} onOpenChange={setUsage} title="Plan usage" description="Your Claude plan's limits, the same as /usage in Claude Code.">
-          <PlanUsage profile={s.profile} className="pb-2 text-sm" />
+        <ResponsiveDialog open={usage} onOpenChange={setUsage} title="Usage" description="This session's own cost and tokens, and your Claude plan's limits (the same as /usage in Claude Code).">
+          <PlanUsage profile={s.profile} sessionId={s.id} className="pb-2 text-sm" />
         </ResponsiveDialog>
       )}
     </div>
@@ -398,8 +398,8 @@ function SessionAside({ s, blocks, isOwner }: { s: Session; blocks: ReturnType<t
       </section>
       {isOwner && (
         <section className="flex flex-col gap-2">
-          <h2 className="font-medium">Plan usage</h2>
-          <PlanUsage profile={s.profile} />
+          <h2 className="font-medium">Usage</h2>
+          <PlanUsage profile={s.profile} sessionId={s.id} />
         </section>
       )}
       <section className="flex flex-col gap-2">
@@ -531,7 +531,7 @@ function SessionMenu({ s, isOwner, canSend, writers, onUpdate, onRename, onUsage
         {isOwner ? (
           <>
             <DropdownMenuItem onSelect={onRename}><Pencil />Rename</DropdownMenuItem>
-            <DropdownMenuItem onSelect={onUsage}><Gauge />Plan usage</DropdownMenuItem>
+            <DropdownMenuItem onSelect={onUsage}><Gauge />Usage</DropdownMenuItem>
             <DropdownMenuItem onSelect={onTailnet}><Network />Reach my tailnet{s.reachTailnet ? ' · on' : ''}</DropdownMenuItem>
             <DropdownMenuSeparator />
             <div className="flex items-center justify-between gap-3 px-2 py-1.5 text-sm">
