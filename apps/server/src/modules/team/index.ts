@@ -5,7 +5,7 @@ import type { Hub } from '../../core/hub.ts'
 import type { ActivityService } from '../activity/service.ts'
 import type { AgentsService } from '../agents/service.ts'
 import type { authMiddleware } from '../auth/routes.ts'
-import type { ClaudeService, SessionLabel } from '../claude/service.ts'
+import type { ClaudeService, SessionLabel, TurnEnd } from '../claude/service.ts'
 import type { NotificationKind } from '../notifications/service.ts'
 import type { ProjectsService } from '../projects/service.ts'
 import type { TasksService } from '../tasks/service.ts'
@@ -29,6 +29,8 @@ export function teamPlugin(deps: {
   notify: (userId: number, kind: NotificationKind, n: { title: string; body?: string; url?: string; tag?: string }) => Promise<void>
   masterKey: Buffer
   mw: ReturnType<typeof authMiddleware>
+  /** Reviews: an approved code proposal's session went quiet — check its branch for shippable work (Ready to review). */
+  onProposalIdle?: (s: TurnEnd['session']) => void
 }) {
   const on = process.env.DEVDASH_TEAM !== '0'
   // Even with Team off: they are still role sessions, not a person's.

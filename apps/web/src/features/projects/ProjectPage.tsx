@@ -25,6 +25,7 @@ import { repoLabel } from './ProjectsPage'
 import { BuildsTab } from '../builds/BuildsTab'
 import { api, unwrap } from '@/lib/api'
 import { TeamTab } from '../team/TeamTab' // Team (optional): docs/REMOVING-TEAM.md
+import { deliveriesQuery, ReadyToReview, useLiveDeliveries } from './ReadyToReview'
 
 /** Keyed by the URL, so moving to another one starts from a clean slate. */
 export function ProjectPage() {
@@ -38,6 +39,8 @@ function ProjectPageView() {
   const qc = useQueryClient()
   const q = useQuery(projectQuery(slug))
   const tasks = useQuery(tasksQuery({ project: slug }))
+  useLiveDeliveries(slug)
+  const readyCount = useQuery(deliveriesQuery(slug)).data?.readyCount ?? 0
   const [session, setSession] = useState(false)
   // Coming back to a project (from a task, a run or a role) opens the tab you left.
   const [tab, setTabState] = useState(() => { try { return sessionStorage.getItem(`project-tab:${slug}`) ?? 'overview' } catch { return 'overview' } })
@@ -74,7 +77,7 @@ function ProjectPageView() {
 
         <Tabs value={tab} onValueChange={setTab} className="gap-4">
           <TabsList variant="line">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="overview">Overview{readyCount > 0 && <TabCount>{readyCount}</TabCount>}</TabsTrigger>
             <TabsTrigger value="tasks">Tasks{p.openTasks > 0 && <TabCount>{p.openTasks}</TabCount>}</TabsTrigger>
             <TabsTrigger value="notes">Notes</TabsTrigger>
             <TabsTrigger value="sessions">
@@ -87,7 +90,7 @@ function ProjectPageView() {
             <TabsTrigger value="activity">Activity</TabsTrigger>
           </TabsList>
           <TabsContent value="overview">
-            <Overview slug={slug} live={p.live} tasks={tasks.data?.tasks} onTab={setTab} onNew={() => setSession(true)} />
+            <Overview slug={slug} live={p.live} tasks={tasks.data?.tasks} isGithub={/github\.com/.test(p.repoUrl ?? '')} onTab={setTab} onNew={() => setSession(true)} />
           </TabsContent>
           <TabsContent value="tasks">
             <ErrorAlert error={tasks.error} />
@@ -308,8 +311,8 @@ function SharingDefault({ slug, sharing }: { slug: string; sharing: SessionShari
 }
 
 /** The project at a glance: whose Claude is on it now, where the tasks stand, the latest commits and activity. */
-function Overview({ slug, live, tasks, onTab, onNew }: {
-  slug: string; live: { working: number; waiting: number; people: string[] }; tasks: Task[] | undefined
+function Overview({ slug, live, tasks, isGithub, onTab, onNew }: {
+  slug: string; live: { working: number; waiting: number; people: string[] }; tasks: Task[] | undefined; isGithub: boolean
   onTab: (tab: string) => void; onNew: () => void
 }) {
   useLiveProjectSessions(slug)
@@ -324,6 +327,7 @@ function Overview({ slug, live, tasks, onTab, onNew }: {
   const activity = useQuery(activityQuery(slug))
   return (
     <div className="grid gap-4 md:grid-cols-2">
+      <ReadyToReview slug={slug} isGithub={isGithub} className="md:col-span-2" />
       <Card title="Claude right now" className="md:col-span-2" action={<Button size="sm" variant="outline" onClick={onNew}><Plus />New session</Button>}>
         {active.length > 0 && <SessionList sessions={active} expand />}
         {hidden > 0 && (

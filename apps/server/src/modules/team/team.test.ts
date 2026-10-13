@@ -48,13 +48,15 @@ function setup() {
   const tasks = tasksService({ db, hub, activity, search: searchService({ db }) })
   const notified: { userId: number; title: string }[] = []
   const claude = claudeService({ db, agents, hub, projects, notify: async () => {} })
+  const proposalIdle: { id: string; origin_kind: string | null }[] = []
   const team = teamService({
     db, hub, claude, projects, activity, tasks, notify: async (userId, _k, n) => void notified.push({ userId, title: n.title }),
     agents, masterKey: Buffer.alloc(32, 7), digestAfterMs: 60_000, tickMs: 3_600_000,
+    onProposalIdle: (s) => void proposalIdle.push(s),
   })
   const user = (id: number, name: string): User => ({ id, name, username: name === 'Youssef' ? 'youssef' : 'abdo', email: '', role: 'admin' })
   return {
-    db, sent, replies, claude, team, tasks, notified, youssef: user(1, 'Youssef'), abdo: user(2, 'Abdulrahman'),
+    db, sent, replies, claude, team, tasks, notified, proposalIdle, youssef: user(1, 'Youssef'), abdo: user(2, 'Abdulrahman'),
     event: (u: string, ev: AgentEvent) => onEvent(u, ev),
   }
 }
@@ -93,6 +95,24 @@ test('a role works a shift: its own unlisted session, read-only tools, a report,
   assert.equal(after.shifts[0]!.report, 'Launch checklist 7 of 10.') // the report it wrote, not its last words
   assert.equal(after.notebook[0]!.body, 'Crash-free rate is 97.2% (Play Console, Oct 10).')
   assert.equal(after.notebook[0]!.by, null)
+})
+
+test('a finished code-proposal session hands off to the reviews module (onProposalIdle); a plain one does not', async (t) => {
+  const { team, claude, db, proposalIdle, event, youssef } = setup()
+  t.after(() => team.stop())
+  // A session born of an approved code proposal: origin=proposal, on its own worktree branch.
+  const code = await claude.create(youssef, {
+    prompt: 'Build it', images: [], cwd: '', profile: 'default', model: null, effort: null, permissionMode: 'dontAsk', mode: 'chat', project: 'seevil',
+  }, { origin: { kind: 'proposal', role: 'CTO' }, listed: false })
+  db.prepare('update claude_sessions set worktree = ? where id = ?').run('/srv/devdash/worktrees/seevil/abc12345', code.id)
+  // A plain person's session in the same project.
+  const plain = await claude.create(youssef, {
+    prompt: 'Chat', images: [], cwd: '', profile: 'default', model: null, effort: null, permissionMode: 'default', mode: 'chat', project: 'seevil',
+  })
+  event('youssef', { ev: 'claude.msg', id: code.id, msg: { type: 'result', subtype: 'success', result: 'Done.' } })
+  event('youssef', { ev: 'claude.msg', id: plain.id, msg: { type: 'result', subtype: 'success', result: 'Done.' } })
+  assert.deepEqual(proposalIdle.map((s) => s.id), [code.id]) // only the proposal session, and with its row loaded
+  assert.equal(proposalIdle[0]!.origin_kind, 'proposal')
 })
 
 test('one shared chat per role that teammates can type in; edited instructions reach it', async (t) => {

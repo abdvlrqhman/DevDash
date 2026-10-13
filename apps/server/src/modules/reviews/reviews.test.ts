@@ -1,0 +1,144 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { openDb } from '../../core/db.ts'
+import { createHub } from '../../core/hub.ts'
+import type { AgentEvent, AgentsService } from '../agents/service.ts'
+import type { User } from '../auth/repo.ts'
+import { claudeRepo } from '../claude/repo.ts'
+import { claudeService } from '../claude/service.ts'
+import type { ProjectsService } from '../projects/service.ts'
+import { reviewsService } from './service.ts'
+
+// record() is what the team module's onProposalIdle callback calls when an approved code proposal's session goes quiet
+// (team owns that detection; the boundary test keeps Team unimported here). We drive it directly.
+const WORKTREE = '/srv/devdash/worktrees/seevil/abc12345'
+const youssef: User = { id: 1, name: 'Youssef', username: 'youssef', email: '', role: 'admin' }
+
+function setup(repoUrl: string | null = 'https://github.com/acme/seevil.git') {
+  const db = openDb(':memory:')
+  db.prepare("insert into users (id, email, username, name, password_hash, totp_secret, role) values (1, 'y@x.io', 'youssef', 'Youssef', 'x', 'x', 'admin')").run()
+  db.prepare("insert into projects (id, slug, name, created_by) values (1, 'seevil', 'Seevil', 1)").run()
+  const sent: Record<string, unknown>[] = []
+  const replies: Record<string, unknown> = {
+    'git.branchStat': { commits: 2, files: 3, insertions: 40, deletions: 5 },
+    'gh.pr': { url: 'https://github.com/acme/seevil/pull/7' },
+    'git.mergeBranch': { ok: true },
+    'git.branchDiff': { diff: 'diff --git a/x b/x\n+hi', truncated: false },
+  }
+  const agents = {
+    onEvent: (_fn: (u: string, ev: AgentEvent) => void) => {},
+    onRpc: () => {},
+    request: async (_u: string, req: Record<string, unknown>) => { sent.push(req); return replies[String(req.op)] ?? { ok: true } },
+  } as unknown as AgentsService
+  const project = { id: 1, slug: 'seevil', name: 'Seevil', repo_url: repoUrl, default_branch: 'main' }
+  const projects = {
+    bySlug: (slug: string) => { if (slug !== 'seevil') throw new Error('no project'); return project },
+    path: () => '/srv/devdash/projects/seevil',
+    forPath: () => project,
+    worktree: async () => ({ path: WORKTREE, branch: 'dd/abc12345' }),
+  } as unknown as ProjectsService
+  const hub = createHub()
+  const notified: { userId: number; title: string }[] = []
+  const notify = async (userId: number, _k: string, n: { title: string }) => void notified.push({ userId, title: n.title })
+  const claude = claudeService({ db, agents, hub, projects, notify: async () => {} })
+  const reviews = reviewsService({ db, hub, agents, projects, notify })
+
+  /** A session as if a code proposal had been approved: own-branch worktree, origin=proposal. */
+  async function proposalSession(title = 'CTO: Add rate limiting') {
+    const s = await claude.create(youssef, {
+      prompt: 'Work on it', images: [], cwd: '', profile: 'default', model: null, effort: null, permissionMode: 'dontAsk',
+      mode: 'chat', project: 'seevil', worktree: true,
+    }, { title, origin: { kind: 'proposal', role: 'CTO' }, listed: false })
+    return s.id
+  }
+  const rows = () => db.prepare('select * from code_deliveries').all() as Record<string, unknown>[]
+  const sessionRow = (id: string) => claudeRepo(db).byId(id)!
+  return { db, sent, replies, claude, reviews, notified, proposalSession, rows, sessionRow }
+}
+
+test('a finished proposal session with commits becomes a ready delivery and notifies once', async () => {
+  const { reviews, notified, rows, proposalSession, sessionRow } = setup()
+  const id = await proposalSession()
+  await reviews.record(sessionRow(id))
+  const d = rows()
+  assert.equal(d.length, 1)
+  assert.equal(d[0]!.status, 'ready')
+  assert.equal(d[0]!.role, 'CTO')
+  assert.equal(d[0]!.title, 'Add rate limiting') // the "CTO: " prefix is stripped
+  assert.equal(d[0]!.branch, 'dd/abc12345')
+  assert.equal(d[0]!.base_branch, 'main')
+  assert.equal(d[0]!.commits, 2)
+  assert.equal(d[0]!.files, 3)
+  assert.equal(notified.length, 1)
+  assert.match(notified[0]!.title, /CTO finished: Add rate limiting — ready to review/)
+
+  // Re-finishing (more commits) updates the stats but does not notify again while still 'ready'.
+  await reviews.record(sessionRow(id))
+  assert.equal(rows().length, 1)
+  assert.equal(notified.length, 1)
+  assert.equal(reviews.list('seevil').readyCount, 1)
+})
+
+test('no delivery for a proposal session with zero commits', async () => {
+  const { replies, notified, rows, proposalSession, reviews, sessionRow } = setup()
+  replies['git.branchStat'] = { commits: 0, files: 0, insertions: 0, deletions: 0 }
+  const id = await proposalSession()
+  await reviews.record(sessionRow(id))
+  assert.equal(rows().length, 0)
+  assert.equal(notified.length, 0)
+})
+
+test('non-proposal sessions never create deliveries', async () => {
+  const { reviews, claude, rows, sessionRow } = setup()
+  const s = await claude.create(youssef, {
+    prompt: 'Hi', images: [], cwd: '', profile: 'default', model: null, effort: null, permissionMode: 'default',
+    mode: 'chat', project: 'seevil', worktree: true,
+  })
+  await reviews.record(sessionRow(s.id)) // a plain session: no origin_kind
+  assert.equal(rows().length, 0)
+})
+
+test('a dismissed delivery re-surfaces and notifies again when new work lands', async () => {
+  const { reviews, notified, rows, proposalSession, sessionRow } = setup()
+  const id = await proposalSession()
+  await reviews.record(sessionRow(id))
+  reviews.dismiss(youssef, 'seevil', Number(rows()[0]!.id))
+  assert.equal(reviews.list('seevil').deliveries.length, 0)
+  await reviews.record(sessionRow(id)) // committed more after dismissal
+  assert.equal(reviews.list('seevil').readyCount, 1)
+  assert.equal(notified.length, 2)
+})
+
+test('dismiss, open PR and merge move a delivery through its states', async () => {
+  const { reviews, sent, rows, proposalSession, sessionRow } = setup()
+  const id1 = await proposalSession('CTO: One')
+  await reviews.record(sessionRow(id1))
+  const deliveryId = Number(rows()[0]!.id)
+
+  // Open PR (GitHub project): pushes + opens the PR, stores the URL, status 'opened'.
+  const pr = await reviews.openPr(youssef, 'seevil', deliveryId)
+  assert.equal(pr.status, 'opened')
+  assert.equal(pr.prUrl, 'https://github.com/acme/seevil/pull/7')
+  assert.ok(sent.some((r) => r.op === 'gh.pr' && r.branch === 'dd/abc12345' && r.base === 'main'))
+
+  // Dismiss: drops it from the list.
+  reviews.dismiss(youssef, 'seevil', deliveryId)
+  assert.equal(reviews.list('seevil').deliveries.length, 0)
+
+  // Merge: status 'merged', still listed as recently merged.
+  const merged = await reviews.merge(youssef, 'seevil', deliveryId)
+  assert.equal(merged.status, 'merged')
+  assert.ok(sent.some((r) => r.op === 'git.mergeBranch' && r.base === 'main'))
+  assert.equal(reviews.list('seevil').deliveries.length, 1)
+  assert.equal(reviews.list('seevil').readyCount, 0)
+})
+
+test('open PR is refused for a project without a GitHub remote; diff is fetched from the agent', async () => {
+  const { reviews, rows, proposalSession, sessionRow } = setup(null)
+  const id = await proposalSession()
+  await reviews.record(sessionRow(id))
+  const deliveryId = Number(rows()[0]!.id)
+  await assert.rejects(() => reviews.openPr(youssef, 'seevil', deliveryId), /no GitHub remote/)
+  const diff = await reviews.diff(youssef, 'seevil', deliveryId)
+  assert.match(diff.diff, /diff --git/)
+})
