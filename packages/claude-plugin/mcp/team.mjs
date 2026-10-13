@@ -237,6 +237,20 @@ const MEMBER = [
     description: 'Archive an AI team member (role) when the person asks: it stops working and no longer appears to the team. Resolve it by name or #id (see team_roles).',
     inputSchema: obj({ project, role: { type: ['string', 'integer'], description: 'Its name or #id.' } }, ['role']),
   },
+  {
+    name: 'team_goal_add',
+    description: 'Add a team goal when the person asks. The measure is what the goal is checked against (e.g. "1,000 weekly active users"); due is YYYY-MM-DD.',
+    inputSchema: obj({ project, title: { type: 'string' }, measure: { type: 'string', description: 'What the goal is checked against.' }, due: { type: 'string', description: 'YYYY-MM-DD.' } }, ['title']),
+  },
+  {
+    name: 'team_goal_edit',
+    description: 'Edit a goal when the person asks (its id is in team_overview): its title, measure (what it\'s checked against), due (YYYY-MM-DD), status, progress or note. Only the fields you give change.',
+    inputSchema: obj({
+      id: { type: 'integer' }, title: { type: 'string' }, measure: { type: 'string', description: 'What the goal is checked against.' },
+      due: { type: 'string', description: 'YYYY-MM-DD.' }, status: { type: 'string', enum: ['active', 'done', 'dropped'] },
+      progress: { type: 'integer', description: '0 to 100' }, note: { type: 'string' },
+    }, ['id']),
+  },
 ]
 
 /** The team tools this session gets: all role tools in a role's own sessions; team_message plus full team management in a

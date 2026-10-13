@@ -697,6 +697,18 @@ test('a member\'s Claude session runs the whole team as that member: approvals, 
   team.sessionReopenThread('youssef', s.id, th.thread)
   assert.equal(team.thread(th.thread).thread.status, 'open')
 
+  // Goals: the member adds one, then edits its measure, title and due and marks it done — all visible in the glance.
+  team.sessionGoalAdd('youssef', s.id, undefined, { title: 'Grow users', measure: '100 WAU', due: '2026-12-01' })
+  const added = team.sessionOverview('youssef', s.id, undefined).goals.find((g) => g.title === 'Grow users')!
+  assert.deepEqual([added.measure, added.due, added.status], ['100 WAU', '2026-12-01', 'active'])
+  team.sessionGoalEdit('youssef', s.id, { id: added.id, title: 'Grow weekly active users', measure: '1,000 WAU', due: '2027-01-15', status: 'done' })
+  const edited = team.sessionOverview('youssef', s.id, undefined).goals.find((g) => g.id === added.id)!
+  assert.deepEqual([edited.title, edited.measure, edited.due, edited.status], ['Grow weekly active users', '1,000 WAU', '2027-01-15', 'done'])
+  // A role can still record progress/note on a goal via its own tool.
+  team.roleGoalUpdate(cto.id, { id: added.id, progress: 40, note: '400 WAU so far' })
+  const bumped = team.sessionOverview('youssef', s.id, undefined).goals.find((g) => g.id === added.id)!
+  assert.equal(bumped.progress, 40)
+
   // Role tuning (limits, budget, auto-approve), then archive.
   team.sessionUpdateRole('youssef', s.id, { role: 'CTO', dailyLimit: 3, monthlyBudget: 25, autoApprove: ['code'] })
   const tuned = team.overview('seevil').roles.find((r) => r.name === 'CTO')!

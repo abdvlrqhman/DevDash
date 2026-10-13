@@ -790,6 +790,20 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       repo.updateGoal(id, g)
       changed(goal.project_id)
     },
+    /** Edit a goal's wording and schedule too — title, measure, due — plus status/progress/note; only the given fields change. */
+    editGoal(id: number, g: { title?: string; measure?: string; due?: string | null; status?: GoalRow['status']; progress?: number; note?: string }) {
+      const goal = repo.goal(id)
+      if (!goal) throw new AppError(404, 'not_found', 'No such goal.')
+      repo.editGoal(id, {
+        title: g.title !== undefined ? g.title.trim().slice(0, 200) : goal.title,
+        measure: g.measure !== undefined ? g.measure.trim().slice(0, 300) : goal.measure,
+        due: g.due !== undefined ? validDue(g.due) : goal.due,
+        status: g.status && (['active', 'done', 'dropped'] as const).includes(g.status) ? g.status : goal.status,
+        progress: g.progress !== undefined ? Math.max(0, Math.min(100, Math.round(g.progress))) : goal.progress,
+        note: g.note !== undefined ? g.note.slice(0, 300) : goal.note,
+      })
+      changed(goal.project_id)
+    },
 
     /** Instructions for a role, drafted by Claude from its name, one line and what the team knows about the project. */
     async generate(user: User, slug: string, name: string, summary: string) {
@@ -1274,6 +1288,21 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       const who = this.sessionActor(username, sessionId, slug)
       this.saveBrief(who.user, who.slug, body)
       return `Brief saved for ${who.slug}.`
+    },
+    /** A member adds a goal for the team (full authority), on the `project` slug or the session's own. */
+    sessionGoalAdd(username: string, sessionId: string, slug: string | undefined, g: { title: string; measure: string; due: string | null }) {
+      const who = this.sessionActor(username, sessionId, slug)
+      this.addGoal(who.slug, g)
+      return `Goal added to ${who.slug}: ${g.title.trim().slice(0, 200)}.`
+    },
+    /** A member edits a goal by id (its measure, title, due, status, progress or note): the goal's own project must have Team on. */
+    sessionGoalEdit(username: string, sessionId: string, input: { id: number; title?: string; measure?: string; due?: string | null; status?: GoalRow['status']; progress?: number; note?: string }) {
+      const goal = repo.goal(input.id)
+      if (!goal) throw new AppError(404, 'not_found', `There is no goal #${input.id}.`)
+      const slug = (db.prepare('select slug from projects where id = ?').get(goal.project_id) as { slug: string }).slug
+      this.sessionActor(username, sessionId, slug) // rejects a role's session and a project without Team on
+      this.editGoal(input.id, input)
+      return `Updated goal #${input.id}.`
     },
     /** A member archives a role (resolved by name or #id, like team_role_update). */
     sessionArchiveRole(username: string, sessionId: string, slug: string | undefined, ref: string | number) {

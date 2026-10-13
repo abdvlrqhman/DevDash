@@ -181,6 +181,30 @@ export function registerTeamMcp(agents: AgentsService, team: TeamService) {
     if (a.role === undefined) throw new AppError(400, 'bad_args', 'Give the role (its name or #id).')
     return team.sessionArchiveRole(username, c.sessionId, slugOf(a), typeof a.role === 'number' ? a.role : String(a.role).replace(/^#/, ''))
   })
+  agents.onRpc('mcp.team_goal_add', (username, params) => {
+    const c = member(params)
+    const a = c.args
+    return team.sessionGoalAdd(username, c.sessionId, slugOf(a), {
+      title: text(a.title, 'goal title'), measure: typeof a.measure === 'string' ? a.measure : '',
+      due: typeof a.due === 'string' ? a.due : null,
+    })
+  })
+  // The member's full goal edit (title, measure, due, status, progress, note); the role-only team_goal_update stays separate.
+  agents.onRpc('mcp.team_goal_edit', (username, params) => {
+    const c = member(params)
+    const a = c.args
+    if (!Number.isInteger(a.id)) throw new AppError(400, 'bad_args', 'Give the goal id (see team_overview).')
+    const status = typeof a.status === 'string' ? a.status : undefined
+    if (status !== undefined && !['active', 'done', 'dropped'].includes(status)) throw new AppError(400, 'bad_args', 'status is one of: active, done, dropped.')
+    return team.sessionGoalEdit(username, c.sessionId, {
+      id: a.id as number, title: typeof a.title === 'string' ? a.title : undefined,
+      measure: typeof a.measure === 'string' ? a.measure : undefined,
+      due: typeof a.due === 'string' ? a.due : a.due === null ? null : undefined,
+      status: status as 'active' | 'done' | 'dropped' | undefined,
+      progress: typeof a.progress === 'number' ? a.progress : undefined,
+      note: typeof a.note === 'string' ? a.note : undefined,
+    })
+  })
   // team_thread serves both a role's own session (its scoped read) and a member's session (the full web read).
   agents.onRpc('mcp.team_thread', (username, params) => {
     const c = (params ?? {}) as Ctx

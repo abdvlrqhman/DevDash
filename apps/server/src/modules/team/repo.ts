@@ -100,6 +100,7 @@ export function teamRepo(db: Db) {
     insertGoal: db.prepare(`insert into team_goals (project_id, title, measure, due, owner_role_id) values (?, ?, ?, ?, ?) returning id`),
     updateGoal: db.prepare(`update team_goals set status = coalesce(?, status), progress = coalesce(?, progress), note = coalesce(?, note),
       updated_at = unixepoch() where id = ?`),
+    editGoal: db.prepare(`update team_goals set title = ?, measure = ?, due = ?, status = ?, progress = ?, note = ?, updated_at = unixepoch() where id = ?`),
     setLead: db.prepare(`update team_roles set lead = (id = ?) where project_id = ?`),
     unsetLead: db.prepare(`update team_roles set lead = 0 where id = ?`),
     lead: db.prepare(`select * from team_roles where project_id = ? and lead = 1 and archived = 0`),
@@ -228,6 +229,8 @@ export function teamRepo(db: Db) {
       (s.insertGoal.get(projectId, g.title, g.measure, g.due, g.ownerRoleId) as { id: number }).id,
     updateGoal: (id: number, g: { status?: GoalRow['status']; progress?: number; note?: string }) =>
       void s.updateGoal.run(g.status ?? null, g.progress ?? null, g.note ?? null, id),
+    editGoal: (id: number, g: { title: string; measure: string; due: string | null; status: GoalRow['status']; progress: number; note: string | null }) =>
+      void s.editGoal.run(g.title, g.measure, g.due, g.status, g.progress, g.note, id),
     setLead: (projectId: number, roleId: number, on: boolean) => void (on ? s.setLead.run(roleId, projectId) : s.unsetLead.run(roleId)),
     lead: (projectId: number) => plain<RoleRow>(s.lead.get(projectId)),
     threads: (projectId: number, limit = 30) => all<ThreadRow>(s.threads.all(projectId, limit)),
