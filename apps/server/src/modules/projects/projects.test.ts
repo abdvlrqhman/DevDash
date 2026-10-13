@@ -38,6 +38,34 @@ test('projects show live Claude work: counts and owners of working or waiting se
   assert.equal(site!.lastSessionAt, null)
 })
 
+test('create-from-zip inserts the project only after the agent unzips it, and leaves nothing behind on a bad zip', async () => {
+  const db = openDb(':memory:')
+  db.prepare("insert into users (id, email, username, name, password_hash, totp_secret, role) values (1, 'a@x.io', 'ann', 'Ann Lee', 'x', 'x', 'admin')").run()
+  const hub = createHub()
+  const activity = activityService({ db, hub })
+  const tasks = tasksService({ db, hub, activity, search: searchService({ db }) })
+  const calls: object[] = []
+  const agents = {
+    request: async (_u: string, msg: { op: string; dest?: string }) => {
+      calls.push(msg)
+      if (msg.op === 'project.fromZip' && (msg.dest ?? '').endsWith('/bad')) throw new Error('The .zip contains unsafe paths. It was not imported.')
+      return { defaultBranch: 'main' }
+    },
+  } as unknown as AgentsService
+  const projects = projectsService({ db, hub, agents, activity, tasks, gitSafeDir: async () => {}, root: '/srv/devdash' })
+  const ann: User = { id: 1, name: 'Ann Lee', username: 'ann', email: '', role: 'admin' }
+
+  const p = await projects.createFromZip(ann, { name: 'From Zip', slug: 'fromzip', uploadId: 'deadbeef' })
+  assert.equal(p.slug, 'fromzip')
+  assert.equal(p.repoUrl, null)
+  assert.equal(p.defaultBranch, 'main')
+  assert.equal(projects.list(false, 1).length, 1)
+  assert.ok(calls.some((c) => (c as { op: string }).op === 'project.fromZip'))
+
+  await assert.rejects(projects.createFromZip(ann, { name: 'Bad', slug: 'bad', uploadId: 'deadbeef' }), /unsafe/)
+  assert.equal(projects.list(false, 1).length, 1, 'the failed zip left no dangling project')
+})
+
 test('how new Claude sessions start out is a project setting any member changes; archiving is not', () => {
   const db = openDb(':memory:')
   const user = db.prepare("insert into users (id, email, username, name, password_hash, totp_secret, role) values (?, ?, ?, ?, 'x', 'x', 'member')")
