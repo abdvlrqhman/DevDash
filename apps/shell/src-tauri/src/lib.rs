@@ -45,12 +45,16 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
-        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             // Self-update is desktop-only: the connect screen checks GitHub Releases on launch
-            // (ui/updater.js) and this plugin downloads + installs the signed update.
+            // (ui/updater.js), the updater plugin downloads + installs the signed update, and the
+            // process plugin relaunches afterwards. Both are registered only on desktop — the shell
+            // itself uses neither on mobile, where registering process has crashed the app at launch.
             #[cfg(desktop)]
-            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+            {
+                app.handle().plugin(tauri_plugin_process::init())?;
+                app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+            }
 
             let nav_app = app.handle().clone();
             let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
