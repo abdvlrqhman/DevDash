@@ -12,6 +12,7 @@ import { looking, useTopic } from '@/lib/live'
 import { disablePush, enablePush, needsHomeScreen, pushEnabled, pushSupported } from '@/lib/push'
 import { inIosShell, inShell, setBackgroundNotifications, syncBackgroundNotifications } from '@/lib/shell'
 import { ErrorAlert } from '../auth/LoginPage'
+import { deliver } from './deliver'
 
 type Event = { notification: { title: string; body: string; url: string } }
 
@@ -21,13 +22,26 @@ export function useNotificationEvents() {
   useEffect(() => void syncBackgroundNotifications(), [])
   useTopic('notifications', (e) => {
     const n = (e as unknown as Event).notification
-    if (looking()) {
-      if (location.pathname === n.url) return // already on it
-      toast(n.title, { description: n.body || undefined, action: { label: 'Open', onClick: () => void navigate({ to: n.url }) } })
-    } else if (window.DevDashAndroid?.backgroundNotifications()) return // the app's background connection shows it
-    else if (window.devdashShell?.notify) window.devdashShell.notify(n.title, n.body)
-    // A browser that isn't being looked at gets Web Push from the server; the toast waits for whoever comes back.
-    else toast(n.title, { description: n.body || undefined, duration: Infinity, closeButton: true, action: { label: 'Open', onClick: () => void navigate({ to: n.url }) } })
+    const open = { label: 'Open', onClick: () => void navigate({ to: n.url }) }
+    switch (deliver({
+      looking: looking(),
+      onPage: location.pathname === n.url,
+      androidBackground: !!window.DevDashAndroid?.backgroundNotifications(), // the app's background connection shows it
+      nativeNotify: !!window.devdashShell?.notify, // the Tauri shell (desktop/iOS) posts a native OS notification
+    })) {
+      case 'native':
+        window.devdashShell?.notify?.(n.title, n.body || '') // guarded: a missing bridge never throws
+        break
+      case 'toast':
+        toast(n.title, { description: n.body || undefined, action: open })
+        break
+      // A browser that isn't being looked at gets Web Push from the server; the toast waits for whoever comes back.
+      case 'toast-sticky':
+        toast(n.title, { description: n.body || undefined, duration: Infinity, closeButton: true, action: open })
+        break
+      case 'none':
+        break
+    }
   })
 }
 
@@ -99,7 +113,7 @@ function ThisDevice({ publicKey }: { publicKey?: string }) {
       if (s !== 'granted') throw new Error('Notifications are off for DevDash. Turn them on in your phone’s settings, then come back.')
       setBackgroundNotifications(true)
       setOn(true)
-      window.devdashShell!.notify!('DevDash', 'Notifications are on for this device.') // the real system path, not a toast
+      window.devdashShell?.notify?.('DevDash', 'Notifications are on for this device.') // the real system path, not a toast
     } else {
       await enablePush(publicKey!)
       setOn(true)
