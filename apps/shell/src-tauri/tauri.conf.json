@@ -1,20 +1,32 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "DevDash",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "identifier": "io.github.abdvlrqhman.devdash",
   "build": {
     "frontendDist": "../ui"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [],
     "security": {
       "csp": "default-src 'self'; connect-src https:; img-src 'self' data:; style-src 'self'; font-src 'self'; script-src 'self'"
     }
   },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/abdvlrqhman/DevDash/releases/latest/download/latest.json"
+      ],
+      "dialog": false,
+      "windows": { "installMode": "passive" },
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNBMTM1OTUzREQ3RjI1OTgKUldTWUpYL2RVMWtUT3R3NWRXeFRVNG5KWXpLc1RpWU56b2Y2VFU2b253TGpyWnYxd3U3UXFleVMK"
+    }
+  },
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "publisher": "DevDash contributors",
     "shortDescription": "Your team's DevDash space",
     "longDescription": "Claude Code, terminals, tasks and builds on your team's own server.",
