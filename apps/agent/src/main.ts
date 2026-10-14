@@ -89,6 +89,7 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
   'claude.cli.close': async (r) => (await claude.closeCli(str(r.id, 'id')), { ok: true }),
   'claude.pending': (r) => ({ pending: claude.pendingFor(str(r.id, 'id')) }),
   'claude.history': (r) => claude.history(r.launch as claude.Launch, { before: typeof r.before === 'string' ? r.before : undefined, turns: Number(r.turns) || 0 }),
+  'claude.subagent': (r) => claude.subagent(r.launch as claude.Launch, str(r.toolUseId, 'toolUseId')),
   'claude.task.stop': async (r) => (await claude.stopTask(str(r.id, 'id'), str(r.taskId, 'taskId')), { ok: true }),
   'claude.commands': (r) => claude.commandsAndModels(str(r.profile, 'profile')),
   'claude.title': (r) => claude.title(r.launch as claude.Launch),
