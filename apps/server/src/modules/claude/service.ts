@@ -821,6 +821,20 @@ export function claudeService({ db, agents, hub, notify, projects, tailnetConnec
       return { messages, senders: repo.senders(id), more: !!page.more }
     },
 
+    /**
+     * One subagent's activity, for the web to expand its Task step: the subagent spawned by `toolUseId`, its messages
+     * shaped for the transcript pipeline (thinking signatures stripped, as in `history`), plus its type and task
+     * description. Same visibility as any other transcript read. `found` is false until the subagent's files appear.
+     */
+    async subagent(user: User, id: string, toolUseId: string) {
+      const s = find(user, id)
+      if (!s.started) return { found: false, agentType: null, description: null, messages: [] as unknown[] }
+      const r = await agents.request<{ found: boolean; agentType: string | null; description: string | null; messages: unknown[] }>(
+        s.owner_username, { op: 'claude.subagent', launch: launch(s), toolUseId }, 60_000,
+      )
+      return { ...r, messages: r.messages.map(lighter) }
+    },
+
     /** Stops one background task (a shell, subagent or monitor) of a Chat session. */
     async stopTask(user: User, id: string, taskId: string) {
       const s = find(user, id)

@@ -1,4 +1,5 @@
-import { memo, useState, type ReactNode } from 'react'
+import { createContext, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   Bot, BookOpen, Brain, CalendarClock, ChevronRight, CircleAlert, ClipboardList, Code, Eye, FilePen, FilePlus, FileText, FolderSearch, Globe, ListChecks,
   LoaderCircle, MessageCircleQuestion, NotebookPen, Plug, Search, SquareTerminal, Wrench, GitBranch, Package, FlaskConical, Hammer, Container, Trash2,
@@ -8,8 +9,17 @@ import { openExternal } from '@/lib/shell'
 import { cn } from '@/lib/utils'
 import { useFileLinks } from '../files/open-file'
 import { Prose } from './Prose'
+import { subagentQuery } from './data'
 import { toolView, type Preview, type ToolView } from './tool-view'
-import type { Block, ToolBlock } from './transcript'
+import { buildTranscript, type Block, type Raw, type ToolBlock } from './transcript'
+
+/**
+ * A session's id and its currently-running background tasks, so a Task step can fetch its subagent's activity and tell
+ * whether that subagent is still running. Provided by the session page; absent elsewhere (notes, tasks), where a Task
+ * step falls back to showing just what the parent call captured.
+ */
+export type RunningTask = { id: string; type: string; description: string }
+export const SubagentCtx = createContext<{ sessionId: string; tasks: RunningTask[] } | null>(null)
 
 const ICONS: Record<ToolView['icon'], LucideIcon> = {
   read: FileText, write: FilePlus, edit: FilePen, run: SquareTerminal, search: Search, files: FolderSearch, web: Globe, agent: Bot,
@@ -25,12 +35,15 @@ const ICONS: Record<ToolView['icon'], LucideIcon> = {
 export type StepBlock = ToolBlock | Extract<Block, { kind: 'thinking' }>
 export function ToolSteps({ steps, live, renderChildren }: { steps: StepBlock[]; live: boolean; renderChildren: (b: Block[]) => ReactNode }) {
   const [all, setAll] = useState(false)
+  const ctx = useContext(SubagentCtx)
   const fold = !all && steps.length > 7
   const shown = fold ? [...steps.slice(0, 2), null, ...steps.slice(-3)] : steps
   return (
     <ol className="relative flex flex-col gap-0.5 before:absolute before:top-3 before:bottom-3 before:left-[11px] before:w-px before:bg-border">
       {shown.map((t) => t
-        ? t.kind === 'thinking' ? <Thought key={t.key} text={t.text} /> : <Step key={t.key} tool={t} live={live} renderChildren={renderChildren} />
+        ? t.kind === 'thinking' ? <Thought key={t.key} text={t.text} />
+          : ctx && (t.name === 'Task' || t.name === 'Agent') ? <AgentStep key={t.key} tool={t} live={live} ctx={ctx} renderChildren={renderChildren} />
+          : <Step key={t.key} tool={t} live={live} renderChildren={renderChildren} />
         : (
           <li key="fold" className="relative pl-8">
             <button className="rounded-md px-1.5 py-1 text-xs text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground" onClick={() => setAll(true)}>
@@ -116,6 +129,105 @@ function agentView(t: ToolBlock): ToolView {
     meta: steps ? `${steps} ${steps === 1 ? 'step' : 'steps'}` : undefined,
     details: t.result?.text ? [{ kind: 'markdown', text: t.result.text }] : [],
   }
+}
+
+/**
+ * A Task/Agent step on the session page: expandable to reveal what the subagent is doing, like the CLI shows. Its
+ * activity is fetched lazily by the parent Task's tool_use id and rendered with the very same step components as the
+ * main transcript, so it reads consistently — just nested, and marked RUNNING (with a live poll) until the matching
+ * background task is gone.
+ */
+const AgentStep = memo(function AgentStep({ tool: t, live, ctx, renderChildren }: {
+  tool: ToolBlock; live: boolean; ctx: { sessionId: string; tasks: RunningTask[] }; renderChildren: (b: Block[]) => ReactNode
+}) {
+  const v = agentView(t)
+  const description = typeof t.input.description === 'string' ? t.input.description : ''
+  const subType = typeof t.input.subagent_type === 'string' ? t.input.subagent_type : ''
+  // Still running while a matching background task is live; and, right after spawning, while the turn runs and no
+  // result has come back. A finished subagent always has its Task tool_result, so running flips off then.
+  const taskLive = ctx.tasks.some((task) => task.description === description && (!subType || task.type === subType))
+  const running = !t.result && (taskLive || live)
+  const [open, setOpen] = useState(running)
+  const q = useQuery({ ...subagentQuery(ctx.sessionId, t.id, running), enabled: open })
+  const data = q.data
+  // One more read as the subagent finishes, so the final steps and result land even after polling stops.
+  const wasRunning = useRef(running)
+  useEffect(() => {
+    if (wasRunning.current && !running && open) void q.refetch()
+    wasRunning.current = running
+  }, [running, open, q])
+
+  // The subagent's own transcript, built with the same pipeline as the main one. The leading message is its task
+  // prompt, which the header already shows, so it's dropped to keep the panel about what the subagent did.
+  const blocks = useMemo(() => {
+    if (!data?.messages?.length) return []
+    const built = buildTranscript(data.messages as Raw[])
+    return built[0]?.kind === 'user' ? built.slice(1) : built
+  }, [data])
+  const steps = data?.found ? blocks.filter((b) => b.kind === 'tool').length : t.children.filter((c) => c.kind === 'tool').length
+  const failed = t.result?.isError === true
+
+  return (
+    <li className="relative">
+      <div className="group relative flex w-full min-w-0 items-center gap-2.5 rounded-md py-1 pr-1.5 text-left text-sm transition-colors duration-150 hover:bg-muted/60">
+        <span className={cn('pointer-events-none relative z-10 flex size-6 shrink-0 items-center justify-center rounded-full border bg-background',
+          failed ? 'border-destructive/50 text-destructive' : running ? 'text-foreground/70' : 'text-muted-foreground')}>
+          {running ? <LoaderCircle className="size-3.5 animate-spin" /> : failed ? <CircleAlert className="size-3.5" /> : <Bot className="size-3.5" />}
+        </span>
+        <span className="flex min-w-0 flex-1 items-baseline gap-1.5">
+          <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}
+            className="shrink-0 text-left font-medium outline-none before:absolute before:inset-0 before:rounded-md focus-visible:before:ring-2 focus-visible:before:ring-ring/50">
+            {running ? `${v.doing}…` : v.verb}
+          </button>
+          {description && <span className="min-w-0 truncate text-foreground/85" title={description}>{description}</span>}
+        </span>
+        {steps > 0 && <Meta text={`${steps} ${steps === 1 ? 'step' : 'steps'}`} failed={failed} />}
+        <ChevronRight className={cn('size-3.5 shrink-0 text-muted-foreground transition-transform duration-150', open && 'rotate-90')} />
+      </div>
+      {open && (
+        <div className="mt-1 mb-2 pl-8">
+          <div className="overflow-hidden rounded-lg border border-l-[3px] border-l-primary/40 bg-card/40">
+            {(running || failed) && (
+              <div className="flex items-center gap-2 border-b bg-muted/20 px-3 py-1.5 text-xs">
+                {running
+                  ? <><Pulse /><span className="font-medium text-foreground/80">Running</span></>
+                  : <><CircleAlert className="size-3.5 text-destructive" /><span className="text-destructive">Stopped with an error</span></>}
+              </div>
+            )}
+            <div className="px-2.5 py-2">
+              <SubagentBody t={t} data={data} loading={q.isPending} running={running} blocks={blocks} renderChildren={renderChildren} />
+            </div>
+          </div>
+        </div>
+      )}
+    </li>
+  )
+})
+
+/** A quiet green pulse: the subagent is still working. Honors reduced motion (the ring just disappears). */
+function Pulse() {
+  return (
+    <span className="relative flex size-2.5 shrink-0" aria-hidden>
+      <span className="absolute inline-flex size-full animate-ping rounded-full bg-live/60 motion-reduce:hidden" />
+      <span className="relative inline-flex size-2.5 rounded-full bg-live" />
+    </span>
+  )
+}
+
+/** Inside an opened Task step: the subagent's activity, or the right word while it loads, starts or has nothing. */
+function SubagentBody({ t, data, loading, running, blocks, renderChildren }: {
+  t: ToolBlock; data?: { found: boolean } | undefined; loading: boolean; running: boolean
+  blocks: Block[]; renderChildren: (b: Block[]) => ReactNode
+}) {
+  if (blocks.length) return <>{renderChildren(blocks)}</>
+  if (loading && !data) return <p className="flex items-center gap-2 py-1 text-xs text-muted-foreground"><LoaderCircle className="size-3.5 animate-spin" />Loading activity…</p>
+  if (data && !data.found) {
+    if (running) return <p className="py-1 text-xs text-muted-foreground">Waiting for the subagent to start…</p>
+    // An older session from before subagent activity was recorded: show whatever the parent call captured.
+    if (t.children.length) return <>{renderChildren(t.children)}</>
+    if (t.result?.text) return <div className="rounded-md border bg-card px-3 py-2"><Prose text={t.result.text} /></div>
+  }
+  return <p className="py-1 text-xs text-muted-foreground">No activity recorded for this subagent.</p>
 }
 
 function Meta({ text, failed }: { text: string; failed: boolean }) {

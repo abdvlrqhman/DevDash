@@ -37,6 +37,7 @@ import { PlanUsage } from './Usage'
 import { servicesQuery, stateOf } from '../services/data'
 import { tailnetStatusQuery } from '../network/NetworkPage'
 import { buildTranscript, mergePage, mergeRaw, sessionFacts, type Raw } from './transcript'
+import { SubagentCtx } from './ToolSteps'
 import { useTopic } from '@/lib/live'
 
 const light = (s: Session['status']) => (s === 'working' ? 'live' : s === 'waiting' ? 'waiting' : s === 'error' ? 'error' : 'idle')
@@ -173,6 +174,8 @@ function SessionView({ id }: { id: string }) {
     setCommentCount(info.data.comments)
   }, [info.data])
   const blocks = useMemo(() => buildTranscript(all), [all])
+  // So a Task step can fetch its subagent's activity and know, from the live task list, whether it is still running.
+  const subagentCtx = useMemo(() => ({ sessionId: id, tasks: s?.tasks ?? [] }), [id, s?.tasks])
   const lastPromptAt = useMemo(() => blocks.findLast((b) => b.kind === 'user')?.at, [blocks]) as number | undefined
   const toBottom = () => {
     const el = scroller.current
@@ -275,7 +278,9 @@ function SessionView({ id }: { id: string }) {
                 auto={() => { const el = scroller.current; return !!el && (!stick.current || el.scrollHeight <= el.clientHeight + 8) }} />}
               <ErrorAlert error={history.error} />
               {!s.started && !raw.length && <p className="py-10 text-center text-muted-foreground">Tell Claude what to work on.</p>}
-              <Blocks blocks={blocks} senders={history.data?.senders} live={working || s.status === 'waiting'} />
+              <SubagentCtx.Provider value={subagentCtx}>
+                <Blocks blocks={blocks} senders={history.data?.senders} live={working || s.status === 'waiting'} />
+              </SubagentCtx.Provider>
               <LiveText store={liveText} working={working} since={lastPromptAt} onGrow={toBottom} />
               {s.status === 'error' && s.statusDetail && <ErrorAlert error={s.statusDetail} />}
               <Requests sessionId={id} requests={pending} canAnswer={canSend} waitingOn={canSend ? undefined : s.owner.name} afterPlanApproved={afterPlanApproved} />

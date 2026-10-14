@@ -19,6 +19,18 @@ export const sessionQuery = (id: string) => queryOptions({
   queryKey: ['claude', 'session', id],
   queryFn: () => unwrap(api.api.claude.sessions[':id'].$get({ param: { id } })),
 })
+/**
+ * One subagent's activity for a Task step, read by the parent Task's `tool_use` id. Fetched only when the step is
+ * expanded (the caller sets `enabled`); while the subagent is still running the caller polls by setting `running`.
+ */
+export const subagentQuery = (id: string, toolUseId: string, running: boolean) => queryOptions({
+  queryKey: ['claude', 'subagent', id, toolUseId],
+  queryFn: () => unwrap(api.api.claude.sessions[':id'].subagent.$get({ param: { id }, query: { toolUseId } })),
+  refetchInterval: running ? 2500 : false,
+  staleTime: running ? 0 : 60_000,
+})
+export type SubagentActivity = InferResponseType<(typeof api.api.claude.sessions)[':id']['subagent']['$get']>
+
 export const profilesQuery = queryOptions({
   queryKey: ['claude', 'profiles'],
   queryFn: () => unwrap(api.api.claude.profiles.$get()),

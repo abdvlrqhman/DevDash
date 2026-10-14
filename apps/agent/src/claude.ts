@@ -549,20 +549,25 @@ export function mergeHistory(active: HistoryMessage[], raw: TranscriptLine[]): H
 }
 
 /**
- * The session's transcript lines, parsed, in the order Claude Code wrote them — the whole on-disk record, which is
- * more than getSessionMessages returns once a session has compacted. Cached per file size: a growing transcript is
- * read again, a finished one once.
+ * The folder that holds a session's transcript: the escaped-cwd path Claude Code normally uses, or the shortened one
+ * it falls back to for very long folder paths. Null when the session has no file yet. Its `<id>/subagents/` subfolder
+ * holds the session's subagents, so finding subagents reuses exactly this resolution.
+ */
+function sessionDir(l: Launch): string | null {
+  const root = join(profileDir(l.profile), 'projects')
+  const escaped = join(root, l.cwd.replace(/[^a-zA-Z0-9]/g, '-'))
+  if (existsSync(join(escaped, `${l.id}.jsonl`))) return escaped
+  const dir = existsSync(root) ? readdirSync(root).find((d) => existsSync(join(root, d, `${l.id}.jsonl`))) : undefined
+  return dir ? join(root, dir) : null
+}
+
+/**
+ * One `.jsonl` transcript file, parsed into lines in the order Claude Code wrote them. Cached per file size: a growing
+ * file is read again, a finished one once. A half-written last line is skipped.
  */
 const transcriptCache = new Map<string, { size: number; lines: TranscriptLine[] }>()
-function transcriptLines(l: Launch) {
-  const root = join(profileDir(l.profile), 'projects')
-  let file = join(root, l.cwd.replace(/[^a-zA-Z0-9]/g, '-'), `${l.id}.jsonl`)
-  if (!existsSync(file)) {
-    // Very long folder paths are shortened by Claude Code; look for the file instead.
-    const dir = existsSync(root) ? readdirSync(root).find((d) => existsSync(join(root, d, `${l.id}.jsonl`))) : undefined
-    if (!dir) return []
-    file = join(root, dir, `${l.id}.jsonl`)
-  }
+function readLines(file: string): TranscriptLine[] {
+  if (!existsSync(file)) return []
   const size = statSync(file).size
   const hit = transcriptCache.get(file)
   if (hit?.size === size) return hit.lines
@@ -577,6 +582,15 @@ function transcriptLines(l: Launch) {
   }
   transcriptCache.set(file, { size, lines })
   return lines
+}
+
+/**
+ * The session's transcript lines — the whole on-disk record, which is more than getSessionMessages returns once a
+ * session has compacted.
+ */
+function transcriptLines(l: Launch) {
+  const dir = sessionDir(l)
+  return dir ? readLines(join(dir, `${l.id}.jsonl`)) : []
 }
 
 /**
@@ -600,6 +614,61 @@ export async function history(l: Launch, o: { before?: string; turns?: number } 
   const { start, end } = pageOf(all, o)
   const messages = all.slice(start, end).map((m) => (times.has(m.uuid) ? { ...m, timestamp: times.get(m.uuid) } : m))
   return { messages, more: start > 0 }
+}
+
+/** A subagent's meta file (`<id>/subagents/agent-<agentId>.meta.json`): what links it to its parent Task tool call. */
+export type SubagentMeta = { agentType?: string; description?: string; toolUseId?: string; spawnDepth?: number }
+
+/**
+ * The agentId of the subagent spawned by a given Task `tool_use`: the meta file whose `toolUseId` matches. Pure, so it
+ * is unit-tested. Returns null when no subagent has that toolUseId (it hasn't been written yet, or isn't ours).
+ */
+export function subagentIdFor(metas: { agentId: string; meta: SubagentMeta }[], toolUseId: string): string | null {
+  return metas.find((m) => m.meta.toolUseId === toolUseId)?.agentId ?? null
+}
+
+// A subagent's transcript is bounded, but can be long; keep the most recent messages so the payload stays sane.
+const SUBAGENT_CAP = 2000
+/**
+ * A subagent's transcript lines shaped exactly like `history()` returns, so the web renders them with the same
+ * pipeline: only the user/assistant messages (Claude Code's `attachment` and other bookkeeping lines dropped), each
+ * with `parent_tool_use_id` null (the subagent's own thread is the top level here) and its timestamp kept. The leading
+ * task prompt stays in; the web decides whether to show it. Pure, so it is unit-tested.
+ */
+export function shapeSubagent(lines: TranscriptLine[]): (HistoryMessage & { timestamp?: string })[] {
+  const out = lines
+    .filter((m) => (m.type === 'user' || m.type === 'assistant') && !!m.message && !!m.uuid)
+    .map((m) => ({ type: m.type!, uuid: m.uuid!, parent_tool_use_id: null, message: m.message, ...(m.timestamp ? { timestamp: m.timestamp } : {}) }))
+  return out.length > SUBAGENT_CAP ? out.slice(-SUBAGENT_CAP) : out
+}
+
+/**
+ * One subagent's activity, for the web to show nested under its Task step. Finds the subagent spawned by `toolUseId`
+ * (reusing the same transcript-path resolution as history), reads its transcript and returns it in history's shape,
+ * plus its type and task description from the meta. Answers `{ found: false }` gracefully when the subagent's files
+ * don't exist yet (there is a beat between spawning it and the files appearing).
+ */
+export async function subagent(l: Launch, toolUseId: string) {
+  if (!ID_RE.test(l.id) || !PROFILE_RE.test(l.profile)) throw new Error('invalid session')
+  const dir = sessionDir(l)
+  const subDir = dir ? join(dir, l.id, 'subagents') : null
+  const miss = { found: false as const, agentType: null, description: null, messages: [] }
+  if (!subDir || !existsSync(subDir)) return miss
+  const metas: { agentId: string; meta: SubagentMeta }[] = []
+  for (const name of readdirSync(subDir)) {
+    const m = /^agent-(.+)\.meta\.json$/.exec(name)
+    if (!m) continue
+    try {
+      metas.push({ agentId: m[1]!, meta: JSON.parse(readFileSync(join(subDir, name), 'utf8')) as SubagentMeta })
+    } catch {
+      // a meta file mid-write
+    }
+  }
+  const agentId = subagentIdFor(metas, toolUseId)
+  if (!agentId) return miss
+  const meta = metas.find((x) => x.agentId === agentId)!.meta
+  const messages = shapeSubagent(readLines(join(subDir, `agent-${agentId}.jsonl`)))
+  return { found: true as const, agentType: meta.agentType ?? null, description: meta.description ?? null, messages }
 }
 
 /** Stops one background task (a shell, subagent or monitor) of a Chat session. */

@@ -78,6 +78,8 @@ export function claudeRoutes(claude: ClaudeService, mw: ReturnType<typeof authMi
     .get('/sessions/:id/messages', query(z.object({ before: z.string().max(64).optional() })), async (c) =>
       c.json(await claude.history(c.get('user'), c.req.param('id'), c.req.valid('query').before)))
     .get('/sessions/:id/usage', (c) => c.json({ usage: claude.sessionUsage(c.get('user'), c.req.param('id')) }))
+    .get('/sessions/:id/subagent', query(z.object({ toolUseId: z.string().min(1).max(100) })), async (c) =>
+      c.json(await claude.subagent(c.get('user'), c.req.param('id'), c.req.valid('query').toolUseId)))
     .post('/sessions/:id/tasks/:taskId/stop', async (c) => {
       await claude.stopTask(c.get('user'), c.req.param('id'), c.req.param('taskId'))
       return c.json({ ok: true })
