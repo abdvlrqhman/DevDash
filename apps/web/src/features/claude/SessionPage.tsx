@@ -32,7 +32,7 @@ import {
   type Effort, type PendingRequest, type PermissionMode, type Session, sessionPlace } from './data'
 import { createLiveText, type LiveTextStore } from './live-text'
 import { useArchiveSession } from './ArchiveSession'
-import { Requests } from './Requests'
+import { Requests, requestSummary } from './Requests'
 import { PlanUsage } from './Usage'
 import { servicesQuery, stateOf } from '../services/data'
 import { tailnetStatusQuery } from '../network/NetworkPage'
@@ -110,6 +110,7 @@ function SessionView({ id }: { id: string }) {
       }
     } else if (e.type === 'permission') {
       const r = e.request as PendingRequest
+      stick.current = true // a question/permission arriving mid-read must scroll into view, not hide below the fold
       setPending((p) => [...p.filter((x) => x.requestId !== r.requestId), r])
     } else if (e.type === 'permission_done') setPending((p) => p.filter((x) => x.requestId !== e.requestId))
     else if (e.type === 'msg') {
@@ -236,7 +237,10 @@ function SessionView({ id }: { id: string }) {
         title={s.title}
         description={
           <span className="flex items-center gap-1.5">
-            <StatusLight state={light(s.status)} />{STATUS_LABEL[s.status]}
+            <StatusLight state={light(s.status)} />
+            {s.status === 'waiting' && pending[0]
+              ? <span className="min-w-0 truncate font-medium text-attention-foreground">{requestSummary(pending[0])}</span>
+              : STATUS_LABEL[s.status]}
             <span className="truncate" title={s.cwd}>{sessionPlace(s)}</span>
             {s.owner.id !== me.id && <span className="shrink-0">, {s.owner.name}'s</span>}
             {s.shared && s.owner.id === me.id && <span className="flex shrink-0 items-center gap-1">, <Share2 className="size-3" />shared{s.sharedCanSend ? ', others can type' : ''}</span>}
@@ -274,7 +278,7 @@ function SessionView({ id }: { id: string }) {
               <Blocks blocks={blocks} senders={history.data?.senders} live={working || s.status === 'waiting'} />
               <LiveText store={liveText} working={working} since={lastPromptAt} onGrow={toBottom} />
               {s.status === 'error' && s.statusDetail && <ErrorAlert error={s.statusDetail} />}
-              <Requests sessionId={id} requests={pending} canAnswer={canSend} afterPlanApproved={afterPlanApproved} />
+              <Requests sessionId={id} requests={pending} canAnswer={canSend} waitingOn={canSend ? undefined : s.owner.name} afterPlanApproved={afterPlanApproved} />
             </div>
           </div>
           <div className="border-t bg-background px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:px-6 md:pt-3 md:pb-3">

@@ -26,26 +26,45 @@ function useAnswer(sessionId: string, requestId: string, after?: () => Promise<u
 }
 
 /** Everything Claude is waiting on, in the order it asked. Read-only for viewers who may not send. */
-export function Requests({ sessionId, requests, canAnswer, afterPlanApproved }: {
-  sessionId: string; requests: PendingRequest[]; canAnswer: boolean; afterPlanApproved: () => Promise<unknown>
+export function Requests({ sessionId, requests, canAnswer, waitingOn, afterPlanApproved }: {
+  sessionId: string; requests: PendingRequest[]; canAnswer: boolean; waitingOn?: string; afterPlanApproved: () => Promise<unknown>
 }) {
   return (
     <div className="flex flex-col gap-3">
       {requests.map((r) =>
-        r.toolName === 'AskUserQuestion' ? <QuestionCard key={r.requestId} sessionId={sessionId} req={r} disabled={!canAnswer} />
-        : r.toolName === 'ExitPlanMode' ? <PlanCard key={r.requestId} sessionId={sessionId} req={r} disabled={!canAnswer} after={afterPlanApproved} />
-        : <PermissionCard key={r.requestId} sessionId={sessionId} req={r} disabled={!canAnswer} />,
+        r.toolName === 'AskUserQuestion' ? <QuestionCard key={r.requestId} sessionId={sessionId} req={r} disabled={!canAnswer} waitingOn={waitingOn} />
+        : r.toolName === 'ExitPlanMode' ? <PlanCard key={r.requestId} sessionId={sessionId} req={r} disabled={!canAnswer} waitingOn={waitingOn} after={afterPlanApproved} />
+        : <PermissionCard key={r.requestId} sessionId={sessionId} req={r} disabled={!canAnswer} waitingOn={waitingOn} />,
       )}
     </div>
   )
 }
 
+/** A one-line summary of what Claude is blocked on, for the session header and status. */
+export function requestSummary(req: PendingRequest): string {
+  if (req.toolName === 'AskUserQuestion') {
+    const q = (req.input.questions as { question?: string }[] | undefined)?.[0]?.question
+    return q || 'Claude has a question'
+  }
+  if (req.toolName === 'ExitPlanMode') return 'Plan ready to review'
+  return `Allow ${req.toolName}?`
+}
+
 const waitingCard = 'gap-3 border-attention/50 bg-attention-soft py-4 shadow-none'
+
+/** Read-only footer for viewers who can't answer: says who the request is waiting on. */
+function WaitingOn({ who }: { who?: string }) {
+  return (
+    <CardFooter className="px-4">
+      <p className="text-sm text-muted-foreground">Waiting on {who ?? 'someone who can send'} to answer.</p>
+    </CardFooter>
+  )
+}
 
 type Question = { question: string; header?: string; multiSelect?: boolean; options: { label: string; description?: string }[] }
 const OTHER = '__other'
 
-function QuestionCard({ sessionId, req, disabled }: { sessionId: string; req: PendingRequest; disabled: boolean }) {
+function QuestionCard({ sessionId, req, disabled, waitingOn }: { sessionId: string; req: PendingRequest; disabled: boolean; waitingOn?: string }) {
   const questions = (req.input.questions as Question[] | undefined) ?? []
   const [picked, setPicked] = useState<Record<string, string[]>>({})
   const [other, setOther] = useState<Record<string, string>>({})
@@ -61,7 +80,10 @@ function QuestionCard({ sessionId, req, disabled }: { sessionId: string; req: Pe
       <CardContent className="flex flex-col gap-5 px-4">
         {questions.map((q, qi) => (
           <fieldset key={q.question} disabled={disabled} className="flex flex-col gap-2">
-            <legend className="mb-2 text-[15px] font-medium md:text-sm">{q.question}</legend>
+            <legend className="mb-2 flex flex-wrap items-center gap-2 text-[15px] font-medium md:text-sm">
+              {q.header && <span className="rounded-full bg-attention/20 px-2 py-0.5 text-[11px] font-semibold tracking-wide text-attention-foreground uppercase">{q.header}</span>}
+              {q.question}
+            </legend>
             {q.multiSelect ? (
               [...q.options, { label: OTHER }].map((o, oi) => {
                 const id = `q${qi}-${oi}`
@@ -97,9 +119,9 @@ function QuestionCard({ sessionId, req, disabled }: { sessionId: string; req: Pe
         ))}
         <ErrorAlert error={answer.error} />
       </CardContent>
-      {!disabled && (
+      {disabled ? <WaitingOn who={waitingOn} /> : (
         <CardFooter className="px-4">
-          <Button className="h-10 w-full" disabled={!ready || answer.isPending}
+          <Button className="h-11 w-full text-base md:h-10 md:text-sm" disabled={!ready || answer.isPending}
             onClick={() => answer.mutate({ behavior: 'allow', updatedInput: { ...req.input, answers: Object.fromEntries(questions.map((q) => [q.question, value(q)])) } })}>
             Send answer
           </Button>
@@ -118,7 +140,7 @@ function OptionText({ label, description }: { label: string; description?: strin
   )
 }
 
-function PlanCard({ sessionId, req, disabled, after }: { sessionId: string; req: PendingRequest; disabled: boolean; after: () => Promise<unknown> }) {
+function PlanCard({ sessionId, req, disabled, waitingOn, after }: { sessionId: string; req: PendingRequest; disabled: boolean; waitingOn?: string; after: () => Promise<unknown> }) {
   const [feedback, setFeedback] = useState('')
   const approve = useAnswer(sessionId, req.requestId, after)
   const keep = useAnswer(sessionId, req.requestId)
@@ -131,9 +153,9 @@ function PlanCard({ sessionId, req, disabled, after }: { sessionId: string; req:
         <div className="max-h-[50vh] overflow-auto rounded-lg border bg-background px-3.5 py-3"><Prose text={String(req.input.plan ?? '')} /></div>
         <ErrorAlert error={approve.error ?? keep.error} />
       </CardContent>
-      {!disabled && (
+      {disabled ? <WaitingOn who={waitingOn} /> : (
         <CardFooter className="flex flex-col items-stretch gap-2 px-4">
-          <Button className="h-10" disabled={approve.isPending} onClick={() => approve.mutate({ behavior: 'allow', updatedInput: req.input })}>Approve and build</Button>
+          <Button className="h-11 text-base md:h-10 md:text-sm" disabled={approve.isPending} onClick={() => approve.mutate({ behavior: 'allow', updatedInput: req.input })}>Approve and build</Button>
           <div className="flex gap-2">
             <Input value={feedback} onChange={(e) => setFeedback(e.target.value)} placeholder="What should change? (optional)" className="h-10 bg-background" />
             <Button variant="outline" className="h-10" disabled={keep.isPending}
@@ -155,7 +177,7 @@ function describe(req: PendingRequest) {
   return JSON.stringify(i, null, 2).slice(0, 600)
 }
 
-function PermissionCard({ sessionId, req, disabled }: { sessionId: string; req: PendingRequest; disabled: boolean }) {
+function PermissionCard({ sessionId, req, disabled, waitingOn }: { sessionId: string; req: PendingRequest; disabled: boolean; waitingOn?: string }) {
   const answer = useAnswer(sessionId, req.requestId)
   return (
     <Card className={waitingCard}>
@@ -166,13 +188,13 @@ function PermissionCard({ sessionId, req, disabled }: { sessionId: string; req: 
         <pre className="max-h-60 overflow-auto rounded-md border bg-background px-3 py-2 font-mono text-xs break-all whitespace-pre-wrap">{describe(req)}</pre>
         <ErrorAlert error={answer.error} />
       </CardContent>
-      {!disabled && (
+      {disabled ? <WaitingOn who={waitingOn} /> : (
         <CardFooter className="flex flex-wrap gap-2 px-4">
-          <Button disabled={answer.isPending} onClick={() => answer.mutate({ behavior: 'allow', updatedInput: req.input })}>Allow</Button>
+          <Button className="h-10 flex-1 sm:flex-none" disabled={answer.isPending} onClick={() => answer.mutate({ behavior: 'allow', updatedInput: req.input })}>Allow</Button>
           {!!req.suggestions?.length && (
-            <Button variant="outline" disabled={answer.isPending} onClick={() => answer.mutate({ behavior: 'allow', updatedInput: req.input, updatedPermissions: req.suggestions })}>Always allow</Button>
+            <Button variant="outline" className="h-10 flex-1 sm:flex-none" disabled={answer.isPending} onClick={() => answer.mutate({ behavior: 'allow', updatedInput: req.input, updatedPermissions: req.suggestions })}>Always allow</Button>
           )}
-          <Button variant="destructive" disabled={answer.isPending} onClick={() => answer.mutate({ behavior: 'deny', message: 'The user denied this.' })}>Deny</Button>
+          <Button variant="destructive" className="h-10 flex-1 sm:flex-none" disabled={answer.isPending} onClick={() => answer.mutate({ behavior: 'deny', message: 'The user denied this.' })}>Deny</Button>
         </CardFooter>
       )}
     </Card>

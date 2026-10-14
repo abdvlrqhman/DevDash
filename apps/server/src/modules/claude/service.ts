@@ -193,14 +193,23 @@ const safeName = (n: string) => n.split(/[\\/]/).pop()!.replace(/[^\w.\- ()]/g, 
 type Notify = (userId: number, kind: NotificationKind, n: { title: string; body?: string; url?: string; tag?: string }) => Promise<void>
 
 const clip = (t: string, n = 160) => (t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t)
-function describeRequest(toolName: string, input: Record<string, unknown>) {
+/**
+ * The push/toast for a request Claude is blocked on: an actionable title and body so the person can decide at a
+ * glance (and often knows the answer without opening it). Pure, so it is unit-tested. `sessionTitle` gives context
+ * for the generic cases; for a question the question itself is the title, with the options as the body.
+ */
+export function requestNotification(toolName: string, input: Record<string, unknown>, sessionTitle: string): { title: string; body: string } {
   if (toolName === 'AskUserQuestion') {
-    const q = (input.questions as { question?: string }[] | undefined)?.[0]?.question
-    return q ? `Asked: ${q}` : 'Claude has a question'
+    const qs = (input.questions as { question?: string; options?: { label?: string }[] }[] | undefined) ?? []
+    const first = qs[0]
+    const more = qs.length > 1 ? ` (+${qs.length - 1} more)` : ''
+    if (!first?.question) return { title: `Claude has a question: ${sessionTitle}`, body: `Tap to answer.${more}` }
+    const opts = (first.options ?? []).map((o) => o?.label).filter((l): l is string => !!l)
+    return { title: clip(first.question, 100), body: clip(opts.length ? `${opts.join(' · ')}${more}` : `Tap to answer.${more}`) }
   }
-  if (toolName === 'ExitPlanMode') return 'A plan is ready for your review'
+  if (toolName === 'ExitPlanMode') return { title: `Claude's plan is ready: ${sessionTitle}`, body: 'Approve it or send changes.' }
   const what = typeof input.command === 'string' ? input.command : typeof input.file_path === 'string' ? input.file_path : ''
-  return `Wants to use ${toolName}${what ? `: ${what}` : ''}`
+  return { title: `Claude needs permission: ${sessionTitle}`, body: clip(`Allow ${toolName}${what ? `: ${what}` : ''}`) }
 }
 
 export function claudeService({ db, agents, hub, notify, projects, tailnetConnected }: {
@@ -275,7 +284,13 @@ export function claudeService({ db, agents, hub, notify, projects, tailnetConnec
       if (Date.now() - (lastError.get(s.id) ?? 0) < 60_000) return
       lastError.set(s.id, Date.now())
     }
-    void notify(s.owner_id, kind, { title, body, url: `/claude/${s.id}`, tag: `session:${s.id}` }).catch((err) => console.error('notify:', err))
+    const n = { title, body, url: `/claude/${s.id}`, tag: `session:${s.id}` }
+    void notify(s.owner_id, kind, n).catch((err) => console.error('notify:', err))
+    // A question, plan or permission needs whoever can answer: also ping the teammates the owner let in to send,
+    // so it isn't only the owner who finds out Claude is blocked.
+    if (kind === 'needs_you') {
+      for (const w of repo.writers(s.id)) void notify(w.id, kind, n).catch((err) => console.error('notify:', err))
+    }
   }
 
   // Owner, anyone when the owner lets everyone send, and teammates the owner let in after they asked to join.
@@ -382,11 +397,13 @@ export function claudeService({ db, agents, hub, notify, projects, tailnetConnec
         }
         return hub.publish(`session:${s.id}`, { type: 'msg', msg: ev.msg }, viewers)
       }
-      case 'claude.permission':
-        alert(s, 'needs_you', `Claude needs you: ${s.title}`, clip(describeRequest(String(ev.toolName), (ev.input as Record<string, unknown>) ?? {})))
+      case 'claude.permission': {
+        const n = requestNotification(String(ev.toolName), (ev.input as Record<string, unknown>) ?? {}, s.title)
+        alert(s, 'needs_you', n.title, n.body)
         return hub.publish(`session:${s.id}`, {
           type: 'permission', request: { requestId: ev.requestId, toolName: ev.toolName, input: ev.input, suggestions: ev.suggestions },
         }, viewers)
+      }
       case 'claude.permission_done':
         return hub.publish(`session:${s.id}`, { type: 'permission_done', requestId: ev.requestId }, viewers)
       case 'claude.title': {

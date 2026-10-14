@@ -5,7 +5,7 @@ import { createHub } from '../../core/hub.ts'
 import type { AgentsService } from '../agents/service.ts'
 import type { User } from '../auth/repo.ts'
 import type { ProjectsService } from '../projects/service.ts'
-import { claudeService, checkTailnetMcp, isTailnetHost, sumTurns } from './service.ts'
+import { claudeService, checkTailnetMcp, isTailnetHost, requestNotification, sumTurns } from './service.ts'
 import type { TurnRow } from './repo.ts'
 
 function setup({ tailnetConnected }: { tailnetConnected?: (userId: number) => boolean } = {}) {
@@ -17,8 +17,9 @@ function setup({ tailnetConnected }: { tailnetConnected?: (userId: number) => bo
   db.prepare("insert into claude_sessions (id, owner_id, title, cwd, shared, started) values ('s1', 1, 'Fix login', '/home/ann', 1, 1)").run()
   const notified: { userId: number; title: string }[] = []
   const sent: Record<string, unknown>[] = []
+  let onEvent: ((username: string, ev: Record<string, unknown>) => void) | undefined
   const agents = {
-    onEvent: () => {},
+    onEvent: (fn: (username: string, ev: Record<string, unknown>) => void) => { onEvent = fn },
     request: async (_u: string, req: Record<string, unknown>) => {
       sent.push(req)
       return { ok: true }
@@ -30,7 +31,9 @@ function setup({ tailnetConnected }: { tailnetConnected?: (userId: number) => bo
     tailnetConnected,
   })
   const user = (id: number, name: string): User => ({ id, name, username: name.toLowerCase(), email: '', role: 'member' })
-  return { claude, db, notified, sent, ann: user(1, 'Ann'), bob: user(2, 'Bob'), cat: user(3, 'Cat') }
+  /** Fires an agent event as Ann's agent would, so the reconcile/notify path can be exercised. */
+  const emit = (ev: Record<string, unknown>) => onEvent?.('ann', ev)
+  return { claude, db, notified, sent, emit, ann: user(1, 'Ann'), bob: user(2, 'Bob'), cat: user(3, 'Cat') }
 }
 
 test('watching a shared session: ask to join, the owner lets one person in, only they can send', async () => {
@@ -48,6 +51,38 @@ test('watching a shared session: ask to join, the owner lets one person in, only
 
   claude.setWriter(ann, 's1', 2, false)
   assert.equal((await claude.get(bob, 's1')).canSend, false)
+})
+
+test('requestNotification: a question leads with the question and its options; plans and permissions stay actionable', () => {
+  const q = requestNotification('AskUserQuestion', {
+    questions: [{ question: 'Which database should we use?', options: [{ label: 'Postgres' }, { label: 'SQLite' }] }],
+  }, 'Fix login')
+  assert.equal(q.title, 'Which database should we use?')
+  assert.equal(q.body, 'Postgres · SQLite')
+
+  // Several questions: the body says how many more are waiting; no options falls back to a prompt to open it.
+  const multi = requestNotification('AskUserQuestion', {
+    questions: [{ question: 'Pick a DB?' }, { question: 'Pick a UI?' }],
+  }, 'Fix login')
+  assert.equal(multi.title, 'Pick a DB?')
+  assert.match(multi.body, /Tap to answer\. \(\+1 more\)/)
+
+  const plan = requestNotification('ExitPlanMode', { plan: '# Plan' }, 'Fix login')
+  assert.deepEqual(plan, { title: "Claude's plan is ready: Fix login", body: 'Approve it or send changes.' })
+
+  const perm = requestNotification('Bash', { command: 'rm -rf build' }, 'Fix login')
+  assert.equal(perm.title, 'Claude needs permission: Fix login')
+  assert.equal(perm.body, 'Allow Bash: rm -rf build')
+})
+
+test('a pending question pings the owner and the teammates let in to send, not mere watchers', () => {
+  const { claude, notified, emit, ann } = setup()
+  claude.setWriter(ann, 's1', 2, true) // Bob can send; Cat only watches
+  notified.length = 0 // ignore the "you can send now" ping from setWriter
+  emit({ ev: 'claude.permission', id: 's1', requestId: 'r1', toolName: 'AskUserQuestion',
+    input: { questions: [{ question: 'Use React or Vue?', options: [{ label: 'React' }, { label: 'Vue' }] }] } })
+  assert.deepEqual(notified.map((n) => n.userId).sort(), [1, 2])
+  assert.equal(notified[0]!.title, 'Use React or Vue?')
 })
 
 test('comments: anyone who can see the session; the owner hears about others', async () => {
