@@ -30,6 +30,7 @@ import { FAST_HINT, REMOTE_HINT, SessionChips } from './SessionChips'
 import {
   EFFORTS, FALLBACK_MODELS, PERMISSION_MODES, commandsQuery, modeLabel, profilesQuery, sessionQuery, shortPath, STATUS_LABEL,
   type Effort, type PendingRequest, type PermissionMode, type Session, sessionPlace } from './data'
+import { reconcilePending, type PendingChange } from './pending'
 import { createLiveText, type LiveTextStore } from './live-text'
 import { useArchiveSession } from './ArchiveSession'
 import { Requests, requestSummary } from './Requests'
@@ -79,6 +80,9 @@ function SessionView({ id }: { id: string }) {
   commentsOpenRef.current = commentsOpen
   const scroller = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
+  // Live permission events own the pending cards; this shields a request a live event just added/removed from being
+  // undone by a stale info snapshot, until info catches up. See reconcilePending.
+  const recentlyChanged = useRef(new Map<string, PendingChange>())
 
   const s = info.data?.session
   const setSession = (session: Session) => qc.setQueryData(sessionQuery(id).queryKey, (old) => (old ? { ...old, session } : old))
@@ -112,9 +116,15 @@ function SessionView({ id }: { id: string }) {
     } else if (e.type === 'permission') {
       const r = e.request as PendingRequest
       stick.current = true // a question/permission arriving mid-read must scroll into view, not hide below the fold
-      setPending((p) => [...p.filter((x) => x.requestId !== r.requestId), r])
-    } else if (e.type === 'permission_done') setPending((p) => p.filter((x) => x.requestId !== e.requestId))
-    else if (e.type === 'msg') {
+      recentlyChanged.current.set(r.requestId, 'added')
+      setPending((p) => [...p.filter((x) => x.requestId !== r.requestId), r]) // appears instantly, before info catches up
+      void info.refetch() // pull the authoritative snapshot; the live add above wins until it lands
+    } else if (e.type === 'permission_done') {
+      const requestId = e.requestId as string
+      recentlyChanged.current.set(requestId, 'removed')
+      setPending((p) => p.filter((x) => x.requestId !== requestId)) // clears instantly, even if a stale info refetch is in flight
+      void info.refetch()
+    } else if (e.type === 'msg') {
       const m = e.msg as Raw & { event?: { type?: string; delta?: { type?: string; text?: string } } }
       if (m.type === 'stream_event') {
         if (m.parent_tool_use_id) return
@@ -169,7 +179,14 @@ function SessionView({ id }: { id: string }) {
   }, [mode, history])
   useEffect(() => {
     if (!info.data) return
-    setPending(info.data.pending as PendingRequest[])
+    // Info seeds the cards and is the fallback, but never clobbers a live permission event still settling.
+    const fromInfo = info.data.pending as PendingRequest[]
+    setPending((live) => reconcilePending(live, fromInfo, recentlyChanged.current))
+    // Once info confirms a live change (lists an added one, or drops a removed one), stop shielding it.
+    const present = new Set(fromInfo.map((r) => r.requestId))
+    for (const [id, change] of recentlyChanged.current) {
+      if (change === 'added' ? present.has(id) : !present.has(id)) recentlyChanged.current.delete(id)
+    }
     setViewers(info.data.viewers)
     setCommentCount(info.data.comments)
   }, [info.data])
