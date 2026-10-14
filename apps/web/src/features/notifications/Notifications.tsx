@@ -60,9 +60,17 @@ export function NotificationsPanel() {
     mutationFn: (p: Prefs) => unwrap(api.api.notifications.prefs.$put({ json: p })),
     onSuccess: (r) => qc.setQueryData(['notifications', 'prefs'], (old: typeof q.data) => old && { ...old, prefs: r.prefs }),
   })
+  // In the native app the server test would just toast (you're looking at this screen), so also fire a real system
+  // notification through the shell bridge — that exercises the device's native path and shows whether it actually works.
+  const nativeTest = inShell() && !!window.devdashShell?.notify
   const test = useMutation({
-    mutationFn: () => unwrap(api.api.notifications.test.$post()),
-    onSuccess: () => toast.success('Test sent. It shows on every device where notifications are on.'),
+    mutationFn: async () => {
+      await unwrap(api.api.notifications.test.$post())
+      if (nativeTest) window.devdashShell!.notify!('DevDash', 'Test notification — this is how it looks on this device.')
+    },
+    onSuccess: () => toast.success(nativeTest
+      ? 'Sent. Check for a system notification on this device — if none appears, allow DevDash in your phone’s Settings → Notifications.'
+      : 'Test sent. It shows on every device where notifications are on.'),
   })
   const prefs = q.data?.prefs
 
