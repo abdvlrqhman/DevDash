@@ -286,7 +286,12 @@ async function pump(c: Chat) {
   } finally {
     if (chats.get(id) === c) chats.delete(id)
     teardownTailnet(id) // the session process is gone: close its tailnet MCP forwarder
-    for (const p of c.pending.values()) p.resolve({ behavior: 'deny', message: 'Session closed' })
+    // Clear any still-open question/permission on viewers' screens: the session is gone, nothing can answer it now.
+    for (const p of c.pending.values()) {
+      emit({ ev: 'claude.permission_done', id, requestId: p.requestId })
+      p.resolve({ behavior: 'deny', message: 'Session closed' })
+    }
+    c.pending.clear()
     if (c.tasks.length) emit({ ev: 'claude.tasks', id, tasks: [] })
     emit({ ev: 'claude.closed', id })
   }
