@@ -18,6 +18,10 @@ coverage/
 *.keystore
 *.mobileprovision
 
+# updater signing key (never commit the private key or the human's secret note)
+UPDATER_KEY_DO_NOT_COMMIT.txt
+apps/shell/src-tauri/updater.key*
+
 # local data
 data/
 *.db

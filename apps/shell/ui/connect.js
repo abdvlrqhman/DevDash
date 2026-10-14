@@ -2,6 +2,11 @@
 const KEY = 'devdash-spaces'
 const $ = (id) => document.getElementById(id)
 
+// Resolves true when the launch updater (updater.js) is installing a new app version, so we
+// hold off opening a space (navigating away would kill the in-flight download). Any absence or
+// error resolves false — the updater is best-effort and never blocks opening.
+const updatePending = () => Promise.resolve(window.devdashUpdate).then((v) => v === true, () => false)
+
 function load() {
   try {
     const v = JSON.parse(localStorage.getItem(KEY) || '[]')
@@ -66,6 +71,7 @@ async function open(host) {
   try {
     const meta = await check(host)
     save({ host, name: meta.name })
+    if (await updatePending()) return
     location.replace(`https://${host}/`)
   } catch (err) {
     showForm(err.message, host)
@@ -91,7 +97,11 @@ if (last && !switching) {
   $('opening-name').textContent = last.name
   $('opening-host').textContent = last.host
   void check(last.host).then(
-    () => { if (!sessionStorage.getItem('devdash-stay')) location.replace(`https://${last.host}/`) },
+    async () => {
+      if (sessionStorage.getItem('devdash-stay')) return
+      if (await updatePending()) return
+      location.replace(`https://${last.host}/`)
+    },
     (err) => showForm(err.message, last.host),
   )
 } else {
