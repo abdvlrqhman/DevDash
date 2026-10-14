@@ -52,6 +52,19 @@ test('images in user messages become data URLs', () => {
   assert.ok(b[0]!.kind === 'user' && b[0]!.images[0] === 'data:image/png;base64,AAA')
 })
 
+test('a note Claude Code adds for the model shows its content: an image inline, text as a preview with the full text on tap', () => {
+  const b = buildTranscript([
+    // A synthetic note that is only an image: its picture must survive, not be dropped for a bare label.
+    { type: 'user', uuid: 'n1', isSynthetic: true, message: { role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'BBB' } }] } },
+    // A non-human note with text: the first line labels it, the whole thing stays reachable as detail.
+    { type: 'user', uuid: 'n2', origin: { kind: 'hook' }, message: { role: 'user', content: 'Reminder line one\nmore detail here' } },
+  ] as never)
+  assert.deepEqual(b.map((x) => x.kind), ['event', 'event'])
+  const img = b[0]!, txt = b[1]!
+  assert.ok(img.kind === 'event' && img.images?.[0] === 'data:image/png;base64,BBB' && img.text === 'Claude Code added an image')
+  assert.ok(txt.kind === 'event' && txt.text === 'Reminder line one' && txt.detail === 'Reminder line one\nmore detail here')
+})
+
 test('side panel facts: latest to-dos and changed files with line counts, including subagent edits', async () => {
   const { sessionFacts } = await import('./transcript.ts')
   const b = buildTranscript([

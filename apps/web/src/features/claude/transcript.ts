@@ -42,7 +42,7 @@ export type Block =
       model?: string; steps?: number
     }
   | { kind: 'note'; key: string; text: string }
-  | { kind: 'event'; key: string; text: string; ok: boolean; tone?: EventTone; detail?: string }
+  | { kind: 'event'; key: string; text: string; ok: boolean; tone?: EventTone; detail?: string; images?: string[] }
 
 /** Text of a tool result or message: text parts, plus names for what isn't text (images, files, loaded tools). */
 export function toText(c: unknown): string {
@@ -79,9 +79,9 @@ const RESUMED = 'Continue where you left off. (DevDash: the server restarted whi
  * A user-role message Claude Code wrote itself, as a quiet event; null when a person wrote it. Uses the SDK's origin
  * and synthetic flags when present (live), and the shapes of the text otherwise (history drops the flags).
  */
-function injected(r: Raw, text: string, key: string): Block | null {
+function injected(r: Raw, text: string, key: string, images: string[] = []): Block | null {
   const o = r.origin ?? undefined
-  const ev = (tone: EventTone, label: string, detail = text, ok = true): Block => ({ kind: 'event', key, tone, text: label, ok, detail: detail.trim() || undefined })
+  const ev = (tone: EventTone, label: string, detail = text, ok = true): Block => ({ kind: 'event', key, tone, text: label, ok, detail: detail.trim() || undefined, images: images.length ? images : undefined })
   const notice = tag(text, 'task-notification')
   if (notice !== undefined) {
     const status = tag(notice, 'status')?.trim() ?? ''
@@ -94,8 +94,9 @@ function injected(r: Raw, text: string, key: string): Block | null {
   if (o?.kind === 'channel') return ev('peer', `Message via ${o.server ?? 'a channel'}`)
   if (o?.kind === 'task-notification') return ev(o.subkind === 'scheduled-trigger' ? 'schedule' : 'task', o.subkind === 'scheduled-trigger' ? 'A scheduled run started' : firstLine(text) || 'Background task update')
   if (o?.kind === 'auto-continuation') return ev('system', 'Continued on its own')
-  if (o && o.kind !== 'human') return ev('system', 'Claude Code added a note for Claude')
-  if (r.isSynthetic === true) return ev('system', 'Claude Code added a note for Claude')
+  // A note Claude Code put in for the model: show what it is (its first line, or that it's an image), with the
+  // full text one tap away and any pictures shown inline — not an opaque "added a note" with the content lost.
+  if ((o && o.kind !== 'human') || r.isSynthetic === true) return ev('system', firstLine(text) || (images.length ? 'Claude Code added an image' : 'Claude Code added a note'))
   // A message that is nothing but a machine tag (<scheduled-wakeup>, <monitor-event>…) isn't someone typing.
   const only = /^<([a-z][a-z0-9-]*)>[\s\S]*<\/\1>$/.exec(text.trim())
   if (only) return ev(/wake|schedul|cron|loop/.test(only[1]!) ? 'schedule' : 'system', `${only[1]!.replace(/-/g, ' ').replace(/^./, (c) => c.toUpperCase())}`)
@@ -157,7 +158,7 @@ export function buildTranscript(raws: Raw[]): Block[] {
       // Reminders Claude Code appends for the model aren't the person's words.
       const said = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, '').trim()
       if (!said && !images.length && !files.length) return
-      const machine = injected(r, said || text, key)
+      const machine = injected(r, said || text, key, images)
       if (machine) return void top.push(machine)
       top.push({ kind: 'user', key, uuid: r.uuid, text: said, images, files, at: when(r) })
       return

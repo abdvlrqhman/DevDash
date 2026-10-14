@@ -80,7 +80,7 @@ export const Blocks = memo(function Blocks({ blocks, senders, nested, live = tru
             return <ResultLine key={b.key} b={b} />
 
           case 'event':
-            return <Event key={b.key} text={b.text} ok={b.ok} tone={b.tone} detail={b.detail} />
+            return <Event key={b.key} text={b.text} ok={b.ok} tone={b.tone} detail={b.detail} images={b.images} />
           case 'note':
             return <p key={b.key} className="border-y py-1.5 text-center text-xs text-muted-foreground">{b.text}</p>
         }
@@ -128,8 +128,8 @@ function ResultLine({ b }: { b: Extract<Block, { kind: 'result' }> }) {
 
 const TONE: Record<EventTone, LucideIcon> = { task: Check, skill: BookOpen, peer: MessagesSquare, schedule: CalendarClock, system: Info }
 
-/** Something Claude Code put in the conversation itself: a quiet line, its raw text one tap away. */
-function Event({ text, ok, tone = 'task', detail }: { text: string; ok: boolean; tone?: EventTone; detail?: string }) {
+/** Something Claude Code put in the conversation itself: a quiet line, its raw text one tap away and any images shown. */
+function Event({ text, ok, tone = 'task', detail, images }: { text: string; ok: boolean; tone?: EventTone; detail?: string; images?: string[] }) {
   const [open, setOpen] = useState(false)
   const Icon = ok ? TONE[tone] : CircleAlert
   const line = (
@@ -144,6 +144,11 @@ function Event({ text, ok, tone = 'task', detail }: { text: string; ok: boolean;
       {detail
         ? <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="-mx-1.5 flex w-[calc(100%+0.75rem)] items-start gap-2 rounded-md px-1.5 py-0.5 text-left transition-colors duration-150 hover:bg-muted/60 hover:text-foreground">{line}</button>
         : <p className="flex items-start gap-2">{line}</p>}
+      {images && images.length > 0 && (
+        <div className="mt-1 ml-5.5 flex flex-wrap gap-1.5">
+          {images.map((src, i) => <img key={i} src={src} alt="Note image" className="max-h-40 rounded-lg border" />)}
+        </div>
+      )}
       {open && detail && <pre className="mt-1 ml-5.5 max-h-72 overflow-auto rounded-md border bg-muted/30 px-2.5 py-2 font-mono text-[11.5px] leading-5 break-words whitespace-pre-wrap">{detail}</pre>}
     </div>
   )
