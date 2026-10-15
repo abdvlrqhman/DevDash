@@ -101,6 +101,17 @@ export const ops = {
     return { fetched: true, defaultBranch: await remoteHead(path) }
   },
 
+  /** Points an existing checkout at a remote by adding or updating `origin` (for connecting a local/zip project to
+   *  GitHub). Local only: the server fetches afterwards, recording any access error the way a normal fetch does. */
+  async remoteSet(r: Record<string, unknown>) {
+    const path = checked(r.path)
+    const url = String(r.url ?? '')
+    if (!/^(https:\/\/|git@|ssh:\/\/)[^\s]+$/.test(url)) throw new Error('Use an https:// or git@ repository address.')
+    const remotes = (await git(['-C', path, 'remote'])).split('\n').map((s) => s.trim())
+    await git(['-C', path, 'remote', remotes.includes('origin') ? 'set-url' : 'add', 'origin', url])
+    return { ok: true }
+  },
+
   async refs(r: Record<string, unknown>) {
     const path = checked(r.path)
     const out = await git(['-C', path, 'for-each-ref', '--format=%(refname)%09%(objectname)', 'refs/heads', 'refs/remotes/origin'])

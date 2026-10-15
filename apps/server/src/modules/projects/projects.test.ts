@@ -66,6 +66,35 @@ test('create-from-zip inserts the project only after the agent unzips it, and le
   assert.equal(projects.list(false, 1).length, 1, 'the failed zip left no dangling project')
 })
 
+test('connecting an existing project to a repo wires the origin remote, saves the url, and fetches', async () => {
+  const db = openDb(':memory:')
+  db.prepare("insert into users (id, email, username, name, password_hash, totp_secret, role) values (1, 'a@x.io', 'ann', 'Ann Lee', 'x', 'x', 'admin')").run()
+  db.prepare("insert into projects (id, slug, name, repo_url, created_by) values (1, 'zipapp', 'Zip App', null, 1)").run()
+  const hub = createHub()
+  const activity = activityService({ db, hub })
+  const tasks = tasksService({ db, hub, activity, search: searchService({ db }) })
+  const calls: { op: string; url?: string }[] = []
+  const agents = {
+    request: async (_u: string, msg: { op: string; url?: string }) => {
+      calls.push(msg)
+      if (msg.op === 'git.fetch') return { fetched: true, defaultBranch: 'main' }
+      if (msg.op === 'git.refs') return { refs: {} }
+      return { ok: true }
+    },
+  } as unknown as AgentsService
+  const projects = projectsService({ db, hub, agents, activity, tasks, gitSafeDir: async () => {}, root: '/srv/devdash' })
+  const ann: User = { id: 1, name: 'Ann Lee', username: 'ann', email: '', role: 'admin' }
+
+  assert.equal(projects.get('zipapp').repoUrl, null)
+  const p = await projects.connectRepo(ann, 'zipapp', 'https://github.com/acme/zipapp.git')
+  assert.equal(p.repoUrl, 'https://github.com/acme/zipapp.git')
+  const set = calls.find((c) => c.op === 'git.remote.set')
+  assert.ok(set && set.url === 'https://github.com/acme/zipapp.git', 'sets the origin remote to the given url')
+  assert.ok(calls.some((c) => c.op === 'git.fetch'), 'fetches once connected')
+  assert.equal(projects.bySlug('zipapp').repo_url, 'https://github.com/acme/zipapp.git')
+  await assert.rejects(projects.connectRepo(ann, 'zipapp', 'not a url'), /https:\/\/ or git@/)
+})
+
 test('how new Claude sessions start out is a project setting any member changes; archiving is not', () => {
   const db = openDb(':memory:')
   const user = db.prepare("insert into users (id, email, username, name, password_hash, totp_secret, role) values (?, ?, ?, ?, 'x', 'x', 'member')")

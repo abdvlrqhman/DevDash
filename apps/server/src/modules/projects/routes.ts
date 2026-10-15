@@ -10,6 +10,7 @@ const UploadId = z.string().regex(/^[a-f0-9]{8,64}$/)
 const Create = z.object({ name: z.string().max(80).default(''), slug: z.string().max(40).optional(), repoUrl: z.string().max(500).optional() })
 const FromZip = z.object({ name: z.string().max(80).default(''), slug: z.string().max(40).optional(), uploadId: UploadId })
 const Patch = z.object({ name: z.string().min(1).max(80).optional(), archived: z.boolean().optional(), sessionSharing: z.enum(SESSION_SHARING).optional() })
+const Connect = z.object({ repoUrl: z.string().min(1).max(500) })
 
 export function projectsRoutes(projects: ProjectsService, activity: ActivityService, mw: ReturnType<typeof authMiddleware>) {
   return new Hono<AuthEnv>()
@@ -27,6 +28,7 @@ export function projectsRoutes(projects: ProjectsService, activity: ActivityServ
     .post('/from-zip', json(FromZip), async (c) => c.json({ project: await projects.createFromZip(c.get('user'), c.req.valid('json')) }))
     .get('/:slug', (c) => c.json({ project: projects.get(c.req.param('slug'), c.get('user').id) }))
     .patch('/:slug', json(Patch), (c) => c.json({ project: projects.update(c.get('user'), c.req.param('slug'), c.req.valid('json')) }))
+    .post('/:slug/connect', json(Connect), async (c) => c.json({ project: await projects.connectRepo(c.get('user'), c.req.param('slug'), c.req.valid('json').repoUrl) }))
     .post('/:slug/fetch', async (c) => c.json({ project: await projects.fetch(c.req.param('slug'), c.get('user').id) }))
     .get('/:slug/commits', async (c) => c.json({ commits: await projects.commits(c.req.param('slug')) }))
     .get('/:slug/activity', (c) => c.json({ activity: activity.list(projects.idOf(c.req.param('slug'))) }))

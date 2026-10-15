@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { CircleCheck, CircleDashed, CircleX, Ellipsis, LoaderCircle, Play, Plus, Trash2 } from 'lucide-react'
+import { CircleCheck, CircleDashed, CircleX, Ellipsis, LoaderCircle, Play, Plug, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { NativeSelect } from '@/components/app/native-select'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
@@ -51,7 +51,7 @@ export function BuildsTab({ slug, isGithub }: { slug: string; isGithub: boolean 
     onSuccess: () => void qc.invalidateQueries({ queryKey: ['builds', slug] }),
   })
 
-  if (!isGithub) return <p className="text-sm text-muted-foreground">Builds run on GitHub Actions, so they need a project cloned from github.com.</p>
+  if (!isGithub) return <ConnectRepo slug={slug} />
   if (q.isPending) return <Skeleton className="h-48" />
   if (q.error) return <div className="flex flex-col gap-3"><ErrorAlert error={q.error} /><GitHubConnection compact /></div>
   const d = q.data
@@ -107,6 +107,41 @@ export function BuildsTab({ slug, isGithub }: { slug: string; isGithub: boolean 
       </section>
       <AddTarget slug={slug} open={adding} onClose={() => setAdding(false)} workflows={d.workflows} defaultBranch={d.defaultBranch} />
     </div>
+  )
+}
+
+/** When a project has no github.com remote (one started from a .zip or a plain `git init`): link it to a repository,
+ *  which turns on Builds — and fetching and commit history — for it, instead of a dead-end message. */
+function ConnectRepo({ slug }: { slug: string }) {
+  const qc = useQueryClient()
+  const [url, setUrl] = useState('')
+  const connect = useMutation({
+    mutationFn: () => unwrap(api.api.projects[':slug'].connect.$post({ param: { slug }, json: { repoUrl: url.trim() } })),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['projects'] })
+      void qc.invalidateQueries({ queryKey: ['builds', slug] })
+      toast.success('Connected. Builds run from this repository now.')
+    },
+    onError: (e) => toast.error(e.message),
+  })
+  const ok = /github\.com[:/][\w.-]+\/[\w.-]+/.test(url.trim())
+  const submit = (e: FormEvent) => { e.preventDefault(); if (ok) connect.mutate() }
+  return (
+    <form onSubmit={submit} className="flex max-w-xl flex-col gap-4">
+      <div className="flex flex-col gap-1">
+        <h3 className="text-sm font-medium">Connect a GitHub repository</h3>
+        <p className="text-sm text-muted-foreground">Builds run on GitHub Actions. This project isn't linked to a repository yet — add its github.com address to run its workflows from here. It also turns on fetching and commit history for the project.</p>
+      </div>
+      <FieldGroup>
+        <Field>
+          <FieldLabel htmlFor="connect-url">Repository address</FieldLabel>
+          <Input id="connect-url" autoFocus className="h-10 font-mono" placeholder="https://github.com/owner/repo" value={url} onChange={(e) => setUrl(e.target.value)} />
+          <FieldDescription>An https:// or git@ address on github.com. For a private repository you'll need your GitHub access set up (<code className="font-mono">gh auth login</code>) in your DevDash terminal.</FieldDescription>
+        </Field>
+        <ErrorAlert error={connect.error} />
+        <div><Button type="submit" className="h-10" disabled={!ok || connect.isPending}>{connect.isPending ? <LoaderCircle className="animate-spin" /> : <Plug />}Connect repository</Button></div>
+      </FieldGroup>
+    </form>
   )
 }
 

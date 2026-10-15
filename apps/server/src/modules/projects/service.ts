@@ -50,6 +50,7 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
     byId: db.prepare(`${SELECT} where p.id = ?`),
     insert: db.prepare('insert into projects (slug, name, repo_url, default_branch, created_by) values (?, ?, ?, ?, ?) returning id'),
     patch: db.prepare('update projects set name = ?, archived = ?, session_sharing = ? where id = ?'),
+    setRepo: db.prepare('update projects set repo_url = ? where id = ?'),
     fetched: db.prepare('update projects set fetched_at = unixepoch(), fetch_error = ?, default_branch = coalesce(?, default_branch) where id = ?'),
     refs: db.prepare('select ref, sha from project_refs where project_id = ?'),
     putRef: db.prepare('insert into project_refs (project_id, ref, sha) values (?, ?, ?) on conflict(project_id, ref) do update set sha = excluded.sha'),
@@ -204,6 +205,23 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
       }
       q.patch.run(patch.name?.trim() || p.name, patch.archived === undefined ? p.archived : patch.archived ? 1 : 0, patch.sessionSharing ?? p.session_sharing, p.id)
       changed()
+      return dto(find(slug, user.id))
+    },
+
+    /**
+     * Points an existing project at a git remote (e.g. a project started from a .zip or a local `git init`), so Builds,
+     * fetches and remote commits work on it. Wires the `origin` remote on the shared checkout as the member asking (their
+     * own credentials), then fetches — any access error is recorded like a normal fetch and the link stays, so the
+     * project header can tell them to set up `gh` auth rather than losing the connection.
+     */
+    async connectRepo(user: User, slug: string, repoUrl: string) {
+      const p = find(slug)
+      const url = repoUrl.trim()
+      if (!/^(https:\/\/|git@|ssh:\/\/)[^\s]+$/.test(url)) throw new AppError(400, 'bad_url', 'Use an https:// or git@ repository address.')
+      await agents.request(user.username, { op: 'git.remote.set', path: path(slug), url }, 60_000)
+      q.setRepo.run(url, p.id)
+      await fetchOne(find(slug)) // fetch + scan + changed(); records fetch_error if the member's git access isn't set up yet
+      activity.record({ projectId: p.id, userId: user.id, kind: 'project.connected', summary: `connected ${p.name} to ${url.replace(/^https:\/\//, '').replace(/\.git$/, '')}`, url: `/projects/${slug}` })
       return dto(find(slug, user.id))
     },
 

@@ -122,6 +122,7 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
   'git.clone': (r) => git.clone(r),
   'git.init': (r) => git.init(r),
   'git.fetch': (r) => git.fetch(r),
+  'git.remote.set': (r) => git.remoteSet(r),
   'git.refs': (r) => git.refs(r),
   'git.log': (r) => git.log(r),
   'git.worktree.add': (r) => git.worktreeAdd(r),
