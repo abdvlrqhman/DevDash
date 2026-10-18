@@ -138,6 +138,10 @@ export function teamRoutes(team: TeamService | null, mw: ReturnType<typeof authM
       t().savePriorities(c.req.param('slug'), c.req.valid('json').body)
       return c.json({ ok: true })
     })
+    .put('/projects/:slug/close-guard', json(z.object({ money: z.boolean().optional(), production: z.boolean().optional(), person_decision: z.boolean().optional() })), (c) => {
+      t().setCloseGuard(c.req.param('slug'), c.req.valid('json'))
+      return c.json({ ok: true })
+    })
     .post('/projects/:slug/decisions', json(Body(2000)), (c) => {
       t().addDecision(c.get('user'), c.req.param('slug'), c.req.valid('json').body)
       return c.json({ ok: true })
@@ -161,6 +165,7 @@ export function teamRoutes(team: TeamService | null, mw: ReturnType<typeof authM
       dailyLimit: z.number().int().min(0).max(48),
       monthlyBudget: z.number().min(0).max(100_000).nullable(),
       lead: z.boolean().optional(),
+      selfClose: z.enum(['default', 'always_ask', 'allow']).optional(),
     })), (c) => c.json({ role: t().roleSettings(id(c.req.param('id')), c.req.valid('json')) }))
     .get('/roles/:id', (c) => c.json(t().role(id(c.req.param('id')))))
     .put('/roles/:id', json(RoleInput), (c) => c.json({ role: t().updateRole(id(c.req.param('id')), c.req.valid('json')) }))

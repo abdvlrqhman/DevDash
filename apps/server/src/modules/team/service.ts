@@ -13,7 +13,7 @@ import type { Priority, TasksService } from '../tasks/service.ts'
 import { seal, unseal } from '../../core/crypto.ts'
 import type { AgentsService } from '../agents/service.ts'
 import { DIGEST_SYSTEM, GENERATE_SYSTEM, generatePrompt, roleSystem, roleTools, shiftPrompt } from './prompts.ts'
-import { teamRepo, type CloseAs, type GoalRow, type MessageKind, type ProposalKind, type ProposalRow, type RoleRow, type SourceRow, type ThreadFilter, type ThreadRow } from './repo.ts'
+import { teamRepo, type CloseAs, type GoalRow, type MessageKind, type ProposalKind, type ProposalRow, type RoleRow, type SelfClose, type SourceRow, type ThreadFilter, type ThreadRow } from './repo.ts'
 import { dueSlots, localParts, nextRun, slotKey, TRIGGERS, validSlots, validTz, type Slot, type Trigger } from './schedule.ts'
 import { fetchHttp, fetchPage, queryPostgres, readOnlySql, rowsText, type SourceConfig, type SourceKind } from './sources.ts'
 
@@ -29,6 +29,20 @@ const ALERTS_PER_DAY = 5 // per sender, so one noisy session or role can't keep 
 export const MESSAGE_KINDS = ['fyi', 'question', 'request', 'alert', 'reply'] as const
 export { CLOSE_AS, type CloseAs } from './repo.ts'
 const THREADS_PAGE = 30
+const SELF_CLOSE_MIN = 8 // confidence 8-10 lets an allowed role close directly; below that, people get a one-tap approval
+export type CloseGuard = { money: boolean; production: boolean; person_decision: boolean }
+export const DEFAULT_CLOSE_GUARD: CloseGuard = { money: true, production: true, person_decision: true }
+const MONEY_RE = /\b(spend|spent|budget|pay|payment|paid|billing|invoice|refund|price|pricing|cost|charge|salary|subscription|\$|usd|eur|gbp)\b/i
+const PROD_RE = /\b(production|prod|deploy|deployment|release|launch|rollout|go[- ]?live|hotfix|incident|outage)\b/i
+const DECISION_RE = /\b(decide|decision|choose|choice|pick|which|whether|approve|approval|sign[- ]?off|strategy|policy)\b/i
+/** Why a close must go to people whatever the confidence, or null. `byPerson`: a person made or owns it (a decision, not a status). */
+function closeConcern(guard: CloseGuard, o: { text: string; byPerson: boolean }) {
+  if (guard.money && MONEY_RE.test(o.text)) return 'it may involve money'
+  if (guard.production && PROD_RE.test(o.text)) return 'it touches production or a release'
+  if (guard.person_decision && o.byPerson && DECISION_RE.test(o.text)) return "it reads like a person's decision, not a status"
+  return null
+}
+type ClosePayload = { target: { kind: 'task' | 'thread'; slug: string; number?: number; thread?: number; label: string }; confidence: number; evidence: string; concern?: string | null }
 /** The closing line in the thread, before the reason. */
 const CLOSED_LINE: Record<CloseAs, string> = {
   done: 'Resolved', declined: 'Declined', duplicate: 'Closed as a duplicate', not_needed: 'Closed as not needed', elsewhere: 'Closed: handled elsewhere',
@@ -45,7 +59,7 @@ export type SourceInput = { name: string; kind: SourceKind; description: string;
 export type RoleInput = { name: string; summary: string; instructions: string; model: string | null }
 export type RoleSettingsInput = {
   autonomy: 'advisor' | 'operator'; autoApprove: string[]; schedule: unknown[]; triggers: string[]
-  paused: boolean; dailyLimit: number; monthlyBudget: number | null; lead?: boolean
+  paused: boolean; dailyLimit: number; monthlyBudget: number | null; lead?: boolean; selfClose?: SelfClose
 }
 export type ProposalInput = {
   kind: ProposalKind; title: string; why: string
@@ -133,7 +147,10 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
     schedule: validSlots(json(r.schedule, [])),
     triggers: json<string[]>(r.triggers, []).filter((t): t is Trigger => (TRIGGERS as readonly string[]).includes(t)),
     paused: !!r.paused, dailyLimit: r.daily_limit, monthlyBudget: r.monthly_budget, lead: !!r.lead,
+    selfClose: (['default', 'always_ask', 'allow'] as const).includes(r.self_close) ? r.self_close : 'default',
   })
+  /** Whether this role may close a confident item directly: 'allow' always, 'always_ask' never, else operators only. */
+  const canSelfClose = (s: ReturnType<typeof settingsOf>) => s.selfClose === 'allow' ? true : s.selfClose === 'always_ask' ? false : s.autonomy === 'operator'
   const sessionTools = (r: RoleRow, project: string) => {
     const s = settingsOf(r)
     return { instructions: roleSystem({ ...r, autonomy: s.autonomy, autoApprove: s.autoApprove }, project), toolPolicy: roleTools(s.autonomy) }
@@ -201,6 +218,12 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
 
   /** Carries out an approved (or allowed) proposal as `user`; returns what happened, as Markdown. */
   async function execute(x: ProposalRow, user: User) {
+    // A "close" proposal people approved: carry out the close, attributed to the approver.
+    if (x.kind === 'close') {
+      const pl = json<ClosePayload>(x.payload, { target: { kind: 'task', slug: x.project_slug, label: x.title }, confidence: 0, evidence: x.why })
+      applyClose(x.project_id, pl, { user }, { kind: 'person', user })
+      return `Closed ${pl.target.label}.`
+    }
     const payload = json<ProposalInput>(x.payload, { kind: x.kind, title: x.title, why: x.why })
     // Tasks a role's approved proposal creates are the role's work, run on the member's account.
     const actor = { user, viaClaude: true, role: x.role_name }
@@ -547,6 +570,8 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       threadId, kind: 'fyi', body: `${CLOSED_LINE[o.as]}${dup}${reason ? `: ${reason}` : '.'}`, evidence: null, label,
       userId: by.kind === 'person' ? by.user.id : undefined, roleId: by.kind === 'role' ? by.roleId : undefined,
     })
+    // One job per object: when a thread is settled, offer to close the open tasks it produced.
+    if (o.as === 'done') offerCloseLinkedTasks(t)
     changed(t.project_id)
   }
 
@@ -572,6 +597,53 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
     repo.touchThread(t.id)
     changed(t.project_id)
     return task.key
+  }
+
+  // ---- Confidence-based closing: a role closes a task or thread directly when confident and allowed, else asks people ----
+
+  const closeGuardOf = (projectId: number): CloseGuard => ({ ...DEFAULT_CLOSE_GUARD, ...json<Partial<CloseGuard>>(repo.project(projectId)?.close_guard, {}) })
+  const closeUrl = (t: ClosePayload['target']) => t.kind === 'task' ? `/tasks/${t.slug}/${t.number}` : `/projects/${t.slug}/team/threads/${t.thread}`
+  const hasPendingClose = (projectId: number, kind: 'task' | 'thread', ref: number) =>
+    repo.pendingCloses(projectId).some((x) => { const t = json<ClosePayload>(x.payload, null as never)?.target; return t?.kind === kind && (kind === 'task' ? t.number === ref : t.thread === ref) })
+
+  /** Actually close the target (task → done, thread → resolved), attributed to `actor` (its role when a role did it). */
+  function applyClose(projectId: number, p: ClosePayload, actor: { user: User; role?: string }, by: Author) {
+    const { target, confidence, evidence } = p
+    if (target.kind === 'task' && target.number != null) {
+      const before = tasks.get(target.slug, target.number)
+      if (before.status !== 'done') tasks.update({ user: actor.user, viaClaude: true, role: actor.role }, target.slug, target.number, { status: 'done' })
+    } else if (target.kind === 'thread' && target.thread != null) {
+      const t = repo.thread(target.thread)
+      if (t && t.status !== 'resolved') closeThread(target.thread, by, { as: 'done', reason: evidence })
+    }
+    activity.record({ projectId, userId: actor.user.id, viaClaude: true, role: actor.role ?? null,
+      kind: 'team.close', summary: `closed ${target.label} (${confidence}/10): ${clipText(evidence.replace(/\s+/g, ' '), 160)}`, url: closeUrl(target) })
+  }
+
+  /** A one-tap "Close? Yes/No" for people, through the proposals pipeline. */
+  function proposeClose(r: RoleRow, p: { id: number; slug: string; name: string }, payload: ClosePayload) {
+    if (hasPendingClose(p.id, payload.target.kind, (payload.target.number ?? payload.target.thread)!)) return
+    const id = repo.insertProposal({
+      projectId: p.id, roleId: r.id, kind: 'close', title: `Close ${payload.target.label}`,
+      why: payload.evidence.trim().slice(0, 4000), payload, expiresAt: Math.floor(Date.now() / 1000) + PROPOSAL_DAYS * 86_400, awaiting: 'people',
+    })
+    for (const uid of members()) {
+      void notify(uid, 'needs_you', { title: `${r.name} (${p.name}): close ${payload.target.label}?`, body: clipText(payload.evidence, 140) || 'Close this?', url: '/approvals', tag: `team-proposal:${id}` }).catch(() => {})
+    }
+    changed(p.id)
+    hub.publish('team', { type: 'approvals' })
+  }
+
+  /** When a thread is resolved, offer to close the open tasks it produced (through its owner role). */
+  function offerCloseLinkedTasks(t: ThreadRow) {
+    const owner = t.owner_role_id ? repo.role(t.owner_role_id) : null
+    if (!owner || owner.archived) return
+    const p = db.prepare('select slug, name from projects where id = ?').get(t.project_id) as { slug: string; name: string }
+    for (const x of repo.threadTasks(t.id)) {
+      if (x.closed_at) continue
+      proposeClose(owner, { id: t.project_id, slug: p.slug, name: p.name },
+        { target: { kind: 'task', slug: x.slug, number: x.number, label: `${x.slug}#${x.number}` }, confidence: 0, evidence: `Its thread #${t.id} "${clipText(t.title, 80)}" was resolved.` })
+    }
   }
 
   /** A thread as a role reads it (and marks it seen). */
@@ -667,6 +739,7 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
         runsAs: t ? { id: t.runs_as, name: t.name } : null,
         brief: { body: brief?.body ?? '', updatedAt: brief?.updated_at ?? null, updatedBy: brief?.updated_by ?? null },
         priorities: t?.priorities ?? '',
+        closeGuard: t ? closeGuardOf(p.id) : DEFAULT_CLOSE_GUARD,
         decisions: repo.decisions(p.id).map((d) => ({ id: d.id, body: d.body, at: d.created_at, by: d.role_name ?? d.user_name })),
         roles: t ? repo.roles(p.id).map(roleDto) : [],
         goals: t ? repo.goals(p.id).map(goalDto) : [],
@@ -909,6 +982,7 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
         triggers: o.triggers.filter((t) => (TRIGGERS as readonly string[]).includes(t)),
         paused: o.paused, dailyLimit: Math.max(0, Math.min(48, Math.round(o.dailyLimit))),
         monthlyBudget: o.monthlyBudget === null ? null : Math.max(0, o.monthlyBudget),
+        selfClose: o.selfClose && (['default', 'always_ask', 'allow'] as const).includes(o.selfClose) ? o.selfClose : settingsOf(r).selfClose,
       })
       if (o.lead !== undefined && o.lead !== !!r.lead) repo.setLead(p.id, id, o.lead)
       const next = repo.role(id)!
@@ -1097,6 +1171,68 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       }
       return linkTaskToThread(t, taskNumber, { kind: 'role', roleId }, unlink)
     },
+    /**
+     * A role closes a task or thread with a confidence score (1-10) and evidence. Confidence 8+ from an allowed role (an
+     * operator, or one set to "allow") closes it directly and logs it, reopenable. Otherwise — low confidence, an advisor
+     * or "always ask" role, a thread still waiting for people, or a guarded topic (money, production, a person's decision) —
+     * it becomes a one-tap "Close? Yes/No" for people. No more comment-style "I suggest closing this".
+     */
+    roleClose(roleId: number, target: { task?: number; thread?: number }, confidence: number, evidence: string) {
+      const { r, p } = findRole(roleId)
+      const { runsAs } = on(p.slug)
+      const conf = Math.max(1, Math.min(10, Math.round(confidence)))
+      const ev = evidence.trim()
+      if (!ev) throw new AppError(400, 'evidence', 'Give the evidence for closing it: a commit in the default branch, a resolved thread, or data from a source.')
+      let payload: ClosePayload
+      let text = ''
+      let byPerson = false
+      let waiting = false
+      if (target.task != null) {
+        const t = tasks.get(p.slug, target.task) // throws 404 if there's no such task
+        if (t.status === 'done') throw new AppError(409, 'closed', `${t.key} is already done.`)
+        text = `${t.title}\n${t.body}`
+        byPerson = !t.creatorRole || !!t.assignee // a person created it, or it's assigned to a person
+        payload = { target: { kind: 'task', slug: p.slug, number: t.number, label: t.key }, confidence: conf, evidence: ev }
+      } else if (target.thread != null) {
+        const th = repo.thread(target.thread)
+        if (!th || th.project_id !== p.id) throw new AppError(404, 'not_found', `There is no thread #${target.thread} in this project.`)
+        if (th.status === 'resolved') throw new AppError(409, 'closed', `Thread #${th.id} is already closed.`)
+        if (th.owner_role_id !== roleId) throw new AppError(403, 'not_owner', `Only the owner closes thread #${th.id} as done. If it isn't yours, decline it with team_resolve.`)
+        text = th.title
+        waiting = !!th.needs_people
+        payload = { target: { kind: 'thread', slug: p.slug, thread: th.id, label: `thread #${th.id}` }, confidence: conf, evidence: ev }
+      } else {
+        throw new AppError(400, 'bad_args', 'Give a task number or a thread id to close.')
+      }
+      const concern = closeConcern(closeGuardOf(p.id), { text, byPerson })
+      payload.concern = concern
+      const mustAsk = !!concern || conf < SELF_CLOSE_MIN || !canSelfClose(settingsOf(r)) || waiting
+      if (mustAsk) {
+        proposeClose(r, p, payload)
+        const why = concern ? ` — ${concern}` : conf < SELF_CLOSE_MIN ? ' (confidence under 8)' : waiting ? ' (it waits for people)' : ' (you ask before closing)'
+        return `Asked the team to close ${payload.target.label}${why}. They'll see a one-tap Close? Yes/No with your evidence.`
+      }
+      applyClose(p.id, payload, { user: runsAs, role: r.name }, { kind: 'role', roleId })
+      return `Closed ${payload.target.label} as done (${conf}/10). It's logged and can be reopened in one tap.`
+    },
+    /** A task was closed (board, commit or a close proposal): offer to close the open thread it came from. */
+    taskClosed(taskId: number) {
+      const link = repo.taskThread(taskId)
+      if (!link) return
+      const t = repo.thread(link.thread_id)
+      if (!t || t.status !== 'open') return
+      const owner = t.owner_role_id ? repo.role(t.owner_role_id) : null
+      if (!owner || owner.archived) return
+      const p = db.prepare('select slug, name from projects where id = ?').get(t.project_id) as { slug: string; name: string }
+      proposeClose(owner, { id: t.project_id, slug: p.slug, name: p.name },
+        { target: { kind: 'thread', slug: p.slug, thread: t.id, label: `thread #${t.id}` }, confidence: 0, evidence: `Its linked task was closed.` })
+    },
+    /** The founder's per-project guard: which kinds of close always need a person, whatever the confidence. */
+    setCloseGuard(slug: string, guard: Partial<CloseGuard>) {
+      const { p } = on(slug)
+      repo.setCloseGuard(p.id, JSON.stringify({ ...DEFAULT_CLOSE_GUARD, ...closeGuardOf(p.id), ...guard }))
+      changed(p.id)
+    },
     /** The lead clears a routine proposal for the team: approve (runs it), reject (with a reason), or escalate to people. */
     async leadDecide(roleId: number, id: number, action: 'approve' | 'reject' | 'escalate', reason: string) {
       const { r, p } = findRole(roleId)
@@ -1193,7 +1329,7 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
     sessionUpdateRole(username: string, sessionId: string, input: {
       role: string | number; name?: string; summary?: string; instructions?: string; model?: string | null
       schedule?: unknown[]; triggers?: string[]; autonomy?: string; paused?: boolean; lead?: boolean
-      project?: string; dailyLimit?: number; monthlyBudget?: number | null; autoApprove?: string[]
+      project?: string; dailyLimit?: number; monthlyBudget?: number | null; autoApprove?: string[]; selfClose?: SelfClose
     }) {
       const who = this.sessionActor(username, sessionId, input.project)
       const r = typeof input.role === 'number' ? repo.role(input.role) : roleNamed(who.projectId, String(input.role))
@@ -1214,6 +1350,7 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
         paused: input.paused ?? s.paused, lead: input.lead,
         dailyLimit: input.dailyLimit ?? s.dailyLimit,
         monthlyBudget: input.monthlyBudget !== undefined ? input.monthlyBudget : s.monthlyBudget,
+        selfClose: input.selfClose ?? s.selfClose,
       })
       return `Updated ${repo.role(r.id)!.name}.`
     },

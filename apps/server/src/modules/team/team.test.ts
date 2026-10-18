@@ -45,11 +45,13 @@ function setup() {
   } as unknown as ProjectsService
   const hub = createHub()
   const activity = activityService({ db, hub })
-  const tasks = tasksService({ db, hub, activity, search: searchService({ db }) })
+  // Team is built just below; wire tasks to it the way the app does, so closing a task can offer to close its thread.
+  let team!: ReturnType<typeof teamService>
+  const tasks = tasksService({ db, hub, activity, search: searchService({ db }), threadOf: (id) => team.taskThread(id), onClosed: (id) => team.taskClosed(id) })
   const notified: { userId: number; title: string }[] = []
   const claude = claudeService({ db, agents, hub, projects, notify: async () => {} })
   const proposalIdle: { id: string; origin_kind: string | null }[] = []
-  const team = teamService({
+  team = teamService({
     db, hub, claude, projects, activity, tasks, notify: async (userId, _k, n) => void notified.push({ userId, title: n.title }),
     agents, masterKey: Buffer.alloc(32, 7), digestAfterMs: 60_000, tickMs: 3_600_000,
     onProposalIdle: (s) => void proposalIdle.push(s),
@@ -778,4 +780,76 @@ test('one job per object: a thread and the task it produces are linked both ways
   assert.ok(team.thread(threadId).tasks.some((x) => x.number === other.number))
   team.linkTaskAsPerson(abdo, threadId, other.number, true)
   assert.equal(team.taskThread(other.id), null)
+})
+
+test('confidence-based closing: an operator self-closes at 8+, low confidence or a guard asks people', async (t) => {
+  const { team, tasks, db, abdo, youssef } = setup()
+  t.after(() => team.stop())
+  team.enable(youssef, 'seevil')
+  const ceo = team.createRole(abdo, 'seevil', { name: 'CEO', summary: '', instructions: '', model: null }) // operator by default
+  const ceoActor = { user: abdo, role: 'CEO', viaClaude: true }
+
+  // Confident, nothing to guard: the operator closes the task directly, and it's logged as the role.
+  const t1 = tasks.create(ceoActor, { project: 'seevil', title: 'Finish the About page' })
+  assert.match(team.roleClose(ceo.id, { task: t1.number }, 9, 'Merged in commit abc1234 on main.'), /Closed/)
+  assert.equal(tasks.get('seevil', t1.number).status, 'done')
+  const logged = db.prepare("select * from activity where kind = 'team.close'").all() as { summary: string; via_role: string }[]
+  assert.ok(logged.some((a) => a.via_role === 'CEO' && /9\/10/.test(a.summary)), 'logged "closed … (9/10)" as the role')
+
+  // Low confidence: a one-tap close for people; the task stays open until approved.
+  const t2 = tasks.create(ceoActor, { project: 'seevil', title: 'Tidy the backlog' })
+  team.roleClose(ceo.id, { task: t2.number }, 5, 'Looks stale.')
+  assert.equal(tasks.get('seevil', t2.number).status, 'todo')
+  const close = team.approvals('pending', 'seevil').find((x) => x.kind === 'close' && (x.payload as { target: { number: number } }).target.number === t2.number)!
+  assert.ok(close, 'a close proposal is waiting for people')
+  await team.decide(abdo, close.id, true, '')
+  assert.equal(tasks.get('seevil', t2.number).status, 'done', 'approving it closes the task')
+
+  // A money task at high confidence still goes to people (the guard), until the founder turns that guard off.
+  const t3 = tasks.create(ceoActor, { project: 'seevil', title: 'Refund the annual subscription' })
+  team.roleClose(ceo.id, { task: t3.number }, 10, 'Processed.')
+  assert.equal(tasks.get('seevil', t3.number).status, 'todo', 'money always asks, even at 10')
+  team.setCloseGuard('seevil', { money: false })
+  const t4 = tasks.create(ceoActor, { project: 'seevil', title: 'Refund another subscription' })
+  team.roleClose(ceo.id, { task: t4.number }, 9, 'Processed.')
+  assert.equal(tasks.get('seevil', t4.number).status, 'done', 'with the money guard off, the operator self-closes')
+})
+
+test('advisors always ask to close; a per-role override lets one self-close', async (t) => {
+  const { team, tasks, abdo, youssef } = setup()
+  t.after(() => team.stop())
+  team.enable(youssef, 'seevil')
+  const content = team.createRole(abdo, 'seevil', { name: 'Content', summary: '', instructions: '', model: null })
+  const base = { autoApprove: [] as string[], schedule: [], triggers: [], paused: false, dailyLimit: 6, monthlyBudget: null }
+  team.roleSettings(content.id, { ...base, autonomy: 'advisor', selfClose: 'default' })
+  const tk = tasks.create({ user: abdo, role: 'Content', viaClaude: true }, { project: 'seevil', title: 'Draft the newsletter' })
+  team.roleClose(content.id, { task: tk.number }, 10, 'Sent it out.')
+  assert.equal(tasks.get('seevil', tk.number).status, 'todo', 'an advisor asks even at 10')
+  assert.ok(team.approvals('pending', 'seevil').some((x) => x.kind === 'close'))
+
+  team.roleSettings(content.id, { ...base, autonomy: 'advisor', selfClose: 'allow' })
+  const tk2 = tasks.create({ user: abdo, role: 'Content', viaClaude: true }, { project: 'seevil', title: 'Draft the FAQ' })
+  team.roleClose(content.id, { task: tk2.number }, 9, 'Live now.')
+  assert.equal(tasks.get('seevil', tk2.number).status, 'done', 'the "allow" override lets the advisor self-close')
+})
+
+test('resolving a thread offers to close its linked open tasks, and closing a task offers to close its thread', async (t) => {
+  const { team, tasks, abdo, youssef } = setup()
+  t.after(() => team.stop())
+  team.enable(youssef, 'seevil')
+  const ceo = team.createRole(abdo, 'seevil', { name: 'CEO', summary: '', instructions: '', model: null })
+
+  // Forward: a thread with a linked open task is resolved -> a close offer for the task.
+  const a = team.postAsPerson(abdo, 'seevil', { kind: 'request', title: 'Launch checklist', body: 'Track it.', to: 'CEO' })
+  const tk = tasks.create({ user: abdo }, { project: 'seevil', title: 'Write the launch post' })
+  team.linkTaskAsPerson(abdo, a.thread, tk.number)
+  team.resolveAsPerson(abdo, a.thread, 'done', 'done')
+  assert.ok(team.approvals('pending', 'seevil').some((x) => x.kind === 'close' && (x.payload as { target: { number?: number } }).target.number === tk.number), 'offers to close the linked task')
+
+  // Reverse: a thread with a linked task; closing the task -> a close offer for the thread.
+  const b = team.postAsPerson(abdo, 'seevil', { kind: 'request', title: 'Pricing page copy', body: 'Track it.', to: 'CEO' })
+  const tk2 = tasks.create({ user: abdo }, { project: 'seevil', title: 'Rewrite the hero line' })
+  team.linkTaskAsPerson(abdo, b.thread, tk2.number)
+  tasks.update({ user: abdo }, 'seevil', tk2.number, { status: 'done' })
+  assert.ok(team.approvals('pending', 'seevil').some((x) => x.kind === 'close' && (x.payload as { target: { thread?: number } }).target.thread === b.thread), 'offers to close the linked thread')
 })

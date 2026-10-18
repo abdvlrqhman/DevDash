@@ -13,11 +13,11 @@ import { DAY_NAMES, nextLabel, TRIGGER_LABELS, type RoleDetail, type Slot } from
 
 type Settings = {
   autonomy: 'advisor' | 'operator'; autoApprove: ('code' | 'goal')[]; schedule: Slot[]; triggers: ('work' | 'task_done' | 'task_created')[]
-  paused: boolean; dailyLimit: number; monthlyBudget: number | null; lead: boolean
+  paused: boolean; dailyLimit: number; monthlyBudget: number | null; lead: boolean; selfClose: 'default' | 'always_ask' | 'allow'
 }
 const pick = (r: RoleDetail['role']): Settings => ({
   autonomy: r.autonomy, autoApprove: r.autoApprove as Settings['autoApprove'], schedule: r.schedule, triggers: r.triggers as Settings['triggers'],
-  paused: r.paused, dailyLimit: r.dailyLimit, monthlyBudget: r.monthlyBudget, lead: r.lead,
+  paused: r.paused, dailyLimit: r.dailyLimit, monthlyBudget: r.monthlyBudget, lead: r.lead, selfClose: r.selfClose,
 })
 const ORDER = [1, 2, 3, 4, 5, 6, 0] // the week starts on Monday here
 
@@ -92,6 +92,23 @@ export function RoleSettings({ r, project }: { r: RoleDetail['role']; project: R
           <span><span className="font-medium">Set goals</span><br /><span className="text-muted-foreground">New goals appear on the Team tab without asking.</span></span>
         </label>
         <p className="text-xs text-muted-foreground">Publishing, posting, spending money and contacting people outside the team always come to you.</p>
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h3 className="text-sm font-semibold">Closing tasks and threads</h3>
+        <div role="radiogroup" aria-label="How it closes" className="grid gap-2 sm:grid-cols-3">
+          {([
+            ['default', 'Follow autonomy', 'An operator closes confidently (8+); an advisor always asks.'],
+            ['allow', 'May close', 'Closes confidently even as an advisor.'],
+            ['always_ask', 'Always ask', 'Never closes on its own — people get a one-tap Close?'],
+          ] as const).map(([v, label, hint]) => (
+            <button key={v} role="radio" aria-checked={s.selfClose === v} onClick={() => set({ selfClose: v })}
+              className={cn('flex flex-col gap-0.5 rounded-xl border p-3 text-left text-sm transition-colors hover:bg-accent/40', s.selfClose === v && 'border-foreground bg-accent/40')}>
+              <span className="font-medium">{label}</span><span className="text-muted-foreground">{hint}</span>
+            </button>
+          ))}
+        </div>
+        <p className="text-xs text-muted-foreground">Whatever this says, closing anything that spends money, touches production, or is a person's decision always asks you (set per project on the Team tab).</p>
       </section>
 
       <section className="flex flex-col gap-3">

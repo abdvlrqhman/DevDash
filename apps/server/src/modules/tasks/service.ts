@@ -29,10 +29,12 @@ export type Actor = { user: Pick<User, 'id' | 'name'>; viaClaude?: boolean; role
 const SELECT = `select t.*, p.slug, p.name as project_name, a.name as assignee_name, a.username as assignee_username, c.name as creator_name
   from tasks t join projects p on p.id = t.project_id left join users a on a.id = t.assignee_id join users c on c.id = t.created_by`
 
-export function tasksService({ db, hub, activity, search, threadOf }: {
+export function tasksService({ db, hub, activity, search, threadOf, onClosed }: {
   db: Db; hub: Hub; activity: ActivityService; search: SearchService
   /** The team thread a task belongs to, if any (for "From thread #N"). Injected by the app; core never imports Team. */
   threadOf?: (taskId: number) => { id: number; title: string; status: 'open' | 'resolved' } | null
+  /** Fired when a task becomes done, so Team can offer to close the thread it came from. Injected by the app. */
+  onClosed?: (taskId: number) => void
 }) {
   const q = {
     list: db.prepare(`${SELECT} where p.archived = 0 and (?1 is null or p.slug = ?1) and (?2 is null or t.assignee_id = ?2)
@@ -123,6 +125,7 @@ export function tasksService({ db, hub, activity, search, threadOf }: {
       if (patch.title !== undefined || patch.body !== undefined) search.put('task', t.id, `${t.slug}#${t.number} ${patch.title ?? t.title}`, patch.body ?? t.body)
       if (status !== t.status) {
         activity.record({ projectId: t.project_id, userId: a.user.id, viaClaude: a.viaClaude, role: a.role, kind: 'task.status', summary: `moved ${t.slug}#${t.number} to ${STATUS_LABEL[status]}`, url: url(t) })
+        if (status === 'done') onClosed?.(t.id)
       }
       changed(slug)
       return dto(q.byId.get(t.id) as Row)
@@ -164,6 +167,7 @@ export function tasksService({ db, hub, activity, search, threadOf }: {
           const author = (q.userByEmail.get(c.email) as { id: number } | undefined)?.id ?? null
           q.update.run(t.title, t.body, target, t.priority, t.due_date, t.assignee_id, (q.maxSort.get(t.project_id, target) as { s: number }).s + 1,
             target === 'done' ? Math.floor(Date.now() / 1000) : null, t.id)
+          if (target === 'done') onClosed?.(t.id)
           activity.record({
             projectId: project.id, userId: author, kind: 'task.closed_by_commit',
             summary: `${target === 'done' ? 'closed' : 'sent to review'} ${t.slug}#${t.number} with ${c.sha.slice(0, 7)} on ${where.branch}`, url: url(t),

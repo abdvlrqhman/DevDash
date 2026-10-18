@@ -84,6 +84,11 @@ const ROLE_ONLY = [
     }, ['id', 'action']),
   },
   {
+    name: 'team_close',
+    description: 'Close a task (task: its number) or a thread you own (thread: its id) as done, with a confidence 1-10 and the evidence (a commit in the default branch, a resolved thread, data). 8+ and you may close it directly — it is logged and reopenable; below 8, or if you only ask before closing, or it involves money/production/a person\'s decision, people get a one-tap "Close? Yes/No". Use this instead of commenting "I suggest closing this".',
+    inputSchema: obj({ task: { type: 'integer', description: "A task's number (the N in slug#N)." }, thread: { type: 'integer', description: "A thread's id (you must own it)." }, confidence: { type: 'integer', description: '1-10: how sure you are it should close.' }, evidence: { type: 'string', description: 'What shows it is done: a commit, a resolved thread, data.' } }, ['confidence', 'evidence']),
+  },
+  {
     name: 'team_resolve',
     description: 'Close a thread. The owner closes it as "done" once it is settled, with one line on the outcome. Any role in the thread may decline it instead of arguing there: "declined" (not ours to do, or another role already has it), "duplicate" (give duplicate_of), "not_needed" (it doesn\'t fit this project) or "elsewhere" (already handled somewhere else), always with one line of why. People see it and can reopen it.',
     inputSchema: obj({
@@ -131,7 +136,7 @@ const MANAGE = [
   },
   {
     name: 'team_role_update',
-    description: 'Change a role when the person asks: its name, summary, instructions, model, schedule, triggers, autonomy, lead, pause it, or tune its limits (daily_limit, monthly_budget) and what it may run without asking (auto_approve).',
+    description: 'Change a role when the person asks: its name, summary, instructions, model, schedule, triggers, autonomy, lead, pause it, tune its limits (daily_limit, monthly_budget), what it may run without asking (auto_approve), or how it closes items (self_close).',
     inputSchema: obj({
       project,
       role: { type: ['string', 'integer'], description: 'Its name or #id (see team_roles).' },
@@ -144,6 +149,7 @@ const MANAGE = [
       daily_limit: { type: 'integer', description: 'Shifts it may start on its own per day (0–48).' },
       monthly_budget: { type: ['number', 'null'], description: 'Most it may spend per month in USD, or null for no cap.' },
       auto_approve: { type: 'array', items: { type: 'string', enum: ['code', 'goal'] }, description: 'Kinds it may run on its own without a person.' },
+      self_close: { type: 'string', enum: ['default', 'always_ask', 'allow'], description: 'How it closes: "default" (operators self-close at 8+, advisors ask), "always_ask" (never self-close), "allow" (may self-close even as an advisor).' },
     }, ['role']),
   },
   {

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { api, unwrap } from '@/lib/api'
 import { cn } from '@/lib/utils'
@@ -130,6 +131,7 @@ function TeamView({ t }: { t: Team }) {
           <Brief slug={slug} brief={t.brief} />
           <Decisions slug={slug} decisions={t.decisions} />
           <Sources slug={slug} sources={t.sources} />
+          <CloseGuard slug={slug} guard={t.closeGuard} />
         </div>
       </div>
       <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
@@ -353,6 +355,33 @@ function Priorities({ slug, priorities }: { slug: string; priorities: string }) 
           Say what matters most right now, so the team works on that first.
         </button>
       )}
+    </Block>
+  )
+}
+
+/** The founder's per-project guard: which closes always need a person, whatever a role's confidence. */
+function CloseGuard({ slug, guard }: { slug: string; guard: Team['closeGuard'] }) {
+  const qc = useQueryClient()
+  const save = useMutation({
+    mutationFn: (patch: Partial<Team['closeGuard']>) => unwrap(api.api.team.projects[':slug']['close-guard'].$put({ param: { slug }, json: patch })),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['team'] }),
+    onError: (e) => toast.error(e.message),
+  })
+  const rows: [keyof Team['closeGuard'], string, string][] = [
+    ['money', 'Spends money', 'Pricing, billing, budgets, payouts.'],
+    ['production', 'Touches production', 'Deploys, releases, incidents, going live.'],
+    ['person_decision', "A person's decision", 'A choice a person made or owns, not a status.'],
+  ]
+  return (
+    <Block title="Always ask before closing" description="Whatever a role's confidence, these closes come to you as a one-tap Close? Yes/No.">
+      <div className="flex flex-col gap-3">
+        {rows.map(([k, label, hint]) => (
+          <label key={k} className="flex items-start justify-between gap-3 text-sm">
+            <span><span className="font-medium">{label}</span><br /><span className="text-muted-foreground">{hint}</span></span>
+            <Switch checked={guard[k]} disabled={save.isPending} onCheckedChange={(v) => save.mutate({ [k]: v })} aria-label={label} />
+          </label>
+        ))}
+      </div>
     </Block>
   )
 }

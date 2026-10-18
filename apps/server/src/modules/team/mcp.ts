@@ -80,6 +80,7 @@ export function registerTeamMcp(agents: AgentsService, team: TeamService) {
       dailyLimit: Number.isInteger(a.daily_limit) ? (a.daily_limit as number) : undefined,
       monthlyBudget: a.monthly_budget === null ? null : typeof a.monthly_budget === 'number' ? a.monthly_budget : undefined,
       autoApprove: Array.isArray(a.auto_approve) ? a.auto_approve.filter((x): x is string => typeof x === 'string') : undefined,
+      selfClose: a.self_close === 'default' || a.self_close === 'always_ask' || a.self_close === 'allow' ? a.self_close : undefined,
     })
   })
   // Data sources: a person's own sessions too ("connect our database for the team"). Keys are best pasted on the Team tab.
@@ -236,6 +237,15 @@ export function registerTeamMcp(agents: AgentsService, team: TeamService) {
     team.roleResolve(c.r.id, c.args.id as number, typeof c.args.resolution === 'string' ? c.args.resolution : '', as as CloseAs,
       Number.isInteger(c.args.duplicate_of) ? (c.args.duplicate_of as number) : undefined)
     return as === 'done' ? `Thread #${c.args.id} resolved.` : `Thread #${c.args.id} closed (${as.replace('_', ' ')}). People see why and can reopen it.`
+  })
+  agents.onRpc('mcp.team_close', (username, params) => {
+    const c = role(username, params)
+    const a = c.args
+    const task = Number.isInteger(a.task) ? (a.task as number) : undefined
+    const thread = Number.isInteger(a.thread) ? (a.thread as number) : undefined
+    if (task === undefined && thread === undefined) throw new AppError(400, 'bad_args', 'Give task (its number) or thread (its id) to close.')
+    if (typeof a.confidence !== 'number') throw new AppError(400, 'bad_args', 'Give confidence, 1-10: how sure you are it should close.')
+    return team.roleClose(c.r.id, { task, thread }, a.confidence, text(a.evidence, 'evidence'))
   })
   agents.onRpc('mcp.team_sources', (username, params) => team.roleSources(role(username, params).r.id))
   agents.onRpc('mcp.team_query', (username, params) => {

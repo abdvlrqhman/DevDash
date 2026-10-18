@@ -63,7 +63,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   // fetch lets "Ready to review" notice branches merged outside DevDash.
   let team: ReturnType<typeof teamPlugin> | undefined
   let reviews: ReturnType<typeof reviewsService> | undefined
-  const tasks = tasksService({ db, hub, activity, search, threadOf: (id) => team?.service?.taskThread(id) ?? null })
+  const tasks = tasksService({ db, hub, activity, search, threadOf: (id) => team?.service?.taskThread(id) ?? null, onClosed: (id) => team?.service?.taskClosed(id) })
   const notes = notesService({ db, hub, activity, search })
   const projects = projectsService({ db, hub, agents, activity, tasks, root: config.projectsRoot, gitSafeDir: (p) => provisioning.gitSafeDir(p), onFetched: (p) => reviews?.checkMerges(p) })
   for (const topic of ['projects', 'tasks', 'notes', 'activity']) hub.authorize(topic, () => true)

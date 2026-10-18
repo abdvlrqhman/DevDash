@@ -5,12 +5,14 @@ export type RoleRow = {
   chat_session_id: string | null; created_at: number; updated_at: number; archived: number
   autonomy: 'advisor' | 'operator'; auto_approve: string; schedule: string; triggers: string; schedule_state: string
   paused: number; daily_limit: number; monthly_budget: number | null; last_triggered: number; lead: number
+  self_close: 'default' | 'always_ask' | 'allow'
 }
+export type SelfClose = RoleRow['self_close']
 export type ShiftRow = {
   id: number; role_id: number; session_id: string | null; trigger: string; status: 'running' | 'done' | 'error'
   report: string | null; started_at: number; ended_at: number | null; cost_usd: number; thread_id: number | null
 }
-export type ProposalKind = 'task' | 'code' | 'goal' | 'other'
+export type ProposalKind = 'task' | 'code' | 'goal' | 'other' | 'close'
 export type ProposalRow = {
   id: number; project_id: number; role_id: number; kind: ProposalKind; title: string; why: string; payload: string
   status: 'pending' | 'approved' | 'rejected' | 'expired' | 'done'; reply: string | null; outcome: string | null
@@ -43,7 +45,7 @@ export type SourceRow = {
 }
 export type RoleSettings = {
   autonomy: 'advisor' | 'operator'; autoApprove: string[]; schedule: unknown[]; triggers: string[]
-  paused: boolean; dailyLimit: number; monthlyBudget: number | null
+  paused: boolean; dailyLimit: number; monthlyBudget: number | null; selfClose: SelfClose
 }
 
 // node:sqlite rows have no prototype; plain objects compare and serialize like any other.
@@ -52,8 +54,9 @@ const all = <T>(rows: unknown[]) => rows.map((r) => ({ ...(r as object) }) as T)
 
 export function teamRepo(db: Db) {
   const s = {
-    project: db.prepare(`select t.project_id, t.runs_as, t.enabled_at, t.paused, t.tz, t.activity_seen, t.priorities, u.username, u.name
+    project: db.prepare(`select t.project_id, t.runs_as, t.enabled_at, t.paused, t.tz, t.activity_seen, t.priorities, t.close_guard, u.username, u.name
       from team_projects t join users u on u.id = t.runs_as where t.project_id = ?`),
+    setCloseGuard: db.prepare(`update team_projects set close_guard = ? where project_id = ?`),
     projects: db.prepare(`select t.project_id, t.paused, t.tz, t.activity_seen, p.slug from team_projects t join projects p on p.id = t.project_id
       where p.archived = 0`),
     projectSettings: db.prepare(`update team_projects set paused = coalesce(?, paused), tz = coalesce(?, tz) where project_id = ?`),
@@ -61,7 +64,7 @@ export function teamRepo(db: Db) {
     newActivity: db.prepare(`select id, kind, summary, via_claude from activity where project_id = ? and id > ? order by id limit 200`),
     lastActivity: db.prepare(`select coalesce(max(id), 0) as id from activity`),
     roleSettings: db.prepare(`update team_roles set autonomy = ?, auto_approve = ?, schedule = ?, triggers = ?, paused = ?, daily_limit = ?,
-      monthly_budget = ?, updated_at = unixepoch() where id = ?`),
+      monthly_budget = ?, self_close = ?, updated_at = unixepoch() where id = ?`),
     scheduleState: db.prepare(`update team_roles set schedule_state = ? where id = ?`),
     triggered: db.prepare(`update team_roles set last_triggered = ? where id = ?`),
     autoShiftsSince: db.prepare(`select count(*) as n from team_shifts where role_id = ? and trigger != 'manual' and started_at >= ?`),
@@ -153,6 +156,7 @@ export function teamRepo(db: Db) {
       where x.thread_id = ? order by x.id`),
     setProposalThread: db.prepare(`update team_proposals set thread_id = ? where id = ?`),
     shiftThread: db.prepare(`update team_shifts set thread_id = ? where id = ?`),
+    pendingCloses: db.prepare(`select id, payload from team_proposals where project_id = ? and kind = 'close' and status = 'pending'`),
     // The code proposal whose approval started a session (its outcome links /claude/<id>), to note the merge of its branch.
     proposalBySession: db.prepare(`select id, role_id, project_id, thread_id, title from team_proposals
       where kind = 'code' and outcome like '%/claude/' || ? || ')%' order by id desc limit 1`),
@@ -206,8 +210,10 @@ export function teamRepo(db: Db) {
   }
   return {
     project: (projectId: number) => plain<{
-      project_id: number; runs_as: number; enabled_at: number; paused: number; tz: string; activity_seen: number; priorities: string; username: string; name: string
+      project_id: number; runs_as: number; enabled_at: number; paused: number; tz: string; activity_seen: number; priorities: string
+      close_guard: string; username: string; name: string
     }>(s.project.get(projectId)),
+    setCloseGuard: (projectId: number, guard: string) => void s.setCloseGuard.run(guard, projectId),
     projects: () => all<{ project_id: number; paused: number; tz: string; activity_seen: number; slug: string }>(s.projects.all()),
     projectSettings: (projectId: number, o: { paused?: boolean; tz?: string }) =>
       void s.projectSettings.run(o.paused === undefined ? null : o.paused ? 1 : 0, o.tz ?? null, projectId),
@@ -215,7 +221,7 @@ export function teamRepo(db: Db) {
     newActivity: (projectId: number, after: number) => all<{ id: number; kind: string; summary: string; via_claude: number }>(s.newActivity.all(projectId, after)),
     lastActivity: () => (s.lastActivity.get() as { id: number }).id,
     roleSettings: (id: number, o: RoleSettings) => void s.roleSettings.run(
-      o.autonomy, JSON.stringify(o.autoApprove), JSON.stringify(o.schedule), JSON.stringify(o.triggers), o.paused ? 1 : 0, o.dailyLimit, o.monthlyBudget, id),
+      o.autonomy, JSON.stringify(o.autoApprove), JSON.stringify(o.schedule), JSON.stringify(o.triggers), o.paused ? 1 : 0, o.dailyLimit, o.monthlyBudget, o.selfClose, id),
     scheduleState: (id: number, state: Record<string, string>) => void s.scheduleState.run(JSON.stringify(state), id),
     triggered: (id: number, at: number) => void s.triggered.run(at, id),
     autoShiftsSince: (roleId: number, since: number) => (s.autoShiftsSince.get(roleId, since) as { n: number }).n,
@@ -273,6 +279,7 @@ export function teamRepo(db: Db) {
     threadProposals: (threadId: number) => all<ProposalRow>(s.threadProposals.all(threadId)),
     setProposalThread: (id: number, threadId: number) => void s.setProposalThread.run(threadId, id),
     shiftThread: (shiftId: number, threadId: number) => void s.shiftThread.run(threadId, shiftId),
+    pendingCloses: (projectId: number) => all<{ id: number; payload: string }>(s.pendingCloses.all(projectId)),
     proposalBySession: (sessionId: string) =>
       plain<{ id: number; role_id: number; project_id: number; thread_id: number | null; title: string }>(s.proposalBySession.get(sessionId)),
     linkTask: (threadId: number, taskId: number) => void s.linkTask.run(threadId, taskId),

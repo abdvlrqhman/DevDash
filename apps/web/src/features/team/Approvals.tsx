@@ -31,8 +31,9 @@ export function ProposalCard({ x, showProject = true }: { x: Proposal; showProje
     },
     onError: (e) => toast.error(e.message),
   })
-  const p = x.payload as { prompt?: string; tasks?: { title: string; priority?: string }[]; goal?: { title: string; measure?: string; due?: string }; details?: string }
+  const p = x.payload as { prompt?: string; tasks?: { title: string; priority?: string }[]; goal?: { title: string; measure?: string; due?: string }; details?: string; confidence?: number; concern?: string | null; target?: { label?: string } }
   const pending = x.status === 'pending'
+  const isClose = x.kind === 'close'
   return (
     <article className="flex flex-col gap-3 rounded-xl border p-4">
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-sm">
@@ -63,6 +64,11 @@ export function ProposalCard({ x, showProject = true }: { x: Proposal; showProje
         </p>
       )}
       {x.kind === 'other' && p.details && <p className="rounded-lg border bg-muted/30 px-3 py-2 text-sm whitespace-pre-wrap">{p.details}</p>}
+      {isClose && (
+        <p className="rounded-lg border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+          {x.role.name} wants to close {p.target?.label ?? 'this'}{p.confidence ? ` (confidence ${p.confidence}/10)` : ''}.{p.concern ? ` It needs you because ${p.concern}.` : ''}
+        </p>
+      )}
 
       {pending ? (
         <>
@@ -71,10 +77,10 @@ export function ProposalCard({ x, showProject = true }: { x: Proposal; showProje
               placeholder={`Tell ${x.role.name} what you think. It goes into its notebook either way.`} />
           )}
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" disabled={decide.isPending} onClick={() => decide.mutate(true)}>{decide.isPending && decide.variables ? <Spinner /> : <Check />}Approve</Button>
-            <Button size="sm" variant="outline" disabled={decide.isPending} onClick={() => decide.mutate(false)}><X />Reject</Button>
+            <Button size="sm" disabled={decide.isPending} onClick={() => decide.mutate(true)}>{decide.isPending && decide.variables ? <Spinner /> : <Check />}{isClose ? 'Close it' : 'Approve'}</Button>
+            <Button size="sm" variant="outline" disabled={decide.isPending} onClick={() => decide.mutate(false)}><X />{isClose ? 'Keep open' : 'Reject'}</Button>
             {!replying && <Button size="sm" variant="ghost" onClick={() => setReplying(true)}>Reply…</Button>}
-            <span className="ml-auto text-xs text-muted-foreground">{x.kind === 'code' ? 'Approving starts Claude on its own branch, as you.' : x.kind === 'other' ? 'Approving makes it a task for you.' : ''}</span>
+            <span className="ml-auto text-xs text-muted-foreground">{x.kind === 'code' ? 'Approving starts Claude on its own branch, as you.' : x.kind === 'other' ? 'Approving makes it a task for you.' : isClose ? 'Closing is logged and can be reopened.' : ''}</span>
           </div>
         </>
       ) : (

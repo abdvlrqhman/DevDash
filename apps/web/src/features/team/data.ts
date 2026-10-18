@@ -104,7 +104,7 @@ export const TRIGGER_LABELS: Record<string, { label: string; hint: string }> = {
   task_done: { label: 'When a task is done', hint: 'Someone moved a task to Done, or a commit closed one.' },
   task_created: { label: 'When someone adds a task', hint: 'A person added a task (not a role or Claude).' },
 }
-export const KIND_LABELS: Record<string, string> = { code: 'Coding job', goal: 'New goal', task: 'Tasks', other: 'For people to do' }
+export const KIND_LABELS: Record<string, string> = { code: 'Coding job', goal: 'New goal', task: 'Tasks', other: 'For people to do', close: 'Close?' }
 
 /** "Mon 08:00" or "Tomorrow 09:00" for the next scheduled shift. */
 export function nextLabel(at: number) {
