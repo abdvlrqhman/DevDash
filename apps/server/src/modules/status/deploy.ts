@@ -55,6 +55,10 @@ export function deployService({ db, agents, projects, notify, runDir, repo, live
     decline: db.prepare(`update deploys set status = 'declined', decided_by = ?, finished_at = unixepoch() where id = ? and status = 'requested'`),
     finish: db.prepare(`update deploys set status = ?, log = ?, finished_at = unixepoch() where id = ? and status = 'running'`),
     covered: db.prepare(`update deploys set status = 'done', finished_at = unixepoch(), note = coalesce(note || char(10), '') || 'Included in a later deploy.' where id = ? and status = 'requested'`),
+    // A newer request already includes this commit, so this older pending one is redundant: drop it from the waiting
+    // list (declined, not done — it never ran, so it must not read as the last deploy). ?1 = the newer request's id.
+    supersede: db.prepare(`update deploys set status = 'declined', finished_at = unixepoch(),
+      note = trim(coalesce(note || char(10), '') || 'Superseded by a newer request (#' || cast(?1 as integer) || ').') where status = 'requested' and sha = ?2`),
     user: db.prepare("select id, name, role from users where username = ? and disabled_at is null"),
     admins: db.prepare("select id from users where role = 'admin' and disabled_at is null"),
     adminNames: db.prepare("select name from users where role = 'admin' and disabled_at is null order by name"),
@@ -173,14 +177,17 @@ export function deployService({ db, agents, projects, notify, runDir, repo, live
     const existing = q.pendingFor.get(commit.sha) as { id: number } | undefined
     const note = o.note?.trim().slice(0, 2000) || null
     const id = existing?.id ?? (q.insert.get(commit.sha, 'requested', note, me.id, o.sessionId ?? null, null) as { id: number }).id
+    let superseded = 0
     if (!existing) {
+      // Retire any older pending request for a commit this one already includes, so only the latest shows.
+      for (const c of (pending ?? []).slice(1)) superseded += Number(q.supersede.run(id, c.sha).changes)
       const n = pending?.length
       tell((q.admins.all() as { id: number }[]).map((a) => a.id), {
         title: `${me.name} asks to update DevDash`,
         body: `${n ? `${n} new commit${n === 1 ? '' : 's'}, up to ` : ''}${short(commit.sha)}: ${firstLine(commit.message)}${note ? `\n${note}` : ''}`,
       }, 'needs_you')
     }
-    return { id, commit, pending, existing: !!existing }
+    return { id, commit, pending, existing: !!existing, superseded }
   }
 
   async function start(me: Me, o: { sha?: string; requestId?: number }) {
@@ -273,6 +280,7 @@ export function deployService({ db, agents, projects, notify, runDir, repo, live
         return [
           r.existing ? `Already waiting for approval (request #${r.id}).` : `Asked the admins (${admins}) to deploy ${short(r.commit.sha)} (request #${r.id}).`,
           r.pending?.length ? `It brings ${r.pending.length} commit${r.pending.length === 1 ? '' : 's'}: ${r.pending.map((x) => short(x.sha)).join(', ')}.` : '',
+          r.superseded ? `It replaces ${r.superseded} earlier request${r.superseded === 1 ? '' : 's'} for commits it already includes.` : '',
           'An admin approves it on the Server page; then the server builds, restarts and checks itself (and rolls back if unhealthy). Check with devdash_deploy_status; nothing more to do here.',
         ].filter(Boolean).join(' ')
       })

@@ -118,3 +118,20 @@ test('a failed deploy keeps its output; admins decline requests; older commits s
   const back = await deploys.request(abdo, { commit: main[3]!.sha.slice(0, 7) })
   assert.equal((await deploys.state(true, true)).requests.map((x) => x.id).includes(back.id), true)
 })
+
+test('a newer request supersedes an older pending one for a commit it already includes, so only the latest shows', async () => {
+  const { deploys, db, abdo } = setup()
+  // main is [c4, c3, c2(live), c1]; ahead is [c4, c3].
+  const older = await deploys.request(abdo, { commit: sha('3').slice(0, 7) }) // request #1, brings c3
+  assert.deepEqual((await deploys.state(true, true)).requests.map((r) => r.id), [older.id])
+
+  const newer = await deploys.request(abdo, {}) // request #2, the newest (c4), which includes c3
+  assert.equal(newer.superseded, 1)
+  // Only the newer request waits now.
+  assert.deepEqual((await deploys.state(true, true)).requests.map((r) => r.id), [newer.id])
+  // The older one is declined (never ran) with a note — and must not read as the last deploy.
+  const row = db.prepare('select status, note from deploys where id = ?').get(older.id) as { status: string; note: string | null }
+  assert.equal(row.status, 'declined')
+  assert.match(row.note ?? '', /Superseded by a newer request \(#2\)/)
+  assert.equal((await deploys.state(true, true)).last, null)
+})
