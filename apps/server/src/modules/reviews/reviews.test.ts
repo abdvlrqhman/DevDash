@@ -25,9 +25,10 @@ function setup(repoUrl: string | null = 'https://github.com/acme/seevil.git') {
     'git.mergeBranch': { ok: true },
     'git.branchDiff': { diff: 'diff --git a/x b/x\n+hi', truncated: false },
   }
+  const rpcs: Record<string, (u: string, p: unknown) => unknown> = {}
   const agents = {
     onEvent: (_fn: (u: string, ev: AgentEvent) => void) => {},
-    onRpc: () => {},
+    onRpc: (name: string, fn: (u: string, p: unknown) => unknown) => void (rpcs[name] = fn),
     request: async (_u: string, req: Record<string, unknown>) => { sent.push(req); return replies[String(req.op)] ?? { ok: true } },
   } as unknown as AgentsService
   const project = { id: 1, slug: 'seevil', name: 'Seevil', repo_url: repoUrl, default_branch: 'main' }
@@ -41,7 +42,9 @@ function setup(repoUrl: string | null = 'https://github.com/acme/seevil.git') {
   const notified: { userId: number; title: string }[] = []
   const notify = async (userId: number, _k: string, n: { title: string }) => void notified.push({ userId, title: n.title })
   const claude = claudeService({ db, agents, hub, projects, notify: async () => {} })
-  const reviews = reviewsService({ db, hub, agents, projects, notify })
+  const merged: { id: number; mergeCommit: string | null }[] = []
+  const reviews = reviewsService({ db, hub, agents, projects, notify, onMerged: (d, commit) => merged.push({ id: d.id, mergeCommit: commit }) })
+  reviews.registerMcp()
 
   /** A session as if a code proposal had been approved: own-branch worktree, origin=proposal. */
   async function proposalSession(title = 'CTO: Add rate limiting') {
@@ -53,7 +56,7 @@ function setup(repoUrl: string | null = 'https://github.com/acme/seevil.git') {
   }
   const rows = () => db.prepare('select * from code_deliveries').all() as Record<string, unknown>[]
   const sessionRow = (id: string) => claudeRepo(db).byId(id)!
-  return { db, sent, replies, claude, reviews, notified, proposalSession, rows, sessionRow }
+  return { db, sent, replies, rpcs, merged, claude, reviews, notified, proposalSession, rows, sessionRow }
 }
 
 test('a finished proposal session with commits becomes a ready delivery and notifies once', async () => {
@@ -141,4 +144,43 @@ test('open PR is refused for a project without a GitHub remote; diff is fetched 
   await assert.rejects(() => reviews.openPr(youssef, 'seevil', deliveryId), /no GitHub remote/)
   const diff = await reviews.diff(youssef, 'seevil', deliveryId)
   assert.match(diff.diff, /diff --git/)
+})
+
+test('a fetch marks a card merged when its branch has landed in the default branch outside DevDash, and it leaves Ready', async () => {
+  const { reviews, replies, rows, merged, proposalSession, sessionRow } = setup()
+  const id = await proposalSession()
+  await reviews.record(sessionRow(id))
+  assert.equal(rows()[0]!.status, 'ready')
+  assert.equal(reviews.list('seevil').readyCount, 1)
+  // The next repo fetch asks git: the branch is now an ancestor of the default branch (a session merged it and deployed).
+  replies['git.isAncestor'] = { ancestor: true, mergeCommit: 'f'.repeat(40), mergedAt: 1_700_000_000 }
+  await reviews.checkMerges({ id: 1, slug: 'seevil', default_branch: 'main', creator_username: 'youssef' })
+  const d = rows()[0]!
+  assert.equal(d.status, 'merged')
+  assert.equal(d.merged_commit, 'f'.repeat(40))
+  assert.equal(d.merged_at, 1_700_000_000)
+  assert.equal(reviews.list('seevil').readyCount, 0, 'it no longer waits to be reviewed')
+  assert.deepEqual(merged, [{ id: d.id, mergeCommit: 'f'.repeat(40) }], 'Team is told, once, so it can note the merge')
+  // A later fetch doesn't re-mark or re-notify an already-merged card.
+  await reviews.checkMerges({ id: 1, slug: 'seevil', default_branch: 'main', creator_username: 'youssef' })
+  assert.equal(merged.length, 1)
+})
+
+test('a branch not yet in the default branch stays ready', async () => {
+  const { reviews, replies, rows, proposalSession, sessionRow } = setup()
+  await reviews.record(sessionRow(await proposalSession()))
+  replies['git.isAncestor'] = { ancestor: false, mergeCommit: null, mergedAt: null }
+  await reviews.checkMerges({ id: 1, slug: 'seevil', default_branch: 'main', creator_username: 'youssef' })
+  assert.equal(rows()[0]!.status, 'ready')
+})
+
+test('review_card_update lets a session close its own card after merging a dd/* branch', async () => {
+  const { reviews, rpcs, rows, merged, proposalSession, sessionRow } = setup()
+  const sid = await proposalSession()
+  await reviews.record(sessionRow(sid))
+  const out = rpcs['mcp.review_card_update']!('youssef', { sessionId: sid, args: { branch: 'dd/abc12345', status: 'merged', merged_commit: 'c0ffee0' } })
+  assert.match(String(out), /merged/)
+  assert.equal(rows()[0]!.status, 'merged')
+  assert.equal(rows()[0]!.merged_commit, 'c0ffee0')
+  assert.equal(merged.length, 1)
 })

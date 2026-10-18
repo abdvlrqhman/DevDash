@@ -704,6 +704,23 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       const r = repo.taskThread(taskId)
       return r ? { id: r.thread_id, title: r.title, status: r.status } : null
     },
+    /**
+     * A delivery's branch was merged into the default branch (the reviews module detected it on a fetch, or a session
+     * reported it). Note it on the code proposal's thread so the topic stays in one place; if it has none, tell the role.
+     */
+    noteDeliveryMerged(sessionId: string, mergeCommit: string | null) {
+      const x = repo.proposalBySession(sessionId)
+      if (!x) return
+      const where = mergeCommit ? ` (${mergeCommit.slice(0, 7)})` : ''
+      if (x.thread_id && repo.thread(x.thread_id)) {
+        repo.insertMessage({ threadId: x.thread_id, kind: 'fyi', label: 'DevDash', evidence: null,
+          body: `The work for "${clipText(x.title, 80)}" was merged into the default branch${where}. Its "Ready to review" card is cleared.` })
+        repo.touchThread(x.thread_id)
+      } else {
+        repo.addNote(x.role_id, `Your branch for "${clipText(x.title, 80)}" was merged into the default branch${where}. The review card is cleared.`, {})
+      }
+      changed(x.project_id)
+    },
     /** Link a task to a thread, or unlink it (by hand, as a person) — the two-way "one job per object" link. */
     linkTaskAsPerson(user: User, threadId: number, taskNumber: number, unlink = false) {
       const t = repo.thread(threadId)

@@ -40,9 +40,11 @@ export const slugify = (s: string) => s.toLowerCase().replace(/\.git$/, '').repl
  * through their agent: cloning as the creator, fetching every few minutes as the creator, worktrees as the session owner.
  * After every fetch the branches are scanned for "fixes #N" (tasks service).
  */
-export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, root }: {
+export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, root, onFetched }: {
   db: Db; hub: Hub; agents: AgentsService; activity: ActivityService; tasks: TasksService
   gitSafeDir: (path: string) => Promise<void>; root: string
+  /** After each repo fetch (and its scan): lets "Ready to review" notice branches merged outside DevDash. Injected by the app. */
+  onFetched?: (p: { id: number; slug: string; default_branch: string; creator_username: string }) => Promise<void> | void
 }) {
   const q = {
     all: db.prepare(`${SELECT} where p.archived = ? order by p.name`),
@@ -125,6 +127,8 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
       q.fetched.run((err as Error).message.slice(0, 500), null, p.id)
     }
     await scan(byId(p.id)!).catch((err) => console.error(`scan ${p.slug}:`, (err as Error).message))
+    if (onFetched) await Promise.resolve(onFetched({ id: p.id, slug: p.slug, default_branch: p.default_branch, creator_username: p.creator_username }))
+      .catch((err) => console.error(`onFetched ${p.slug}:`, (err as Error).message))
     changed()
   }
 

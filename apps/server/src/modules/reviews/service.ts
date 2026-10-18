@@ -17,8 +17,11 @@ type Notify = (userId: number, kind: NotificationKind, n: { title: string; body?
 const branchOf = (worktree: string) => `dd/${worktree.split('/').pop()}`
 const isGithub = (repoUrl: string | null) => !!repoUrl && /github\.com/.test(repoUrl)
 
-export function reviewsService({ db, hub, agents, projects, notify }: {
+export function reviewsService({ db, hub, agents, projects, notify, onMerged }: {
   db: Db; hub: Hub; agents: AgentsService; projects: ProjectsService; notify: Notify
+  /** A card's branch was found merged into the default branch (by a fetch or a session). Lets Team note it on the
+   *  linked thread/proposal. Injected by the app; reviews never imports Team. */
+  onMerged?: (d: DeliveryRow, mergeCommit: string | null) => void
 }) {
   const repo = reviewsRepo(db)
   const changed = () => hub.publish('projects', { type: 'changed' })
@@ -26,8 +29,17 @@ export function reviewsService({ db, hub, agents, projects, notify }: {
   const dto = (d: DeliveryRow) => ({
     id: d.id, role: d.role, title: d.title, branch: d.branch, baseBranch: d.base_branch,
     commits: d.commits, files: d.files, insertions: d.insertions, deletions: d.deletions,
-    status: d.status, prUrl: d.pr_url, sessionId: d.session_id, createdAt: d.created_at, updatedAt: d.updated_at,
+    status: d.status, prUrl: d.pr_url, mergedCommit: d.merged_commit, mergedAt: d.merged_at,
+    sessionId: d.session_id, createdAt: d.created_at, updatedAt: d.updated_at,
   })
+
+  /** Records a card as merged once (ignoring an already-merged one), and lets Team note it. */
+  function merged(d: DeliveryRow, mergeCommit: string | null, mergedAt: number) {
+    if (d.status === 'merged') return
+    repo.markMerged(d.id, mergeCommit, mergedAt)
+    try { onMerged?.(repo.byId(d.id)!, mergeCommit) } catch (err) { console.error('delivery onMerged:', (err as Error).message) }
+    changed()
+  }
 
   /** The delivery, confirmed to be in `slug`'s project (member/owner routes gate who may call). */
   function find(slug: string, id: number) {
@@ -118,6 +130,50 @@ export function reviewsService({ db, hub, agents, projects, notify }: {
       repo.setStatus(d.id, 'dismissed')
       changed()
       return { ok: true }
+    },
+
+    /**
+     * Every repo fetch: for each live card, ask git whether its branch is already an ancestor of the default branch —
+     * true when it was merged outside DevDash (a Claude session's --no-ff or fast-forward merge). Marks those Merged
+     * (with the merge commit and time) so they leave "Ready to review" instead of lingering. Runs as the project's
+     * creator, like the fetch itself; a branch that's gone or an agent that's down is simply retried next fetch.
+     */
+    async checkMerges(p: { id: number; slug: string; default_branch: string; creator_username: string }) {
+      for (const d of repo.liveByProject(p.id)) {
+        let r: { ancestor: boolean; mergeCommit: string | null; mergedAt: number | null }
+        try {
+          r = await agents.request(p.creator_username, { op: 'git.isAncestor', path: projects.path(p.slug), branch: d.branch, base: p.default_branch }, 20_000)
+        } catch {
+          continue // agent down or branch gone: try again next fetch
+        }
+        if (r.ancestor) merged(d, r.mergeCommit, r.mergedAt ?? Math.floor(Date.now() / 1000))
+      }
+    },
+
+    /** A Claude session closes its own card after merging (status "merged") or abandoning (status "dismissed") a dd/* branch. */
+    registerMcp() {
+      agents.onRpc('mcp.review_card_update', (username, params) => {
+        const c = (params ?? {}) as { sessionId?: string | null; args?: Record<string, unknown> }
+        const a = c.args ?? {}
+        const branch = typeof a.branch === 'string' ? a.branch.trim() : ''
+        if (!/^dd\/[a-z0-9-]{1,40}$/.test(branch)) throw new AppError(400, 'bad_args', 'Give the dd/* branch of the card.')
+        const status = a.status === 'merged' ? 'merged' : a.status === 'dismissed' ? 'dismissed' : null
+        if (!status) throw new AppError(400, 'bad_args', 'status is "merged" or "dismissed".')
+        const user = db.prepare('select id from users where username = ? and disabled_at is null').get(username) as { id: number } | undefined
+        if (!user) throw new AppError(403, 'forbidden', 'Unknown member.')
+        const slug = c.sessionId ? (db.prepare(`select p.slug from claude_sessions s join projects p on p.id = s.project_id where s.id = ? and (s.owner_id = ? or s.shared = 1)`).get(c.sessionId, user.id) as { slug: string } | undefined)?.slug : undefined
+        if (!slug) throw new AppError(400, 'no_project', 'Run this from a session in the project whose branch you merged.')
+        const d = repo.byBranch(projects.bySlug(slug).id, branch)
+        if (!d) return `No "Ready to review" card for ${branch} (nothing to close).`
+        if (status === 'merged') {
+          const commit = typeof a.merged_commit === 'string' && a.merged_commit.trim() ? a.merged_commit.trim() : null
+          merged(d, commit, Math.floor(Date.now() / 1000))
+          return `Marked ${branch} merged — its review card is cleared.`
+        }
+        repo.setStatus(d.id, 'dismissed')
+        changed()
+        return `Dismissed the review card for ${branch}.`
+      })
     },
   }
 

@@ -112,6 +112,32 @@ export const ops = {
     return { ok: true }
   },
 
+  /**
+   * Whether a dd/* branch is already an ancestor of the default branch — true when it was merged outside DevDash
+   * (--no-ff or fast-forward). Returns the merge commit (the --no-ff merge, or the branch tip for a fast-forward) and
+   * its time. A branch that no longer exists is reported as not merged (can't tell).
+   */
+  async isAncestor(r: Record<string, unknown>) {
+    const path = checked(r.path)
+    const branch = branchName(r.branch)
+    const base = await baseRef(path, baseName(r.base ?? 'main'))
+    const tip = (await git(['-C', path, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]).catch(() => '')).trim()
+    if (!tip) return { ancestor: false, mergeCommit: null, mergedAt: null }
+    const ancestor = await new Promise<boolean>((resolve, reject) => {
+      // merge-base --is-ancestor exits 0 (yes), 1 (no), or >1 (error); git() can't tell them apart, so run it directly.
+      execFile('git', ['-C', path, 'merge-base', '--is-ancestor', tip, base], { env: ENV, timeout: 20_000 }, (err) => {
+        if (!err) return resolve(true)
+        if ((err as { code?: unknown }).code === 1) return resolve(false)
+        reject(new Error(`merge-base failed: ${(err as Error).message}`))
+      })
+    })
+    if (!ancestor) return { ancestor: false, mergeCommit: null, mergedAt: null }
+    const merges = (await git(['-C', path, 'rev-list', '--ancestry-path', '--merges', '--reverse', `${tip}..${base}`]).catch(() => '')).trim().split('\n').filter(Boolean)
+    const mergeCommit = merges[0] ?? tip
+    const mergedAt = Number((await git(['-C', path, 'show', '-s', '--format=%ct', mergeCommit]).catch(() => '')).trim()) || null
+    return { ancestor: true, mergeCommit, mergedAt }
+  },
+
   async refs(r: Record<string, unknown>) {
     const path = checked(r.path)
     const out = await git(['-C', path, 'for-each-ref', '--format=%(refname)%09%(objectname)', 'refs/heads', 'refs/remotes/origin'])

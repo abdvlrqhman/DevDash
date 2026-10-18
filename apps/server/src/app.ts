@@ -59,11 +59,13 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   })
   const activity = activityService({ db, hub })
   const search = searchService({ db })
-  // Team (optional) is built further down; tasks reads it late (like tailnet) so the task page can show "From thread #N".
+  // Team and reviews (both built further down) are read late, like tailnet: tasks show "From thread #N" and each repo
+  // fetch lets "Ready to review" notice branches merged outside DevDash.
   let team: ReturnType<typeof teamPlugin> | undefined
+  let reviews: ReturnType<typeof reviewsService> | undefined
   const tasks = tasksService({ db, hub, activity, search, threadOf: (id) => team?.service?.taskThread(id) ?? null })
   const notes = notesService({ db, hub, activity, search })
-  const projects = projectsService({ db, hub, agents, activity, tasks, root: config.projectsRoot, gitSafeDir: (p) => provisioning.gitSafeDir(p) })
+  const projects = projectsService({ db, hub, agents, activity, tasks, root: config.projectsRoot, gitSafeDir: (p) => provisioning.gitSafeDir(p), onFetched: (p) => reviews?.checkMerges(p) })
   for (const topic of ['projects', 'tasks', 'notes', 'activity']) hub.authorize(topic, () => true)
   // Per-user tailnets: claude asks whether the owner has a connected node before letting a session route through it.
   // The tailnet service is built further down (it needs Team's isRole), so this reads it late, like Team's own wiring.
@@ -99,10 +101,10 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   const browser = browserService({ db, runDir: config.runDir, dataDir: config.dataDir, masterKey: config.masterKey, origin: config.origin })
   // "Ready to review": a role's approved code proposal, finished with commits, ships in one tap. Team detects it (it has
   // the proposal context) and calls reviews.record; the claude module never imports Team.
-  const reviews = reviewsService({ db, hub, agents, projects, notify: notifications.notify })
-  team = teamPlugin({ db, hub, agents, claude, projects, activity, tasks, notify: notifications.notify, masterKey: config.masterKey, mw, onProposalIdle: (s) => void reviews.record(s) }) // Team
+  reviews = reviewsService({ db, hub, agents, projects, notify: notifications.notify, onMerged: (d, commit) => team?.service?.noteDeliveryMerged(d.session_id, commit) })
+  team = teamPlugin({ db, hub, agents, claude, projects, activity, tasks, notify: notifications.notify, masterKey: config.masterKey, mw, onProposalIdle: (s) => void reviews!.record(s) }) // Team
   // Per-user tailnets: keep net_* tools out of team role sessions (Team may be off, so roleOf is optional).
-  tailnet = tailnetService({ db, agents, masterKey: config.masterKey, runDir: config.runDir, isRole: (u, s) => !!team.service?.roleOf(u, s) })
+  tailnet = tailnetService({ db, agents, masterKey: config.masterKey, runDir: config.runDir, isRole: (u, s) => !!team?.service?.roleOf(u, s) })
   const status = statusService({ db, agents, services, browser, runDir: config.runDir, dataDir: config.dataDir, version: config.version })
   const deploys = deployService({ db, agents, projects, notify: notifications.notify, runDir: config.runDir, repo: config.repo, live: status.release })
   const app = new Hono()
@@ -145,7 +147,8 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   })
 
   // Items a team role creates through its session are attributed to the role, not the account the team runs as.
-  registerMcp({ db, agents, projects, tasks, notes, services, authorRole: (u, s) => team.service?.roleOf(u, s)?.r.name ?? null })
+  registerMcp({ db, agents, projects, tasks, notes, services, authorRole: (u, s) => team?.service?.roleOf(u, s)?.r.name ?? null })
+  reviews.registerMcp()
   deploys.registerMcp()
   deploys.resume()
   projects.start()

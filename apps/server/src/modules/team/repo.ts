@@ -153,6 +153,9 @@ export function teamRepo(db: Db) {
       where x.thread_id = ? order by x.id`),
     setProposalThread: db.prepare(`update team_proposals set thread_id = ? where id = ?`),
     shiftThread: db.prepare(`update team_shifts set thread_id = ? where id = ?`),
+    // The code proposal whose approval started a session (its outcome links /claude/<id>), to note the merge of its branch.
+    proposalBySession: db.prepare(`select id, role_id, project_id, thread_id, title from team_proposals
+      where kind = 'code' and outcome like '%/claude/' || ? || ')%' order by id desc limit 1`),
     // One job per object: a task belongs to at most one thread (primary key task_id), a thread produces many.
     linkTask: db.prepare(`insert into team_thread_tasks (thread_id, task_id) values (?, ?)
       on conflict(task_id) do update set thread_id = excluded.thread_id, created_at = unixepoch()`),
@@ -270,6 +273,8 @@ export function teamRepo(db: Db) {
     threadProposals: (threadId: number) => all<ProposalRow>(s.threadProposals.all(threadId)),
     setProposalThread: (id: number, threadId: number) => void s.setProposalThread.run(threadId, id),
     shiftThread: (shiftId: number, threadId: number) => void s.shiftThread.run(threadId, shiftId),
+    proposalBySession: (sessionId: string) =>
+      plain<{ id: number; role_id: number; project_id: number; thread_id: number | null; title: string }>(s.proposalBySession.get(sessionId)),
     linkTask: (threadId: number, taskId: number) => void s.linkTask.run(threadId, taskId),
     unlinkTask: (taskId: number) => void s.unlinkTask.run(taskId),
     threadTasks: (threadId: number) =>

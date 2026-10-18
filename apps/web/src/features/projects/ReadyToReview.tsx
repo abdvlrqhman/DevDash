@@ -74,7 +74,7 @@ function DeliveryItem({ slug, d, isGithub }: { slug: string; d: Delivery; isGith
             <span className="flex items-center gap-1"><BadgeCheck className="size-3.5" />{d.role}</span>
             <span className="flex items-center gap-1 font-mono"><GitBranch className="size-3.5" />{d.branch}</span>
             <Diffstat files={d.files} insertions={d.insertions} deletions={d.deletions} commits={d.commits} />
-            {shipped && <span className="font-medium text-primary">Merged</span>}
+            {shipped && <span className="flex items-center gap-1 font-medium text-primary"><GitMerge className="size-3.5" />Merged{d.mergedCommit ? <span className="font-mono font-normal">{d.mergedCommit.slice(0, 7)}</span> : ''}</span>}
           </span>
         </span>
         {!shipped && (
@@ -87,7 +87,7 @@ function DeliveryItem({ slug, d, isGithub }: { slug: string; d: Delivery; isGith
           <Button size="sm" variant={shipped ? 'outline' : 'default'} asChild>
             <a href={d.prUrl} target="_blank" rel="noopener noreferrer"><GitPullRequest />View PR<ExternalLink className="opacity-70" /></a>
           </Button>
-        ) : isGithub ? (
+        ) : isGithub && !shipped ? (
           <Button size="sm" disabled={busy} onClick={() => pr.mutate()}>{pr.isPending ? <Spinner /> : <GitPullRequest />}Open PR</Button>
         ) : !shipped ? (
           <Button size="sm" disabled={busy}

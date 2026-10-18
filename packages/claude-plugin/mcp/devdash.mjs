@@ -25,6 +25,7 @@ const TOOLS = [
   { name: 'note_get', description: 'Read one note.', inputSchema: obj({ id: { type: 'integer' } }, ['id']) },
   { name: 'note_upsert', description: 'Create a note (no id) or update one (with id). Notes are visible to the whole team.', inputSchema: obj({ id: { type: 'integer' }, title: { type: 'string' }, body: { type: 'string', description: 'Markdown.' }, project, pinned: { type: 'boolean' } }) },
   { name: 'services_list', description: 'Every long-running service on this server (everyone\'s), with ports and state. Start new ones with `devdash service add` in Bash.', inputSchema: obj({}) },
+  { name: 'review_card_update', description: 'After you merge a dd/* branch into the default branch (or abandon it), close its "Ready to review" card so the founder doesn\'t see a card for work that already landed: status "merged" (pass merged_commit when you have it) or "dismissed" (give a short reason). Call this in the same step you merge a dd/* branch.', inputSchema: obj({ branch: { type: 'string', description: 'The dd/* branch of the card.' }, status: { type: 'string', enum: ['merged', 'dismissed'] }, reason: { type: 'string', description: 'For "dismissed": why, in a few words.' }, merged_commit: { type: 'string', description: 'The merge commit sha, if you have it.' } }, ['branch', 'status']) },
 ]
 
 function call(method, params) {
