@@ -7,7 +7,7 @@ import type { SearchService } from '../search/service.ts'
 import type { Actor } from '../tasks/service.ts'
 
 type Row = {
-  id: number; project_id: number | null; title: string; body: string; pinned: number; private: number; via_claude: number
+  id: number; project_id: number | null; title: string; body: string; pinned: number; private: number; via_claude: number; via_role: string | null
   created_by: number; updated_by: number; created_at: number; updated_at: number
   slug: string | null; project_name: string | null; author_name: string; editor_name: string
 }
@@ -21,8 +21,8 @@ export function notesService({ db, hub, activity, search }: { db: Db; hub: Hub; 
       order by n.pinned desc, n.updated_at desc limit 500`),
     byId: db.prepare(`${SELECT} where n.id = ?`),
     project: db.prepare('select id from projects where slug = ?'),
-    insert: db.prepare(`insert into notes (project_id, title, body, pinned, private, created_by, updated_by, via_claude)
-      values (?, ?, ?, ?, ?, ?, ?, ?) returning id`),
+    insert: db.prepare(`insert into notes (project_id, title, body, pinned, private, created_by, updated_by, via_claude, via_role)
+      values (?, ?, ?, ?, ?, ?, ?, ?, ?) returning id`),
     update: db.prepare('update notes set project_id = ?, title = ?, body = ?, pinned = ?, private = ?, updated_by = ?, via_claude = ?, updated_at = unixepoch() where id = ?'),
     remove: db.prepare('delete from notes where id = ?'),
   }
@@ -30,7 +30,7 @@ export function notesService({ db, hub, activity, search }: { db: Db; hub: Hub; 
   const dto = (n: Row) => ({
     id: n.id, title: n.title, body: n.body, pinned: n.pinned === 1, private: n.private === 1, viaClaude: n.via_claude === 1,
     project: n.slug ? { slug: n.slug, name: n.project_name! } : null,
-    author: { id: n.created_by, name: n.author_name }, editor: n.editor_name, createdAt: n.created_at, updatedAt: n.updated_at,
+    author: { id: n.created_by, name: n.author_name }, authorRole: n.via_role, editor: n.editor_name, createdAt: n.created_at, updatedAt: n.updated_at,
   })
   const changed = () => hub.publish('notes', { type: 'changed' })
   function find(user: Pick<User, 'id'>, id: number) {
@@ -46,7 +46,7 @@ export function notesService({ db, hub, activity, search }: { db: Db; hub: Hub; 
   }
   function after(a: Actor, n: Row, verb: string) {
     search.put('note', n.id, n.title, n.body)
-    if (!n.private) activity.record({ projectId: n.project_id, userId: a.user.id, viaClaude: a.viaClaude, kind: 'note.saved', summary: `${verb} note ${n.title}`, url: `/notes/${n.id}` })
+    if (!n.private) activity.record({ projectId: n.project_id, userId: a.user.id, viaClaude: a.viaClaude, role: a.role, kind: 'note.saved', summary: `${verb} note ${n.title}`, url: `/notes/${n.id}` })
     changed()
   }
 
@@ -59,7 +59,7 @@ export function notesService({ db, hub, activity, search }: { db: Db; hub: Hub; 
     },
 
     create(a: Actor, input: { title: string; body?: string; project?: string | null; pinned?: boolean; private?: boolean }) {
-      const { id } = q.insert.get(projectId(input.project), input.title.trim(), input.body ?? '', input.pinned ? 1 : 0, input.private ? 1 : 0, a.user.id, a.user.id, a.viaClaude ? 1 : 0) as { id: number }
+      const { id } = q.insert.get(projectId(input.project), input.title.trim(), input.body ?? '', input.pinned ? 1 : 0, input.private ? 1 : 0, a.user.id, a.user.id, a.viaClaude ? 1 : 0, a.role ?? null) as { id: number }
       const n = q.byId.get(id) as Row
       after(a, n, 'wrote')
       return dto(n)

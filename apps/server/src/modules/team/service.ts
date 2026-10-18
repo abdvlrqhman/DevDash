@@ -202,7 +202,8 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
   /** Carries out an approved (or allowed) proposal as `user`; returns what happened, as Markdown. */
   async function execute(x: ProposalRow, user: User) {
     const payload = json<ProposalInput>(x.payload, { kind: x.kind, title: x.title, why: x.why })
-    const actor = { user, viaClaude: true }
+    // Tasks a role's approved proposal creates are the role's work, run on the member's account.
+    const actor = { user, viaClaude: true, role: x.role_name }
     if (x.kind === 'task') {
       const made = (payload.tasks?.length ? payload.tasks : [{ title: x.title, body: x.why }]).slice(0, 10).map((t) => tasks.create(actor, {
         project: x.project_slug, title: t.title.slice(0, 200), body: t.body ?? '', status: 'backlog',

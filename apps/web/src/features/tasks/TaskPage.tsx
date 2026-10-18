@@ -1,14 +1,14 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { GitCommitHorizontal, Pencil, Sparkles } from 'lucide-react'
+import { Bot, GitCommitHorizontal, Pencil, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
+import { AuthorTag } from '@/components/app/author'
 import { initials } from '@/components/app/brand'
 import { NativeSelect } from '@/components/app/native-select'
 import { PageHeader, pageCol } from '@/components/app/page'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -87,7 +87,7 @@ function TaskPageView() {
             </Field>
           </div>
           <Links t={t} />
-          <p className="text-xs text-muted-foreground">Created by {t.creator} {relativeTime(t.createdAt)}. Commits that say <code className="font-mono">fixes #{t.number}</code> move it to Review on a branch and to Done on the default branch.</p>
+          <p className="text-xs text-muted-foreground">Created by {t.creatorRole ? <span className="text-foreground">{t.creatorRole} · AI team</span> : t.creator} {relativeTime(t.createdAt)}. Commits that say <code className="font-mono">fixes #{t.number}</code> move it to Review on a branch and to Done on the default branch.</p>
         </aside>
       </div>
       <GiveToClaude t={t} open={giving} onClose={() => setGiving(false)} />
@@ -150,11 +150,11 @@ function Comments({ t }: { t: TaskDetail }) {
       <h2 className="text-sm font-medium">Comments</h2>
       {t.comments.map((c) => (
         <div key={c.id} className="flex gap-3">
-          <Avatar className="size-7"><AvatarFallback className="text-[11px]">{initials(c.user.name)}</AvatarFallback></Avatar>
+          <Avatar className="size-7"><AvatarFallback className="text-[11px]">{c.role ? <Bot className="size-3.5" /> : initials(c.user.name)}</AvatarFallback></Avatar>
           <div className="min-w-0 flex-1">
             <p className="flex flex-wrap items-center gap-x-2 text-sm">
-              <span className="font-medium">{c.user.name}</span>
-              {c.viaClaude && <Badge variant="secondary" className="h-5 gap-1 px-1.5"><Sparkles className="size-3" />Claude</Badge>}
+              <span className="font-medium">{c.role ?? c.user.name}</span>
+              <AuthorTag role={c.role} viaClaude={c.viaClaude} account={c.role ? c.user.name : null} />
               <span className="text-xs text-muted-foreground">{relativeTime(c.at)}</span>
             </p>
             <Prose text={c.body} />

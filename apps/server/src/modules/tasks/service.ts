@@ -20,9 +20,11 @@ export function closedNumbers(message: string) {
 type Row = {
   id: number; project_id: number; number: number; title: string; body: string; status: Status; priority: Priority; due_date: string | null
   assignee_id: number | null; sort: number; created_by: number; created_at: number; updated_at: number; closed_at: number | null
+  via_role: string | null
   slug: string; project_name: string; assignee_name: string | null; assignee_username: string | null; creator_name: string
 }
-export type Actor = { user: Pick<User, 'id' | 'name'>; viaClaude?: boolean }
+/** Who's acting: a person, or — when a team role does it through its session — that role (`role`), run on the member's account. */
+export type Actor = { user: Pick<User, 'id' | 'name'>; viaClaude?: boolean; role?: string | null }
 
 const SELECT = `select t.*, p.slug, p.name as project_name, a.name as assignee_name, a.username as assignee_username, c.name as creator_name
   from tasks t join projects p on p.id = t.project_id left join users a on a.id = t.assignee_id join users c on c.id = t.created_by`
@@ -37,13 +39,13 @@ export function tasksService({ db, hub, activity, search }: { db: Db; hub: Hub; 
     project: db.prepare('select id, slug, name, archived from projects where slug = ?'),
     next: db.prepare('update projects set next_task = next_task + 1 where id = ? returning next_task - 1 as n'),
     maxSort: db.prepare('select coalesce(max(sort), 0) as s from tasks where project_id = ? and status = ?'),
-    insert: db.prepare(`insert into tasks (project_id, number, title, body, status, priority, due_date, assignee_id, sort, created_by)
-      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) returning id`),
+    insert: db.prepare(`insert into tasks (project_id, number, title, body, status, priority, due_date, assignee_id, sort, created_by, via_role)
+      values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) returning id`),
     update: db.prepare(`update tasks set title = ?, body = ?, status = ?, priority = ?, due_date = ?, assignee_id = ?, sort = ?,
       closed_at = ?, updated_at = unixepoch() where id = ?`),
-    comments: db.prepare(`select c.id, c.body, c.via_claude, c.created_at, u.name as user_name, u.id as user_id
+    comments: db.prepare(`select c.id, c.body, c.via_claude, c.via_role, c.created_at, u.name as user_name, u.id as user_id
       from task_comments c join users u on u.id = c.user_id where c.task_id = ? order by c.id`),
-    comment: db.prepare('insert into task_comments (task_id, user_id, via_claude, body) values (?, ?, ?, ?)'),
+    comment: db.prepare('insert into task_comments (task_id, user_id, via_claude, via_role, body) values (?, ?, ?, ?, ?)'),
     links: db.prepare('select kind, ref, title, meta, created_at from task_links where task_id = ? order by created_at'),
     link: db.prepare('insert or ignore into task_links (task_id, kind, ref, title, meta) values (?, ?, ?, ?, ?)'),
     linkMeta: db.prepare("select meta from task_links where task_id = ? and kind = 'commit' and ref = ?"),
@@ -58,7 +60,7 @@ export function tasksService({ db, hub, activity, search }: { db: Db; hub: Hub; 
     due: t.due_date, sort: t.sort, createdAt: t.created_at, updatedAt: t.updated_at, closedAt: t.closed_at,
     project: { slug: t.slug, name: t.project_name },
     assignee: t.assignee_id ? { id: t.assignee_id, name: t.assignee_name!, username: t.assignee_username! } : null,
-    creator: t.creator_name,
+    creator: t.creator_name, creatorRole: t.via_role,
   })
   const url = (t: { slug: string; number: number }) => `/tasks/${t.slug}/${t.number}`
 
@@ -80,8 +82,8 @@ export function tasksService({ db, hub, activity, search }: { db: Db; hub: Hub; 
       const t = find(slug, number)
       return {
         ...dto(t),
-        comments: (q.comments.all(t.id) as { id: number; body: string; via_claude: number; created_at: number; user_name: string; user_id: number }[])
-          .map((c) => ({ id: c.id, body: c.body, viaClaude: c.via_claude === 1, at: c.created_at, user: { id: c.user_id, name: c.user_name } })),
+        comments: (q.comments.all(t.id) as { id: number; body: string; via_claude: number; via_role: string | null; created_at: number; user_name: string; user_id: number }[])
+          .map((c) => ({ id: c.id, body: c.body, viaClaude: c.via_claude === 1, role: c.via_role, at: c.created_at, user: { id: c.user_id, name: c.user_name } })),
         links: (q.links.all(t.id) as { kind: 'commit' | 'session'; ref: string; title: string; meta: string; created_at: number }[])
           .map((l) => ({ kind: l.kind, ref: l.ref, title: l.title, meta: l.meta, at: l.created_at })),
       }
@@ -95,11 +97,11 @@ export function tasksService({ db, hub, activity, search }: { db: Db; hub: Hub; 
       const t = transaction(db, () => {
         const number = (q.next.get(p.id) as { n: number }).n
         const sort = (q.maxSort.get(p.id, status) as { s: number }).s + 1
-        const { id } = q.insert.get(p.id, number, input.title.trim(), input.body ?? '', status, input.priority ?? 'none', input.due ?? null, input.assignee ?? null, sort, a.user.id) as { id: number }
+        const { id } = q.insert.get(p.id, number, input.title.trim(), input.body ?? '', status, input.priority ?? 'none', input.due ?? null, input.assignee ?? null, sort, a.user.id, a.role ?? null) as { id: number }
         return q.byId.get(id) as Row
       })
       search.put('task', t.id, `${t.slug}#${t.number} ${t.title}`, t.body)
-      activity.record({ projectId: p.id, userId: a.user.id, viaClaude: a.viaClaude, kind: 'task.created', summary: `created ${t.slug}#${t.number} ${t.title}`, url: url(t) })
+      activity.record({ projectId: p.id, userId: a.user.id, viaClaude: a.viaClaude, role: a.role, kind: 'task.created', summary: `created ${t.slug}#${t.number} ${t.title}`, url: url(t) })
       changed(p.slug)
       return dto(t)
     },
@@ -115,7 +117,7 @@ export function tasksService({ db, hub, activity, search }: { db: Db; hub: Hub; 
         patch.due === undefined ? t.due_date : patch.due, patch.assignee === undefined ? t.assignee_id : patch.assignee, sort, closedAt, t.id)
       if (patch.title !== undefined || patch.body !== undefined) search.put('task', t.id, `${t.slug}#${t.number} ${patch.title ?? t.title}`, patch.body ?? t.body)
       if (status !== t.status) {
-        activity.record({ projectId: t.project_id, userId: a.user.id, viaClaude: a.viaClaude, kind: 'task.status', summary: `moved ${t.slug}#${t.number} to ${STATUS_LABEL[status]}`, url: url(t) })
+        activity.record({ projectId: t.project_id, userId: a.user.id, viaClaude: a.viaClaude, role: a.role, kind: 'task.status', summary: `moved ${t.slug}#${t.number} to ${STATUS_LABEL[status]}`, url: url(t) })
       }
       changed(slug)
       return dto(q.byId.get(t.id) as Row)
@@ -123,8 +125,8 @@ export function tasksService({ db, hub, activity, search }: { db: Db; hub: Hub; 
 
     comment(a: Actor, slug: string, number: number, body: string) {
       const t = find(slug, number)
-      q.comment.run(t.id, a.user.id, a.viaClaude ? 1 : 0, body.trim())
-      activity.record({ projectId: t.project_id, userId: a.user.id, viaClaude: a.viaClaude, kind: 'task.comment', summary: `commented on ${t.slug}#${t.number}`, url: url(t) })
+      q.comment.run(t.id, a.user.id, a.viaClaude ? 1 : 0, a.role ?? null, body.trim())
+      activity.record({ projectId: t.project_id, userId: a.user.id, viaClaude: a.viaClaude, role: a.role, kind: 'task.comment', summary: `commented on ${t.slug}#${t.number}`, url: url(t) })
       changed(slug)
       return api.get(slug, number)
     },

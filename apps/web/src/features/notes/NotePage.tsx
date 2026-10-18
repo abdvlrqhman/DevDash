@@ -75,7 +75,8 @@ function Editor({ note, initialProject }: { note: Note | null; initialProject: s
     onError: (e) => toast.error(e.message),
   })
 
-  const status = save.isPending ? 'Saving…' : dirty ? 'Unsaved' : note || idRef.current ? `Saved${note ? `, ${note.editor} ${relativeTime(note.updatedAt)}` : ''}` : 'New note'
+  const by = note ? (note.authorRole ? `${note.authorRole} · AI team` : note.editor) : ''
+  const status = save.isPending ? 'Saving…' : dirty ? 'Unsaved' : note || idRef.current ? `Saved${note ? `, ${by} ${relativeTime(note.updatedAt)}` : ''}` : 'New note'
   return (
     <div className="flex h-full flex-col">
       <PageHeader back="/notes" title={d.title || 'Untitled'} description={status}

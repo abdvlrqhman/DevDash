@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Lock, Pin, Plus, Sparkles, StickyNote } from 'lucide-react'
+import { Bot, Lock, Pin, Plus, Sparkles, StickyNote } from 'lucide-react'
 import { NativeSelect } from '@/components/app/native-select'
 import { PageBody, PageHeader } from '@/components/app/page'
 import { Button } from '@/components/ui/button'
@@ -29,8 +29,8 @@ export function NoteList({ notes, empty }: { notes: Note[]; empty: string }) {
             </span>
             {n.body.trim() && <span className="line-clamp-3 text-muted-foreground">{excerpt(n.body)}</span>}
             <span className="mt-auto flex items-center gap-1 pt-1 text-xs text-muted-foreground">
-              {n.viaClaude && <Sparkles className="size-3" aria-label="Last edited by Claude" />}
-              {n.editor}, {relativeTime(n.updatedAt)}{n.project ? ` · ${n.project.name}` : ''}
+              {n.authorRole ? <><Bot className="size-3" aria-label="AI team" />{n.authorRole} · AI team</>
+                : <>{n.viaClaude && <Sparkles className="size-3" aria-label="Last edited by Claude" />}{n.editor}</>}, {relativeTime(n.updatedAt)}{n.project ? ` · ${n.project.name}` : ''}
             </span>
           </Link>
         </li>

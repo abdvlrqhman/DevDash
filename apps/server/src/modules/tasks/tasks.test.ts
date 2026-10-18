@@ -39,6 +39,29 @@ test('commits move tasks: branch → review, default branch → done, each commi
   assert.equal(tasks.get('app', 2).status, 'todo')
 })
 
+test('a team role is shown as the author of what it creates, not the account it runs on', () => {
+  const db = openDb(':memory:')
+  db.prepare("insert into users (id, email, username, name, password_hash, totp_secret, role) values (1, 'a@x.io', 'a', 'Abdulrahman Ali', 'x', 'x', 'admin')").run()
+  db.prepare("insert into projects (id, slug, name, created_by) values (1, 'seevil', 'Seevil', 1)").run()
+  const hub = createHub()
+  const activity = activityService({ db, hub })
+  const tasks = tasksService({ db, hub, activity, search: searchService({ db }) })
+  // The CEO role, running on Abdulrahman's account, creates a task and comments on it.
+  const ceo = { user: { id: 1, name: 'Abdulrahman Ali' }, viaClaude: true, role: 'CEO' }
+  const t = tasks.create(ceo, { project: 'seevil', title: 'Recruit testers' })
+  assert.equal(t.creatorRole, 'CEO', 'the task is attributed to the role')
+  tasks.comment(ceo, 'seevil', t.number, 'Posted the recruiting message.')
+  const full = tasks.get('seevil', t.number)
+  assert.equal(full.comments[0]!.role, 'CEO')
+  assert.equal(full.comments[0]!.viaClaude, true)
+  // The activity feed carries the role too, so "Abdulrahman Ali" isn't shown as the author.
+  assert.equal(activity.list(1).find((a) => a.kind === 'task.created')!.role, 'CEO')
+
+  // A person's own action has no role and stays the person.
+  const t2 = tasks.create({ user: { id: 1, name: 'Abdulrahman Ali' } }, { project: 'seevil', title: 'By hand' })
+  assert.equal(t2.creatorRole, null)
+})
+
 test('a commit first seen on a branch still closes the task when it reaches the default branch (fast-forward)', () => {
   const db = openDb(':memory:')
   db.prepare("insert into users (id, email, username, name, password_hash, totp_secret, role) values (1, 'a@x.io', 'a', 'Ann', 'x', 'x', 'admin')").run()

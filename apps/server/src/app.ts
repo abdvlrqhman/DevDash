@@ -142,7 +142,8 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     return c.json({ error: { code: 'internal', message: 'Something went wrong.' } }, 500)
   })
 
-  registerMcp({ db, agents, projects, tasks, notes, services })
+  // Items a team role creates through its session are attributed to the role, not the account the team runs as.
+  registerMcp({ db, agents, projects, tasks, notes, services, authorRole: (u, s) => team.service?.roleOf(u, s)?.r.name ?? null })
   deploys.registerMcp()
   deploys.resume()
   projects.start()

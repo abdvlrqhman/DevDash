@@ -14,8 +14,11 @@ type Ctx = { sessionId: string | null; cwd: string; args: Record<string, unknown
  * Everything acts as that member and is marked "via Claude". The project comes from the argument, else the
  * session's project, else the folder Claude runs in.
  */
-export function registerMcp({ db, agents, projects, tasks, notes, services }: {
+export function registerMcp({ db, agents, projects, tasks, notes, services, authorRole }: {
   db: Db; agents: AgentsService; projects: ProjectsService; tasks: TasksService; notes: NotesService; services: ServicesService
+  /** When the calling session belongs to a team role, its name — so items it creates are attributed to the role, not the
+   *  account the team runs as. Injected by the app (Team is optional, so core never imports it). */
+  authorRole?: (username: string, sessionId: string | null) => string | null
 }) {
   const q = {
     user: db.prepare("select id, username, name, email, role from users where username = ? and disabled_at is null"),
@@ -40,7 +43,7 @@ export function registerMcp({ db, agents, projects, tasks, notes, services }: {
       if (!slug) throw new AppError(400, 'no_project', `This session isn't in a DevDash project. Pass "project" (one of: ${projects.list().map((p) => p.slug).join(', ') || 'none yet'}).`)
       return slug
     }
-    return { user, args, slug, need, actor: { user, viaClaude: true } }
+    return { user, args, slug, need, actor: { user, viaClaude: true, role: authorRole?.(username, c.sessionId) ?? null } }
   }
   const on = (name: string, fn: (c: ReturnType<typeof context>) => unknown) => agents.onRpc(`mcp.${name}`, (username, params) => fn(context(username, params)))
   const brief = (t: ReturnType<TasksService['list']>[number]) => ({
