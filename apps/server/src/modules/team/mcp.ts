@@ -182,6 +182,12 @@ export function registerTeamMcp(agents: AgentsService, team: TeamService) {
     if (a.role === undefined) throw new AppError(400, 'bad_args', 'Give the role (its name or #id).')
     return team.sessionArchiveRole(username, c.sessionId, slugOf(a), typeof a.role === 'number' ? a.role : String(a.role).replace(/^#/, ''))
   })
+  agents.onRpc('mcp.team_run_role', (username, params) => {
+    const c = member(params)
+    const a = c.args
+    if (a.role === undefined) throw new AppError(400, 'bad_args', 'Give the role (its name or #id).')
+    return team.sessionRunShift(username, c.sessionId, slugOf(a), typeof a.role === 'number' ? a.role : String(a.role).replace(/^#/, ''))
+  })
   agents.onRpc('mcp.team_goal_add', (username, params) => {
     const c = member(params)
     const a = c.args

@@ -253,6 +253,11 @@ const MEMBER = [
     inputSchema: obj({ project, role: { type: ['string', 'integer'], description: 'Its name or #id.' } }, ['role']),
   },
   {
+    name: 'team_run_role',
+    description: "Start a role's shift now (it works on its own and reports), without touching its schedule. Resolve it by name or #id.",
+    inputSchema: obj({ project, role: { type: ['string', 'integer'], description: 'Its name or #id (see team_roles).' } }, ['role']),
+  },
+  {
     name: 'team_goal_add',
     description: 'Add a team goal when the person asks. The measure is what the goal is checked against (e.g. "1,000 weekly active users"); due is YYYY-MM-DD.',
     inputSchema: obj({ project, title: { type: 'string' }, measure: { type: 'string', description: 'What the goal is checked against.' }, due: { type: 'string', description: 'YYYY-MM-DD.' } }, ['title']),

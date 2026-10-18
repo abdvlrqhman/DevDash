@@ -7,6 +7,7 @@ import { PageBody, PageHeader } from '@/components/app/page'
 import { Button } from '@/components/ui/button'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
+import { cn } from '@/lib/utils'
 import { ErrorAlert } from '../auth/LoginPage'
 import { relativeTime } from '../claude/data'
 import { notesQuery, projectsQuery, useLiveWork, type Note } from '../work/data'
@@ -21,11 +22,13 @@ export function NoteList({ notes, empty }: { notes: Note[]; empty: string }) {
       {notes.map((n) => (
         <li key={n.id}>
           <Link to="/notes/$id" params={{ id: String(n.id) }}
-            className="flex h-full flex-col gap-1.5 rounded-xl border bg-card p-4 text-sm transition-colors hover:border-foreground/20 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none">
+            className={cn('flex h-full flex-col gap-1.5 rounded-xl border bg-card p-4 text-sm transition-colors hover:border-foreground/20 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none', n.status === 'superseded' && 'opacity-60')}>
             <span className="flex items-center gap-1.5 font-medium">
               {n.pinned && <Pin className="size-3.5 shrink-0" aria-label="Pinned" />}
               {n.private && <Lock className="size-3.5 shrink-0" aria-label="Private" />}
               <span className="truncate">{n.title}</span>
+              {n.status === 'superseded' ? <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-normal text-muted-foreground">Superseded</span>
+                : n.status === 'draft' ? <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-normal text-muted-foreground">Draft</span> : null}
             </span>
             {n.body.trim() && <span className="line-clamp-3 text-muted-foreground">{excerpt(n.body)}</span>}
             <span className="mt-auto flex items-center gap-1 pt-1 text-xs text-muted-foreground">

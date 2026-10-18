@@ -1529,6 +1529,14 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       this.archiveRole(r.id)
       return `Archived ${name}. It no longer works or appears to the team.`
     },
+    /** A member starts a role's shift now, without editing its schedule (resolved by name or #id). */
+    async sessionRunShift(username: string, sessionId: string, slug: string | undefined, ref: string | number) {
+      const who = this.sessionActor(username, sessionId, slug)
+      const r = typeof ref === 'number' ? repo.role(ref) : roleNamed(who.projectId, String(ref))
+      if (!r || r.archived || r.project_id !== who.projectId) throw new AppError(404, 'not_found', `There is no role ${ref} in this project. See team_roles.`)
+      await runShift(r.id)
+      return `Started a shift for ${r.name}. It works on its own and reports; follow it at /projects/${who.slug}/team/${r.id}.`
+    },
 
     /** The report of the shift this session is; returns false outside a shift. */
     shiftReport(sessionId: string, report: string) {

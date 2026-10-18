@@ -853,3 +853,13 @@ test('resolving a thread offers to close its linked open tasks, and closing a ta
   tasks.update({ user: abdo }, 'seevil', tk2.number, { status: 'done' })
   assert.ok(team.approvals('pending', 'seevil').some((x) => x.kind === 'close' && (x.payload as { target: { thread?: number } }).target.thread === b.thread), 'offers to close the linked thread')
 })
+
+test('a member session starts a role shift by name, without editing its schedule', async (t) => {
+  const { team, claude, abdo, youssef } = setup()
+  t.after(() => team.stop())
+  team.enable(youssef, 'seevil')
+  const cto = team.createRole(abdo, 'seevil', { name: 'CTO', summary: '', instructions: '', model: null })
+  const s = await claude.create(abdo, { prompt: 'hi', images: [], cwd: '', profile: 'default', model: null, effort: null, permissionMode: 'dontAsk', mode: 'chat', project: 'seevil' })
+  assert.match(await team.sessionRunShift('abdo', s.id, undefined, 'CTO'), /Started a shift for CTO/)
+  assert.ok(team.role(cto.id).role.shift, 'the role is now on a shift')
+})

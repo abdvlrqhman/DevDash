@@ -223,11 +223,12 @@ function Threads({ slug, threads, roles }: { slug: string; threads: Team['thread
             <li key={x.id}>
               <Link to="/projects/$slug/team/threads/$thread" params={{ slug, thread: String(x.id) }} className={cn('flex flex-wrap items-center gap-x-3 gap-y-1 px-3.5 py-2.5 text-sm hover:bg-accent/40', x.status === 'resolved' && 'opacity-60')}>
                 <StatusLight state={x.status === 'resolved' ? 'idle' : x.needsPeople ? 'waiting' : 'live'} />
+                <span className="shrink-0 font-mono text-xs text-muted-foreground">#{x.id}</span>
                 <span className="min-w-0 flex-1 truncate font-medium">{x.title}</span>
                 {x.status !== 'resolved' && x.priority === 'blocker' && <span className="shrink-0 rounded-full bg-destructive/15 px-2 py-0.5 text-[11px] font-medium text-destructive">Blocker</span>}
                 {x.status === 'resolved' && <OutcomeBadge as={x.closedAs} />}
                 <span className="text-xs text-muted-foreground">
-                  {x.status === 'resolved' ? (x.closedBy ? `By ${x.closedBy}` : 'Closed') : x.needsPeople ? 'Needs you' : x.owner ? x.owner.name : 'Nobody owns it'} · {x.messages} · {relativeTime(x.lastAt)}
+                  {x.status === 'resolved' ? (x.closedBy ? `By ${x.closedBy}` : 'Closed') : x.needsPeople ? 'Needs you' : x.owner ? x.owner.name : 'Nobody owns it'} · {x.messages} {x.messages === 1 ? 'message' : 'messages'} · {relativeTime(x.lastAt)}
                 </span>
               </Link>
             </li>

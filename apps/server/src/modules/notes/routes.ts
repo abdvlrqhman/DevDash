@@ -2,11 +2,11 @@ import { Hono } from 'hono'
 import { z } from 'zod'
 import { json, query } from '../../core/http.ts'
 import type { AuthEnv, authMiddleware } from '../auth/routes.ts'
-import type { NotesService } from './service.ts'
+import { NOTE_STATUS, type NotesService } from './service.ts'
 
 const Fields = {
   body: z.string().max(200_000).optional(), project: z.string().max(40).nullable().optional(),
-  pinned: z.boolean().optional(), private: z.boolean().optional(),
+  pinned: z.boolean().optional(), private: z.boolean().optional(), status: z.enum(NOTE_STATUS).optional(),
 }
 
 export function notesRoutes(notes: NotesService, mw: ReturnType<typeof authMiddleware>) {

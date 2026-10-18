@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
+import { Link, useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import { Ellipsis, Eye, Lock, Pencil, Pin, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { NativeSelect } from '@/components/app/native-select'
@@ -16,7 +16,7 @@ import { Prose } from '../claude/Blocks'
 import { relativeTime } from '../claude/data'
 import { noteQuery, projectsQuery, type Note } from '../work/data'
 
-type Draft = { title: string; body: string; project: string | null; pinned: boolean; private: boolean }
+type Draft = { title: string; body: string; project: string | null; pinned: boolean; private: boolean; status: Note['status'] }
 
 /** One note. Saves by itself a moment after you stop typing; "new" becomes a real note on the first save. */
 export function NotePage() {
@@ -35,8 +35,8 @@ function Editor({ note, initialProject }: { note: Note | null; initialProject: s
   const navigate = useNavigate()
   const projects = useQuery(projectsQuery).data?.projects ?? []
   const [d, setD] = useState<Draft>(() => note
-    ? { title: note.title, body: note.body, project: note.project?.slug ?? null, pinned: note.pinned, private: note.private }
-    : { title: '', body: '', project: initialProject, pinned: false, private: false })
+    ? { title: note.title, body: note.body, project: note.project?.slug ?? null, pinned: note.pinned, private: note.private, status: note.status }
+    : { title: '', body: '', project: initialProject, pinned: false, private: false, status: 'confirmed' })
   const [preview, setPreview] = useState(!!note?.body)
   const [dirty, setDirty] = useState(false)
   const idRef = useRef(note?.id ?? null)
@@ -101,8 +101,18 @@ function Editor({ note, initialProject }: { note: Note | null; initialProject: s
             <option value="">No project</option>
             {projects.map((p) => <option key={p.slug} value={p.slug}>{p.name}</option>)}
           </NativeSelect>
+          <NativeSelect aria-label="Status" className="w-32 [&_select]:h-8 [&_select]:text-xs" value={d.status === 'superseded' ? 'superseded' : d.status} onChange={(e) => change({ status: e.target.value as Note['status'] })}>
+            <option value="confirmed">Confirmed</option>
+            <option value="draft">Draft</option>
+            {d.status === 'superseded' && <option value="superseded">Superseded</option>}
+          </NativeSelect>
           {d.private ? <span className="flex items-center gap-1"><Lock className="size-3.5" />Only you can see it</span> : <span>The whole team can see it</span>}
         </div>
+        {note?.status === 'superseded' && note.supersededBy && (
+          <p className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+            Superseded by <Link to="/notes/$id" params={{ id: String(note.supersededBy) }} className="font-medium text-foreground hover:underline">note #{note.supersededBy}</Link>. Set it back to Confirmed to make it current again.
+          </p>
+        )}
         {preview ? (
           d.body.trim() ? <div className="pb-10"><Prose text={d.body} /></div> : <button className="text-left text-sm text-muted-foreground" onClick={() => setPreview(false)}>Empty. Tap to write.</button>
         ) : (
