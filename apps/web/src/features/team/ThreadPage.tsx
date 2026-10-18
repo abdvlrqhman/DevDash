@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useParams } from '@tanstack/react-router'
-import { CheckCheck, RotateCcw, SendHorizontal, SquareTerminal, TriangleAlert } from 'lucide-react'
+import { CheckCheck, ListChecks, Plus, RotateCcw, SendHorizontal, SquareTerminal, TriangleAlert, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { initials, StatusLight } from '@/components/app/brand'
 import { PageBody, PageHeader } from '@/components/app/page'
@@ -39,6 +39,16 @@ function ThreadView({ slug, id }: { slug: string; id: number }) {
     onSuccess: refresh,
   })
   const reopen = useMutation({ mutationFn: () => unwrap(api.api.team.threads[':id'].reopen.$post({ param: { id: String(id) } })), onSuccess: refresh })
+  const linkTask = useMutation({
+    mutationFn: (task: number) => unwrap(api.api.team.threads[':id'].tasks.$post({ param: { id: String(id) }, json: { task } })),
+    onSuccess: refresh,
+    onError: (e) => toast.error(e.message),
+  })
+  const unlinkTask = useMutation({
+    mutationFn: (task: number) => unwrap(api.api.team.threads[':id'].tasks[':task'].$delete({ param: { id: String(id), task: String(task) } })),
+    onSuccess: refresh,
+    onError: (e) => toast.error(e.message),
+  })
   const setPriority = useMutation({
     mutationFn: (priority: 'normal' | 'blocker') => unwrap(api.api.team.threads[':id'].priority.$post({ param: { id: String(id) }, json: { priority } })),
     onSuccess: refresh,
@@ -47,7 +57,7 @@ function ThreadView({ slug, id }: { slug: string; id: number }) {
 
   if (q.error) return <><PageHeader title="Thread" back={`/projects/${slug}`} /><PageBody><ErrorAlert error={q.error} /></PageBody></>
   if (!q.data) return <><PageHeader title="Thread" back={`/projects/${slug}`} /><PageBody><Skeleton className="h-64" /></PageBody></>
-  const { thread: t, messages, proposals } = q.data
+  const { thread: t, messages, proposals, tasks } = q.data
   const open = t.status === 'open'
   const declined = !open && !!t.closedAs && t.closedAs !== 'done'
 
@@ -93,6 +103,7 @@ function ThreadView({ slug, id }: { slug: string; id: number }) {
               <Button size="sm" variant="outline" disabled={reopen.isPending} onClick={() => reopen.mutate()}><RotateCcw />Reopen</Button>
             </div>
           )}
+          <LinkedTasks slug={slug} tasks={tasks} onLink={(n) => linkTask.mutate(n)} onUnlink={(n) => unlinkTask.mutate(n)} busy={linkTask.isPending || unlinkTask.isPending} />
           {/* Proposals sit where they were made, so the newest message is always the one above the reply box. */}
           <ol className="flex flex-col gap-5">
             {[...messages.map((m) => ({ at: m.at, el: <Message key={`m${m.id}`} m={m} /> })),
@@ -114,6 +125,46 @@ function ThreadView({ slug, id }: { slug: string; id: number }) {
         </div>
       </PageBody>
     </>
+  )
+}
+
+/** The tasks a thread turned into ("one job per object"): each links to the task; a number box links another. */
+function LinkedTasks({ slug, tasks, onLink, onUnlink, busy }: {
+  slug: string; tasks: ThreadDetail['tasks']; onLink: (n: number) => void; onUnlink: (n: number) => void; busy: boolean
+}) {
+  const [adding, setAdding] = useState(false)
+  const [n, setN] = useState('')
+  const submit = () => { const num = Number(n); if (Number.isInteger(num) && num > 0) { onLink(num); setN(''); setAdding(false) } }
+  if (!tasks.length && !adding) {
+    return <button className="flex w-fit items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground" onClick={() => setAdding(true)}><Plus className="size-3.5" />Link a task</button>
+  }
+  return (
+    <div className="flex flex-col gap-2 rounded-xl border bg-muted/30 px-4 py-3">
+      <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><ListChecks className="size-3.5" />Tasks for this thread</h3>
+      <ul className="flex flex-col gap-1">
+        {tasks.map((x) => (
+          <li key={x.number} className="flex items-center gap-2 text-sm">
+            <Link to="/tasks/$slug/$number" params={{ slug: x.slug, number: String(x.number) }} className="flex min-w-0 flex-1 items-center gap-2 hover:underline">
+              <span className={cn('font-mono text-xs', x.done && 'text-muted-foreground line-through')}>{x.slug}#{x.number}</span>
+              <span className="truncate">{x.title}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">{x.status}</span>
+            </Link>
+            <Button size="icon-sm" variant="ghost" aria-label={`Unlink ${x.slug}#${x.number}`} disabled={busy} onClick={() => onUnlink(x.number)}><X /></Button>
+          </li>
+        ))}
+      </ul>
+      {adding ? (
+        <form className="flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); submit() }}>
+          <span className="text-sm text-muted-foreground">{slug}#</span>
+          <input autoFocus type="number" min={1} value={n} onChange={(e) => setN(e.target.value)} aria-label="Task number"
+            className="h-8 w-20 rounded-md border bg-background px-2 text-sm" placeholder="10" />
+          <Button type="submit" size="sm" disabled={!n || busy}>Link</Button>
+          <Button type="button" size="sm" variant="ghost" onClick={() => { setAdding(false); setN('') }}>Cancel</Button>
+        </form>
+      ) : (
+        <button className="flex w-fit items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground" onClick={() => setAdding(true)}><Plus className="size-3.5" />Link another task</button>
+      )}
+    </div>
   )
 }
 

@@ -213,6 +213,20 @@ export function registerTeamMcp(agents: AgentsService, team: TeamService) {
     const found = team.roleOf(username, c.sessionId ?? null)
     return found ? team.roleThread(found.r.id, a.id as number) : team.sessionThread(username, c.sessionId ?? '', a.id as number)
   })
+  // One job per object: link a task to a thread (or unlink it). A role may link within a thread it's on; a member anywhere.
+  agents.onRpc('mcp.team_thread_link_task', (username, params) => {
+    const c = (params ?? {}) as Ctx
+    const a = c.args ?? {}
+    if (!Number.isInteger(a.thread)) throw new AppError(400, 'bad_args', 'Give the thread id.')
+    if (!Number.isInteger(a.task)) throw new AppError(400, 'bad_args', 'Give the task number (e.g. 10 for seevil#10).')
+    const unlink = a.unlink === true
+    const found = team.roleOf(username, c.sessionId ?? null)
+    if (found) {
+      const key = team.roleLinkTask(found.r.id, a.thread as number, a.task as number, unlink)
+      return unlink ? `Unlinked ${key} from thread #${a.thread}.` : `Linked ${key} to thread #${a.thread}. It shows on both now.`
+    }
+    return team.sessionLinkTask(username, c.sessionId ?? '', a.thread as number, a.task as number, unlink)
+  })
   agents.onRpc('mcp.team_resolve', (username, params) => {
     const c = role(username, params)
     if (!Number.isInteger(c.args.id)) throw new AppError(400, 'bad_args', 'Give the thread id.')

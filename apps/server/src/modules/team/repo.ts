@@ -153,6 +153,13 @@ export function teamRepo(db: Db) {
       where x.thread_id = ? order by x.id`),
     setProposalThread: db.prepare(`update team_proposals set thread_id = ? where id = ?`),
     shiftThread: db.prepare(`update team_shifts set thread_id = ? where id = ?`),
+    // One job per object: a task belongs to at most one thread (primary key task_id), a thread produces many.
+    linkTask: db.prepare(`insert into team_thread_tasks (thread_id, task_id) values (?, ?)
+      on conflict(task_id) do update set thread_id = excluded.thread_id, created_at = unixepoch()`),
+    unlinkTask: db.prepare(`delete from team_thread_tasks where task_id = ?`),
+    threadTasks: db.prepare(`select tt.task_id, t.number, t.title, t.status, t.closed_at, p.slug from team_thread_tasks tt
+      join tasks t on t.id = tt.task_id join projects p on p.id = t.project_id where tt.thread_id = ? order by t.number`),
+    taskThread: db.prepare(`select tt.thread_id, th.title, th.status from team_thread_tasks tt join team_threads th on th.id = tt.thread_id where tt.task_id = ?`),
     sources: db.prepare(`select * from team_sources where project_id = ? order by name`),
     source: db.prepare(`select * from team_sources where id = ?`),
     sourceByName: db.prepare(`select * from team_sources where project_id = ? and lower(name) = lower(?)`),
@@ -263,6 +270,11 @@ export function teamRepo(db: Db) {
     threadProposals: (threadId: number) => all<ProposalRow>(s.threadProposals.all(threadId)),
     setProposalThread: (id: number, threadId: number) => void s.setProposalThread.run(threadId, id),
     shiftThread: (shiftId: number, threadId: number) => void s.shiftThread.run(threadId, shiftId),
+    linkTask: (threadId: number, taskId: number) => void s.linkTask.run(threadId, taskId),
+    unlinkTask: (taskId: number) => void s.unlinkTask.run(taskId),
+    threadTasks: (threadId: number) =>
+      all<{ task_id: number; number: number; title: string; status: string; closed_at: number | null; slug: string }>(s.threadTasks.all(threadId)),
+    taskThread: (taskId: number) => plain<{ thread_id: number; title: string; status: 'open' | 'resolved' }>(s.taskThread.get(taskId)),
     sources: (projectId: number) => all<SourceRow>(s.sources.all(projectId)),
     source: (id: number) => plain<SourceRow>(s.source.get(id)),
     sourceByName: (projectId: number, name: string) => plain<SourceRow>(s.sourceByName.get(projectId, name)),

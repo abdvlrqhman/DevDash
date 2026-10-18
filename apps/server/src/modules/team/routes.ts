@@ -98,6 +98,15 @@ export function teamRoutes(team: TeamService | null, mw: ReturnType<typeof authM
       t().setThreadPriority(c.get('user'), id(c.req.param('id')), c.req.valid('json').priority)
       return c.json({ ok: true })
     })
+    // One job per object: link a task (by its number) to a thread, or unlink it.
+    .post('/threads/:id/tasks', json(z.object({ task: z.number().int().min(1) })), (c) => {
+      t().linkTaskAsPerson(c.get('user'), id(c.req.param('id')), c.req.valid('json').task)
+      return c.json({ ok: true })
+    })
+    .delete('/threads/:id/tasks/:task', (c) => {
+      t().linkTaskAsPerson(c.get('user'), id(c.req.param('id')), id(c.req.param('task')), true)
+      return c.json({ ok: true })
+    })
     .post('/projects/:slug/sources', json(Source), (c) => {
       t().addSource(c.get('user'), c.req.param('slug'), c.req.valid('json'))
       return c.json({ ok: true })

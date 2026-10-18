@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { Bot, GitCommitHorizontal, Pencil, Sparkles } from 'lucide-react'
+import { Bot, GitCommitHorizontal, MessagesSquare, Pencil, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 import { AuthorTag } from '@/components/app/author'
 import { initials } from '@/components/app/brand'
@@ -86,6 +86,14 @@ function TaskPageView() {
               <Input id="t-due" type="date" className="h-10" value={t.due ?? ''} onChange={(e) => update.mutate({ due: e.target.value || null })} />
             </Field>
           </div>
+          {t.thread && (
+            <div className="flex flex-col gap-1.5">
+              <h3 className="text-xs font-medium text-muted-foreground">Thread</h3>
+              <Link to="/projects/$slug/team/threads/$thread" params={{ slug: t.project.slug, thread: String(t.thread.id) }} className="flex items-start gap-2 hover:underline">
+                <MessagesSquare className="mt-0.5 size-3.5 shrink-0" /><span className="min-w-0"><span className="text-muted-foreground">From thread #{t.thread.id}:</span> {t.thread.title}</span>
+              </Link>
+            </div>
+          )}
           <Links t={t} />
           <p className="text-xs text-muted-foreground">Created by {t.creatorRole ? <span className="text-foreground">{t.creatorRole} · AI team</span> : t.creator} {relativeTime(t.createdAt)}. Commits that say <code className="font-mono">fixes #{t.number}</code> move it to Review on a branch and to Done on the default branch.</p>
         </aside>

@@ -59,7 +59,9 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   })
   const activity = activityService({ db, hub })
   const search = searchService({ db })
-  const tasks = tasksService({ db, hub, activity, search })
+  // Team (optional) is built further down; tasks reads it late (like tailnet) so the task page can show "From thread #N".
+  let team: ReturnType<typeof teamPlugin> | undefined
+  const tasks = tasksService({ db, hub, activity, search, threadOf: (id) => team?.service?.taskThread(id) ?? null })
   const notes = notesService({ db, hub, activity, search })
   const projects = projectsService({ db, hub, agents, activity, tasks, root: config.projectsRoot, gitSafeDir: (p) => provisioning.gitSafeDir(p) })
   for (const topic of ['projects', 'tasks', 'notes', 'activity']) hub.authorize(topic, () => true)
@@ -98,7 +100,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   // "Ready to review": a role's approved code proposal, finished with commits, ships in one tap. Team detects it (it has
   // the proposal context) and calls reviews.record; the claude module never imports Team.
   const reviews = reviewsService({ db, hub, agents, projects, notify: notifications.notify })
-  const team = teamPlugin({ db, hub, agents, claude, projects, activity, tasks, notify: notifications.notify, masterKey: config.masterKey, mw, onProposalIdle: (s) => void reviews.record(s) }) // Team
+  team = teamPlugin({ db, hub, agents, claude, projects, activity, tasks, notify: notifications.notify, masterKey: config.masterKey, mw, onProposalIdle: (s) => void reviews.record(s) }) // Team
   // Per-user tailnets: keep net_* tools out of team role sessions (Team may be off, so roleOf is optional).
   tailnet = tailnetService({ db, agents, masterKey: config.masterKey, runDir: config.runDir, isRole: (u, s) => !!team.service?.roleOf(u, s) })
   const status = statusService({ db, agents, services, browser, runDir: config.runDir, dataDir: config.dataDir, version: config.version })

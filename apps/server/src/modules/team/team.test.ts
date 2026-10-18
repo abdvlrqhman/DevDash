@@ -754,3 +754,28 @@ test('a project\'s Claude page shows each role\'s chat and shifts, unlisted as t
   const { sessions } = claude.inProject(abdo, 'seevil', false)
   assert.deepEqual(sessions.map((s) => [s.kind, s.role?.name, s.id === sessionId]).sort(), [['role', 'CTO', true], ['shift', 'CTO', false]])
 })
+
+test('one job per object: a thread and the task it produces are linked both ways (from a proposal, and by hand)', async (t) => {
+  const { team, tasks, abdo, youssef } = setup()
+  t.after(() => team.stop())
+  team.enable(youssef, 'seevil')
+  const ceo = team.createRole(abdo, 'seevil', { name: 'CEO', summary: '', instructions: '', model: null })
+  // A person opens a thread owned by the CEO; posting as a person wakes the owner for a shift about that thread.
+  const { thread: threadId } = team.postAsPerson(abdo, 'seevil', { kind: 'request', title: 'Recruit testers', body: 'We need 20 testers before launch.', to: 'CEO' })
+  let sid: string | undefined
+  for (let i = 0; i < 30 && !sid; i++) { await new Promise((r) => setImmediate(r)); sid = team.role(ceo.id).role.shift?.sessionId ?? undefined }
+  assert.ok(sid, 'the owner started a shift about the thread')
+  // In that shift the CEO (an operator) proposes a task; it is carried out and linked to the thread.
+  await team.propose(ceo.id, { kind: 'task', title: 'Write the tester recruiting post', why: 'From the thread.' }, sid)
+  const made = tasks.list({ project: 'seevil' }).find((x) => x.title.includes('recruiting'))!
+  assert.ok(team.thread(threadId).tasks.some((x) => x.number === made.number), 'the thread shows the task it produced')
+  assert.equal(team.taskThread(tasks.get('seevil', made.number).id)!.id, threadId, 'the task shows the thread it came from')
+
+  // By hand: link an existing task, then unlink it — both sides update.
+  const other = tasks.create({ user: abdo }, { project: 'seevil', title: 'Separate task' })
+  team.linkTaskAsPerson(abdo, threadId, other.number)
+  assert.equal(team.taskThread(other.id)!.id, threadId)
+  assert.ok(team.thread(threadId).tasks.some((x) => x.number === other.number))
+  team.linkTaskAsPerson(abdo, threadId, other.number, true)
+  assert.equal(team.taskThread(other.id), null)
+})

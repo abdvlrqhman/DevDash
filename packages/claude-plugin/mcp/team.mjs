@@ -60,12 +60,20 @@ const MESSAGE_TOOL = {
   }, ['body']),
 }
 
+// One job per object — usable by roles (within a thread they're on) and members (anywhere). Listed in both.
+const LINK_TASK = {
+  name: 'team_thread_link_task',
+  description: 'Link a task to a thread — the work a decision turned into — or unlink it, so a topic lives in one place: the thread then shows "Task <slug>#<n>" and the task shows "From thread #<id>". A task belongs to one thread. Give the task\'s number (e.g. 10 for seevil#10). Prefer this over copying a thread\'s status into a task, or re-opening a thread for a task that exists.',
+  inputSchema: obj({ thread: { type: 'integer' }, task: { type: 'integer', description: "The task's number in its project (the N in slug#N)." }, unlink: { type: 'boolean' } }, ['thread', 'task']),
+}
+
 const ROLE_ONLY = [
   {
     name: 'team_thread',
     description: 'Read a thread (all messages, evidence and proposals in it) before answering.',
     inputSchema: obj({ id: { type: 'integer' } }, ['id']),
   },
+  LINK_TASK,
   {
     name: 'team_decide',
     description: 'Lead only. Clear a teammate\'s routine proposal that is awaiting you (see team_context): approve the clearly-good ones (it runs for the team), reject the rest with one line, or escalate to people only what truly needs them. Don\'t rubber-stamp risky work.',
@@ -222,6 +230,7 @@ const MEMBER = [
     description: 'Mark a thread a blocker (the owning role treats it as top priority on its next shift) or clear it back to normal.',
     inputSchema: obj({ id: { type: 'integer' }, priority: { type: 'string', enum: ['normal', 'blocker'] } }, ['id', 'priority']),
   },
+  LINK_TASK,
   {
     name: 'team_set_priorities',
     description: 'Set "what matters now" for the team, in your own words: it outranks the roles\' own plans in every role\'s context.',

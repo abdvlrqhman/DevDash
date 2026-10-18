@@ -29,7 +29,11 @@ export type Actor = { user: Pick<User, 'id' | 'name'>; viaClaude?: boolean; role
 const SELECT = `select t.*, p.slug, p.name as project_name, a.name as assignee_name, a.username as assignee_username, c.name as creator_name
   from tasks t join projects p on p.id = t.project_id left join users a on a.id = t.assignee_id join users c on c.id = t.created_by`
 
-export function tasksService({ db, hub, activity, search }: { db: Db; hub: Hub; activity: ActivityService; search: SearchService }) {
+export function tasksService({ db, hub, activity, search, threadOf }: {
+  db: Db; hub: Hub; activity: ActivityService; search: SearchService
+  /** The team thread a task belongs to, if any (for "From thread #N"). Injected by the app; core never imports Team. */
+  threadOf?: (taskId: number) => { id: number; title: string; status: 'open' | 'resolved' } | null
+}) {
   const q = {
     list: db.prepare(`${SELECT} where p.archived = 0 and (?1 is null or p.slug = ?1) and (?2 is null or t.assignee_id = ?2)
       and (?3 is null or t.status = ?3) and (?4 = 1 or t.status != 'done' or t.closed_at > unixepoch() - 14 * 86400)
@@ -86,6 +90,7 @@ export function tasksService({ db, hub, activity, search }: { db: Db; hub: Hub; 
           .map((c) => ({ id: c.id, body: c.body, viaClaude: c.via_claude === 1, role: c.via_role, at: c.created_at, user: { id: c.user_id, name: c.user_name } })),
         links: (q.links.all(t.id) as { kind: 'commit' | 'session'; ref: string; title: string; meta: string; created_at: number }[])
           .map((l) => ({ kind: l.kind, ref: l.ref, title: l.title, meta: l.meta, at: l.created_at })),
+        thread: threadOf?.(t.id) ?? null,
       }
     },
 

@@ -209,6 +209,8 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
         project: x.project_slug, title: t.title.slice(0, 200), body: t.body ?? '', status: 'backlog',
         priority: PRIORITIES.has(t.priority as Priority) ? (t.priority as Priority) : 'none',
       }))
+      // One job per object: a task born from a thread's proposal is linked to it, both ways.
+      if (x.thread_id) for (const t of made) repo.linkTask(x.thread_id, t.id)
       return `Added ${made.map((t) => `[${t.key}](/tasks/${x.project_slug}/${t.number})`).join(', ')} to the backlog.`
     }
     if (x.kind === 'code') {
@@ -230,6 +232,7 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       project: x.project_slug, title: x.title.slice(0, 200), status: 'todo', assignee: user.id,
       body: [x.why, payload.details].filter(Boolean).join('\n\n'),
     })
+    if (x.thread_id) repo.linkTask(x.thread_id, t.id)
     return `It's a task for ${user.name}: [${t.key}](/tasks/${x.project_slug}/${t.number}).`
   }
   const validDue = (d: unknown) => (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d : null)
@@ -547,6 +550,30 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
     changed(t.project_id)
   }
 
+  /**
+   * One job per object: link a task to a thread (or unlink it), both ways. Resolves the task by its number within the
+   * thread's project, notes it in the thread, and returns the task key. A task belongs to at most one thread.
+   */
+  function linkTaskToThread(t: ThreadRow, taskNumber: number, by: Author, unlink = false) {
+    const p = db.prepare('select slug, name from projects where id = ?').get(t.project_id) as { slug: string; name: string }
+    let task
+    try {
+      task = tasks.get(p.slug, taskNumber)
+    } catch {
+      throw new AppError(404, 'not_found', `There is no task ${p.slug}#${taskNumber} to link.`)
+    }
+    const label = authorLabel(by)
+    if (unlink) repo.unlinkTask(task.id)
+    else repo.linkTask(t.id, task.id)
+    repo.insertMessage({
+      threadId: t.id, kind: 'fyi', body: `${unlink ? 'Unlinked' : 'Linked'} task ${task.key}: ${clipText(task.title, 100)}.`, evidence: null, label,
+      userId: by.kind === 'person' ? by.user.id : undefined, roleId: by.kind === 'role' ? by.roleId : undefined,
+    })
+    repo.touchThread(t.id)
+    changed(t.project_id)
+    return task.key
+  }
+
   /** A thread as a role reads it (and marks it seen). */
   function threadText(roleId: number, threadId: number) {
     const { p } = findRole(roleId)
@@ -556,12 +583,14 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
     if (msgs.length) repo.seen(threadId, roleId, msgs.at(-1)!.id)
     const day = (s: number) => new Date(s * 1000).toISOString().slice(0, 16).replace('T', ' ')
     const proposals = repo.threadProposals(threadId)
+    const linked = repo.threadTasks(threadId)
     return [
       `# Thread #${t.id}: ${t.title}`,
       `Status: ${t.status === 'resolved' ? `closed (${t.closed_as ?? 'done'}) by ${t.closed_by ?? 'someone'}` : 'open'}${t.needs_people ? ', waiting for people' : ''} · owner: ${t.owner_name ?? 'nobody (people decide)'} · opened by ${t.opened_by}`,
       t.priority === 'blocker' ? '**BLOCKER** — a person marked this top priority: deal with it before other work this shift.' : '',
       t.ask && t.needs_people ? `**Decision asked of people:** ${t.ask}` : '',
       ...msgs.map((m) => `## ${m.author_label} · ${m.kind} · ${day(m.created_at)}\n${m.body}${m.evidence ? `\n\nEvidence:\n${m.evidence}` : ''}`),
+      linked.length ? `## Tasks for this thread (the work it turned into — track status there, don't repeat it here)\n${linked.map((x) => `- ${x.slug}#${x.number} ${x.title} [${x.status}]`).join('\n')}` : '',
       proposals.length ? `## Proposals in this thread\n${proposals.map((x) => `- [${x.status}] ${x.title}${x.reply ? ` (reply: "${x.reply}")` : ''}`).join('\n')}` : '',
     ].filter(Boolean).join('\n\n')
   }
@@ -666,8 +695,20 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
           sessionId: m.author_session_id,
         })),
         proposals: repo.threadProposals(id).map(proposalDto),
+        tasks: repo.threadTasks(id).map((x) => ({ number: x.number, title: x.title, status: x.status, slug: x.slug, done: !!x.closed_at })),
         roles: repo.roles(t.project_id).map((r) => ({ id: r.id, name: r.name })),
       }
+    },
+    /** The thread a task belongs to, if any (for the task page's "From thread #N"). Injected into the tasks service. */
+    taskThread(taskId: number) {
+      const r = repo.taskThread(taskId)
+      return r ? { id: r.thread_id, title: r.title, status: r.status } : null
+    },
+    /** Link a task to a thread, or unlink it (by hand, as a person) — the two-way "one job per object" link. */
+    linkTaskAsPerson(user: User, threadId: number, taskNumber: number, unlink = false) {
+      const t = repo.thread(threadId)
+      if (!t) throw new AppError(404, 'not_found', 'No such thread.')
+      return linkTaskToThread(t, taskNumber, { kind: 'person', user }, unlink)
     },
     postAsPerson(user: User, slug: string, input: MessageInput) {
       const { p } = on(slug)
@@ -1029,6 +1070,16 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
       if (!t || t.project_id !== p.id) throw new AppError(404, 'not_found', `There is no thread #${threadId} in this project.`)
       closeThread(threadId, { kind: 'role', roleId }, { as, reason: resolution, duplicateOf })
     },
+    /** A role links a task to a thread it's on (or unlinks it): one job per object. */
+    roleLinkTask(roleId: number, threadId: number, taskNumber: number, unlink = false) {
+      const { p } = findRole(roleId)
+      const t = repo.thread(threadId)
+      if (!t || t.project_id !== p.id) throw new AppError(404, 'not_found', `There is no thread #${threadId} in this project.`)
+      if (t.owner_role_id !== roleId && !repo.threadRoles(t.id).some((r) => r.id === roleId)) {
+        throw new AppError(403, 'not_in_thread', `You're not on thread #${t.id}: only its owner and the roles in it link tasks to it.`)
+      }
+      return linkTaskToThread(t, taskNumber, { kind: 'role', roleId }, unlink)
+    },
     /** The lead clears a routine proposal for the team: approve (runs it), reject (with a reason), or escalate to people. */
     async leadDecide(roleId: number, id: number, action: 'approve' | 'reject' | 'escalate', reason: string) {
       const { r, p } = findRole(roleId)
@@ -1277,6 +1328,11 @@ export function teamService({ db, hub, claude, projects, activity, tasks, notify
     sessionReopenThread(username: string, sessionId: string, id: number) {
       this.reopen(this.sessionMember(username, sessionId).user, id)
       return `Thread #${id} reopened.`
+    },
+    /** A member links a task to a thread, or unlinks it (one job per object). */
+    sessionLinkTask(username: string, sessionId: string, threadId: number, taskNumber: number, unlink = false) {
+      const key = this.linkTaskAsPerson(this.sessionMember(username, sessionId).user, threadId, taskNumber, unlink)
+      return unlink ? `Unlinked ${key} from thread #${threadId}.` : `Linked ${key} to thread #${threadId}.`
     },
     /** A member marks a thread a blocker or clears it. */
     sessionThreadPriority(username: string, sessionId: string, id: number, priority: 'normal' | 'blocker') {
