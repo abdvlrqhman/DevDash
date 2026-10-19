@@ -1,7 +1,7 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { Archive, ArchiveRestore, Check, ChevronDown, Circle, Ellipsis, FileCode, Gauge, LoaderCircle, MessageSquare, Network, Pencil, Plus, Share2, SquareTerminal, Shield, ShieldOff, SlidersHorizontal, X, Zap } from 'lucide-react'
+import { Archive, ArchiveRestore, Bot, Check, ChevronDown, Circle, Ellipsis, FileCode, Gauge, LoaderCircle, MessageSquare, Network, Pencil, Plus, Share2, SquareTerminal, Shield, ShieldOff, SlidersHorizontal, X, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
 import { PageHeader } from '@/components/app/page'
@@ -243,6 +243,7 @@ function SessionView({ id }: { id: string }) {
   if (!s) return <><PageHeader title="Session" back="/claude" /><div className="flex flex-col gap-3 p-4">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-16" />)}</div></>
 
   const canSend = info.data!.canSend
+  const role = info.data!.role // a team role's session: shown as the role, not the account the team runs on
   const isOwner = info.data!.isOwner
   const working = s.status === 'working'
   const watching = viewers.filter((v) => v.id !== me.id).length
@@ -262,8 +263,12 @@ function SessionView({ id }: { id: string }) {
               ? <span className="min-w-0 truncate font-medium text-attention-foreground">{requestSummary(pending[0])}</span>
               : STATUS_LABEL[s.status]}
             <span className="truncate" title={s.cwd}>{sessionPlace(s)}</span>
-            {s.owner.id !== me.id && <span className="shrink-0">, {s.owner.name}'s</span>}
-            {s.shared && s.owner.id === me.id && <span className="flex shrink-0 items-center gap-1">, <Share2 className="size-3" />shared{s.sharedCanSend ? ', others can type' : ''}</span>}
+            {role
+              ? <span className="flex shrink-0 items-center gap-1"><Bot className="size-3" />{role.name} · AI team</span>
+              : <>
+                  {s.owner.id !== me.id && <span className="shrink-0">, {s.owner.name}'s</span>}
+                  {s.shared && s.owner.id === me.id && <span className="flex shrink-0 items-center gap-1">, <Share2 className="size-3" />shared{s.sharedCanSend ? ', others can type' : ''}</span>}
+                </>}
             {watching > 0 && <span className="shrink-0 sm:hidden">, {watching} watching</span>}
           </span>
         }

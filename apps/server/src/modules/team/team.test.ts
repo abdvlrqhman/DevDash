@@ -757,6 +757,22 @@ test('a project\'s Claude page shows each role\'s chat and shifts, unlisted as t
   assert.deepEqual(sessions.map((s) => [s.kind, s.role?.name, s.id === sessionId]).sort(), [['role', 'CTO', true], ['shift', 'CTO', false]])
 })
 
+test("a team role's session belongs to the team: any member can send in it, and it shows as the role", async (t) => {
+  const { team, db, claude, youssef, abdo } = setup()
+  t.after(() => team.stop())
+  claude.labelSessions(roleSessions(db))
+  team.enable(youssef, 'seevil') // the team runs as youssef
+  const cto = team.createRole(youssef, 'seevil', { name: 'CTO', summary: '', instructions: '', model: null })
+  await team.runShift(cto.id)
+  const shiftId = team.role(cto.id).shifts[0]!.sessionId!
+  // abdo is not the runs-as owner, yet can send in the CTO's shift (watch-only before), and sees it as the role.
+  const seen = await claude.get(abdo, shiftId)
+  assert.equal(seen.canSend, true)
+  assert.deepEqual(seen.role, { kind: 'shift', name: 'CTO' })
+  const { sessionId } = await team.chat(cto.id)
+  assert.deepEqual((await claude.get(abdo, sessionId)).role, { kind: 'role', name: 'CTO' })
+})
+
 test('one job per object: a thread and the task it produces are linked both ways (from a proposal, and by hand)', async (t) => {
   const { team, tasks, abdo, youssef } = setup()
   t.after(() => team.stop())

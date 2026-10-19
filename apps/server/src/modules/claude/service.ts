@@ -293,9 +293,12 @@ export function claudeService({ db, agents, hub, notify, projects, tailnetConnec
     }
   }
 
-  // Owner, anyone when the owner lets everyone send, and teammates the owner let in after they asked to join.
+  /** A team role's own session (its chat or a shift): it belongs to the whole team, named after the role. */
+  const roleLabel = (s: SessionRow) => (s.project_id != null ? labels(s.project_id).get(s.id) : undefined)
+  // Owner; anyone when the owner lets everyone send; teammates the owner let in after they asked; and any member in a
+  // team role's session, which the team shares (it's the CEO's, not one person's).
   const canSend = (u: User, s: SessionRow) =>
-    s.owner_id === u.id || (s.shared === 1 && (s.shared_can_send === 1 || repo.isWriter(s.id, u.id)))
+    s.owner_id === u.id || (s.shared === 1 && (s.shared_can_send === 1 || repo.isWriter(s.id, u.id))) || !!roleLabel(s)
 
   function find(user: User, id: string) {
     const s = repo.byId(id)
@@ -574,8 +577,11 @@ export function claudeService({ db, agents, hub, notify, projects, tailnetConnec
         ? (await agents.request<{ pending: unknown[] }>(s.owner_username, { op: 'claude.pending', id }).catch(() => ({ pending: [] }))).pending
         : []
       const isOwner = s.owner_id === user.id
+      const rl = roleLabel(s)
       return {
         session: toDto(s), pending, canSend: canSend(user, s), isOwner,
+        // A team role's session is shown as the role ("CEO · AI team"), not the account the team runs on.
+        role: rl ? { kind: rl.kind, name: rl.role.name } : null,
         viewers: hub.viewers(`session:${id}`), comments: repo.commentCount(id), writers: isOwner ? repo.writers(id) : [],
       }
     },
@@ -818,7 +824,12 @@ export function claudeService({ db, agents, hub, notify, projects, tailnetConnec
         const t = m.uuid ? turns.get(m.uuid) : undefined
         if (t) messages.push(turnResult(t))
       }
-      return { messages, senders: repo.senders(id), more: !!page.more }
+      // In a team role's session, the account the team runs on wrote the shift prompts and continuations; show the role.
+      const rl = roleLabel(s)
+      const senders = rl
+        ? Object.fromEntries(Object.entries(repo.senders(id)).map(([uuid, v]) => [uuid, v.id === s.owner_id ? { ...v, name: rl.role.name } : v]))
+        : repo.senders(id)
+      return { messages, senders, more: !!page.more }
     },
 
     /**
