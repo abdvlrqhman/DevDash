@@ -192,7 +192,7 @@ function inProject(sharing: 'private' | 'shared' | 'shared_can_send' = 'private'
   add.run(2, 'b@x.io', 'bob', 'Bob Day')
   add.run(3, 'c@x.io', 'cat', 'Cat Moe')
   db.prepare("insert into projects (id, slug, name, created_by) values (1, 'app', 'App', 1), (2, 'site', 'Site', 1)").run()
-  const project = { id: 1, slug: 'app', name: 'App', session_sharing: sharing }
+  const project = { id: 1, slug: 'app', name: 'App', session_sharing: sharing, instructions: 'Follow the house style.' }
   const projects = {
     bySlug: () => project, path: () => '/srv/devdash/projects/app', forPath: () => project,
   } as unknown as ProjectsService
@@ -201,6 +201,15 @@ function inProject(sharing: 'private' | 'shared' | 'shared_can_send' = 'private'
   const user = (id: number, name: string): User => ({ id, name, username: name.toLowerCase(), email: '', role: 'member' })
   return { db, claude, ann: user(1, 'Ann'), bob: user(2, 'Bob'), cat: user(3, 'Cat') }
 }
+
+test("a new session in a project follows the project's instructions (added to its system prompt)", async () => {
+  const { db, claude, ann } = inProject()
+  const s = await claude.create(ann, { prompt: '', images: [], cwd: '', profile: 'default', model: null, effort: null, permissionMode: 'default', mode: 'chat', project: 'app' })
+  assert.equal((db.prepare('select instructions from claude_sessions where id = ?').get(s.id) as { instructions: string | null }).instructions, 'Follow the house style.')
+  // A role brings its own instructions, so the project's don't override them.
+  const r = await claude.create(ann, { prompt: '', images: [], cwd: '', profile: 'default', model: null, effort: null, permissionMode: 'default', mode: 'chat', project: 'app' }, { instructions: 'You are the CTO.' })
+  assert.equal((db.prepare('select instructions from claude_sessions where id = ?').get(r.id) as { instructions: string | null }).instructions, 'You are the CTO.')
+})
 
 test('a project\'s sessions: yours, teammates\' shared ones and the roles\' unlisted ones; others\' private ones only counted', () => {
   const { db, claude, ann, bob } = inProject()

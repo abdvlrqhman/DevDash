@@ -618,7 +618,8 @@ export function claudeService({ db, agents, hub, notify, projects, tailnetConnec
       const sharing = chosen ?? { shared: def !== 'private', canSend: def === 'shared_can_send' }
       repo.patch(id, {
         title: extra.title?.slice(0, 120), title_custom: extra.title ? 1 : undefined,
-        instructions: extra.instructions, tool_policy: extra.toolPolicy ? JSON.stringify(extra.toolPolicy) : undefined,
+        // A role brings its own instructions; otherwise a session follows the project's instructions (like a Claude Project).
+        instructions: extra.instructions ?? (project?.instructions?.trim() || undefined), tool_policy: extra.toolPolicy ? JSON.stringify(extra.toolPolicy) : undefined,
         listed: extra.listed === false ? 0 : undefined,
         shared: sharing.shared ? 1 : undefined, shared_can_send: sharing.shared && sharing.canSend ? 1 : undefined,
         origin_kind: extra.origin?.kind, origin_role: extra.origin?.role,

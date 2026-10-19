@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Spinner } from '@/components/ui/spinner'
+import { Textarea } from '@/components/ui/textarea'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ApiError, api, unwrap } from '@/lib/api'
 import { ErrorAlert } from '../auth/LoginPage'
@@ -107,6 +108,7 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [slugTouched, setSlugTouched] = useState(false)
+  const [instructions, setInstructions] = useState('')
   const [progress, setProgress] = useState<number | null>(null) // 0–100 while a zip is uploading
   const zip = mode === 'zip'
   const guess = name || (zip ? file?.name.replace(/\.zip$/i, '') : repoUrl.split('/').pop()?.replace(/\.git$/, '')) || ''
@@ -114,7 +116,7 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
 
   const create = useMutation({
     mutationFn: async () => {
-      if (!zip) return unwrap(api.api.projects.$post({ json: { name: name || guess, slug: effectiveSlug, repoUrl: repoUrl.trim() || undefined } }))
+      if (!zip) return unwrap(api.api.projects.$post({ json: { name: name || guess, slug: effectiveSlug, repoUrl: repoUrl.trim() || undefined, instructions: instructions.trim() || undefined } }))
       if (!file) throw new ApiError('Choose a .zip file to upload.', 400, 'no_file')
       const uploadId = hexId()
       try {
@@ -131,7 +133,7 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
           setProgress(file.size ? Math.min(99, ((offset + CHUNK) / file.size) * 100) : 99)
           if (file.size === 0) break
         }
-        return await unwrap(api.api.projects['from-zip'].$post({ json: { name: name || guess, slug: effectiveSlug, uploadId } }))
+        return await unwrap(api.api.projects['from-zip'].$post({ json: { name: name || guess, slug: effectiveSlug, uploadId, instructions: instructions.trim() || undefined } }))
       } catch (err) {
         void fetch('/api/projects/zip/abort', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ uploadId }) })
         throw err
@@ -148,7 +150,7 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
   const close = (v: boolean) => {
     if (v || create.isPending) return
     onClose()
-    setMode('repo'); setRepoUrl(''); setFile(null); setName(''); setSlug(''); setSlugTouched(false); create.reset()
+    setMode('repo'); setRepoUrl(''); setFile(null); setName(''); setSlug(''); setSlugTouched(false); setInstructions(''); create.reset()
   }
   const submit = (e: FormEvent) => {
     e.preventDefault()
@@ -188,6 +190,11 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
             <FieldLabel htmlFor="np-slug">Short name</FieldLabel>
             <Input id="np-slug" className="h-10 font-mono" value={effectiveSlug} onChange={(e) => { setSlugTouched(true); setSlug(slugify(e.target.value)) }} />
             <FieldDescription>The folder name and the prefix of its tasks, like <span className="font-mono">{effectiveSlug || 'app'}#12</span>.</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="np-instructions">Instructions <span className="font-normal text-muted-foreground">(optional)</span></FieldLabel>
+            <Textarea id="np-instructions" rows={4} className="min-h-24 text-sm" placeholder={'e.g. You are a gold analyst. Follow these rules…\nAnswer in this format…'} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
+            <FieldDescription>Rules every Claude session in this project follows — set once, like a Claude Project's instructions. You can change them later on the project page.</FieldDescription>
           </Field>
           {progress !== null && <Progress value={progress} />}
           <ErrorAlert error={create.error} />

@@ -95,6 +95,23 @@ test('connecting an existing project to a repo wires the origin remote, saves th
   await assert.rejects(projects.connectRepo(ann, 'zipapp', 'not a url'), /https:\/\/ or git@/)
 })
 
+test('project instructions are optional, stored, and editable (rules every session here follows)', async () => {
+  const db = openDb(':memory:')
+  db.prepare("insert into users (id, email, username, name, password_hash, totp_secret, role) values (1, 'a@x.io', 'ann', 'Ann Lee', 'x', 'x', 'admin')").run()
+  const hub = createHub()
+  const activity = activityService({ db, hub })
+  const tasks = tasksService({ db, hub, activity, search: searchService({ db }) })
+  const agents = { request: async () => ({ defaultBranch: 'main' }) } as unknown as AgentsService
+  const projects = projectsService({ db, hub, agents, activity, tasks, gitSafeDir: async () => {}, root: '/srv/devdash' })
+  const ann: User = { id: 1, name: 'Ann Lee', username: 'ann', email: '', role: 'admin' }
+
+  const made = await projects.create(ann, { name: 'Gold Demo', slug: 'gold', instructions: '  You are a gold analyst.  ' })
+  assert.equal(made.instructions, 'You are a gold analyst.') // trimmed
+  assert.equal((await projects.create(ann, { name: 'Plain', slug: 'plain' })).instructions, '') // optional
+  assert.equal(projects.update(ann, 'gold', { instructions: 'New rules.' }).instructions, 'New rules.')
+  assert.equal(projects.update(ann, 'gold', { name: 'Gold' }).instructions, 'New rules.') // other edits keep them
+})
+
 test('how new Claude sessions start out is a project setting any member changes; archiving is not', () => {
   const db = openDb(':memory:')
   const user = db.prepare("insert into users (id, email, username, name, password_hash, totp_secret, role) values (?, ?, ?, ?, 'x', 'x', 'member')")

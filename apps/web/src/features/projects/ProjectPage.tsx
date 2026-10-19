@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Textarea } from '@/components/ui/textarea'
 import { Tabs, TabsContent, TabsList, TabCount, TabsTrigger } from '@/components/ui/tabs'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { ErrorAlert } from '../auth/LoginPage'
@@ -90,7 +91,7 @@ function ProjectPageView() {
             <TabsTrigger value="activity">Activity</TabsTrigger>
           </TabsList>
           <TabsContent value="overview">
-            <Overview slug={slug} live={p.live} tasks={tasks.data?.tasks} isGithub={/github\.com/.test(p.repoUrl ?? '')} onTab={setTab} onNew={() => setSession(true)} />
+            <Overview slug={slug} live={p.live} tasks={tasks.data?.tasks} isGithub={/github\.com/.test(p.repoUrl ?? '')} instructions={p.instructions} onTab={setTab} onNew={() => setSession(true)} />
           </TabsContent>
           <TabsContent value="tasks">
             <ErrorAlert error={tasks.error} />
@@ -311,9 +312,9 @@ function SharingDefault({ slug, sharing }: { slug: string; sharing: SessionShari
 }
 
 /** The project at a glance: whose Claude is on it now, where the tasks stand, the latest commits and activity. */
-function Overview({ slug, live, tasks, isGithub, onTab, onNew }: {
+function Overview({ slug, live, tasks, isGithub, instructions, onTab, onNew }: {
   slug: string; live: { working: number; waiting: number; people: string[] }; tasks: Task[] | undefined; isGithub: boolean
-  onTab: (tab: string) => void; onNew: () => void
+  instructions: string; onTab: (tab: string) => void; onNew: () => void
 }) {
   useLiveProjectSessions(slug)
   const active = (useQuery(projectSessionsQuery(slug, false)).data?.sessions ?? []).filter(isActive)
@@ -328,6 +329,7 @@ function Overview({ slug, live, tasks, isGithub, onTab, onNew }: {
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <ReadyToReview slug={slug} isGithub={isGithub} className="md:col-span-2" />
+      <ProjectInstructions slug={slug} instructions={instructions} className="md:col-span-2" />
       <Card title="Claude right now" className="md:col-span-2" action={<Button size="sm" variant="outline" onClick={onNew}><Plus />New session</Button>}>
         {active.length > 0 && <SessionList sessions={active} expand />}
         {hidden > 0 && (
@@ -366,6 +368,40 @@ function Overview({ slug, live, tasks, isGithub, onTab, onNew }: {
         {activity.data ? <ActivityList items={activity.data.activity.slice(0, 6)} /> : <Skeleton className="h-24" />}
       </Card>
     </div>
+  )
+}
+
+/** A project's instructions: rules every Claude session here follows, like a Claude Project's instructions. */
+function ProjectInstructions({ slug, instructions, className }: { slug: string; instructions: string; className?: string }) {
+  const qc = useQueryClient()
+  const [editing, setEditing] = useState(false)
+  const [body, setBody] = useState('')
+  const start = () => { setBody(instructions); setEditing(true) }
+  const save = useMutation({
+    mutationFn: () => unwrap(api.api.projects[':slug'].$patch({ param: { slug }, json: { instructions: body } })),
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['projects'] }); setEditing(false); toast.success('Saved.') },
+    onError: (e) => toast.error(e.message),
+  })
+  return (
+    <Card title="Instructions" className={className} action={!editing && <Button size="sm" variant="ghost" onClick={start}>{instructions ? 'Edit' : 'Add'}</Button>}>
+      {editing ? (
+        <div className="flex flex-col gap-2">
+          <Textarea autoFocus rows={5} className="min-h-28 text-sm" value={body} onChange={(e) => setBody(e.target.value)}
+            placeholder={'Rules every Claude session in this project follows. e.g. "You are a gold analyst. Follow these rules…"'} />
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs text-muted-foreground">Added to the system prompt of every Claude session here.</span>
+            <span className="flex gap-2">
+              <Button size="sm" variant="ghost" disabled={save.isPending} onClick={() => { setBody(instructions); setEditing(false) }}>Cancel</Button>
+              <Button size="sm" disabled={save.isPending || body === instructions} onClick={() => save.mutate()}>Save</Button>
+            </span>
+          </div>
+        </div>
+      ) : instructions ? (
+        <p className="max-h-48 overflow-auto whitespace-pre-wrap text-sm text-muted-foreground">{instructions}</p>
+      ) : (
+        <p className="text-sm text-muted-foreground">No instructions yet. Add rules every Claude session in this project should follow — set once, like a Claude Project's instructions.</p>
+      )}
+    </Card>
   )
 }
 

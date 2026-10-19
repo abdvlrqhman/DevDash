@@ -13,7 +13,7 @@ const FETCH_EVERY_MS = 5 * 60_000
 type Row = {
   id: number; slug: string; name: string; repo_url: string | null; default_branch: string; created_by: number; created_at: number
   fetched_at: number | null; fetch_error: string | null; archived: number; creator_username: string; creator_name: string
-  session_sharing: SessionSharing
+  session_sharing: SessionSharing; instructions: string
   open_tasks: number; sessions: number; working: number; waiting: number; active_people: string; last_session_at: number | null
 }
 
@@ -50,8 +50,8 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
     all: db.prepare(`${SELECT} where p.archived = ? order by p.name`),
     bySlug: db.prepare(`${SELECT} where p.slug = ?`),
     byId: db.prepare(`${SELECT} where p.id = ?`),
-    insert: db.prepare('insert into projects (slug, name, repo_url, default_branch, created_by) values (?, ?, ?, ?, ?) returning id'),
-    patch: db.prepare('update projects set name = ?, archived = ?, session_sharing = ? where id = ?'),
+    insert: db.prepare('insert into projects (slug, name, repo_url, default_branch, created_by, instructions) values (?, ?, ?, ?, ?, ?) returning id'),
+    patch: db.prepare('update projects set name = ?, archived = ?, session_sharing = ?, instructions = ? where id = ?'),
     setRepo: db.prepare('update projects set repo_url = ? where id = ?'),
     fetched: db.prepare('update projects set fetched_at = unixepoch(), fetch_error = ?, default_branch = coalesce(?, default_branch) where id = ?'),
     refs: db.prepare('select ref, sha from project_refs where project_id = ?'),
@@ -65,7 +65,7 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
     slug: p.slug, name: p.name, repoUrl: p.repo_url, defaultBranch: p.default_branch, path: path(p.slug), createdAt: p.created_at,
     fetchedAt: p.fetched_at, fetchError: p.fetch_error, archived: p.archived === 1, openTasks: p.open_tasks, sessions: p.sessions,
     live: { working: p.working, waiting: p.waiting, people: JSON.parse(p.active_people || '[]') as string[] }, lastSessionAt: p.last_session_at,
-    creator: { username: p.creator_username, name: p.creator_name }, sessionSharing: p.session_sharing,
+    creator: { username: p.creator_username, name: p.creator_name }, sessionSharing: p.session_sharing, instructions: p.instructions,
   })
   // Who is asking, for the session count (0: nobody's own, shared sessions only).
   const me = (userId = 0) => ({ me: userId })
@@ -156,7 +156,7 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
       return m ? ((q.bySlug.get(me(), m[1]!) as Row | undefined) ?? null) : null
     },
 
-    async create(user: User, input: { name: string; slug?: string; repoUrl?: string }) {
+    async create(user: User, input: { name: string; slug?: string; repoUrl?: string; instructions?: string }) {
       const repoUrl = input.repoUrl?.trim() || null
       const name = input.name.trim() || (repoUrl ? repoUrl.split('/').pop()!.replace(/\.git$/, '') : '')
       if (!name) throw new AppError(400, 'bad_name', 'Give the project a name.')
@@ -166,7 +166,7 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
       const r = await agents.request<{ defaultBranch: string }>(user.username,
         repoUrl ? { op: 'git.clone', path: path(slug), url: repoUrl } : { op: 'git.init', path: path(slug) }, 16 * 60_000)
       await gitSafeDir(path(slug))
-      const { id } = q.insert.get(slug, name, repoUrl, r.defaultBranch || 'main', user.id) as { id: number }
+      const { id } = q.insert.get(slug, name, repoUrl, r.defaultBranch || 'main', user.id, input.instructions?.trim() ?? '') as { id: number }
       await scan(byId(id)!).catch(() => {})
       q.fetched.run(null, null, id)
       activity.record({ projectId: id, userId: user.id, kind: 'project.created', summary: `added project ${name}`, url: `/projects/${slug}` })
@@ -184,7 +184,7 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
       return agents.request(user.username, { op: 'project.zipAbort', id: uploadId }, 10_000).catch(() => ({ ok: true }))
     },
 
-    async createFromZip(user: User, input: { name: string; slug?: string; uploadId: string }) {
+    async createFromZip(user: User, input: { name: string; slug?: string; uploadId: string; instructions?: string }) {
       const name = input.name.trim()
       if (!name) throw new AppError(400, 'bad_name', 'Give the project a name.')
       const slug = input.slug?.trim() || slugify(name)
@@ -193,7 +193,7 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
       // Extract first (as the uploader): only insert the row once the folder is a real repo.
       const r = await agents.request<{ defaultBranch: string }>(user.username, { op: 'project.fromZip', id: input.uploadId, dest: path(slug) }, 16 * 60_000)
       await gitSafeDir(path(slug))
-      const { id } = q.insert.get(slug, name, null, r.defaultBranch || 'main', user.id) as { id: number }
+      const { id } = q.insert.get(slug, name, null, r.defaultBranch || 'main', user.id, input.instructions?.trim() ?? '') as { id: number }
       await scan(byId(id)!).catch(() => {})
       q.fetched.run(null, null, id)
       activity.record({ projectId: id, userId: user.id, kind: 'project.created', summary: `added project ${name}`, url: `/projects/${slug}` })
@@ -202,12 +202,13 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
     },
 
     /** Any member renames it or sets how new sessions start out; archiving is for whoever added it, or an admin. */
-    update(user: User, slug: string, patch: { name?: string; archived?: boolean; sessionSharing?: SessionSharing }) {
+    update(user: User, slug: string, patch: { name?: string; archived?: boolean; sessionSharing?: SessionSharing; instructions?: string }) {
       const p = find(slug)
       if (patch.archived !== undefined && user.role !== 'admin' && user.id !== p.created_by) {
         throw new AppError(403, 'forbidden', 'Only the person who added it or an admin can archive a project.')
       }
-      q.patch.run(patch.name?.trim() || p.name, patch.archived === undefined ? p.archived : patch.archived ? 1 : 0, patch.sessionSharing ?? p.session_sharing, p.id)
+      q.patch.run(patch.name?.trim() || p.name, patch.archived === undefined ? p.archived : patch.archived ? 1 : 0, patch.sessionSharing ?? p.session_sharing,
+        patch.instructions === undefined ? p.instructions : patch.instructions.trim(), p.id)
       changed()
       return dto(find(slug, user.id))
     },
