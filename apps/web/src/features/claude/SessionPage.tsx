@@ -40,6 +40,7 @@ import { tailnetStatusQuery } from '../network/NetworkPage'
 import { buildTranscript, mergePage, mergeRaw, sessionFacts, type Raw } from './transcript'
 import { SubagentCtx } from './ToolSteps'
 import { useTopic } from '@/lib/live'
+import { usePageTitle } from '@/lib/title'
 
 const light = (s: Session['status']) => (s === 'working' ? 'live' : s === 'waiting' ? 'waiting' : s === 'error' ? 'error' : 'idle')
 const termSize = () => ({ cols: Math.max(40, Math.min(220, Math.floor(innerWidth / 8.2))), rows: Math.max(15, Math.min(80, Math.floor(innerHeight / 19))) })
@@ -85,6 +86,7 @@ function SessionView({ id }: { id: string }) {
   const recentlyChanged = useRef(new Map<string, PendingChange>())
 
   const s = info.data?.session
+  usePageTitle(s?.title) // the browser tab shows the session name: "DevDash — <title>"
   const setSession = (session: Session) => qc.setQueryData(sessionQuery(id).queryKey, (old) => (old ? { ...old, session } : old))
 
   const letIn = (user: Person) =>
