@@ -87,7 +87,7 @@ install -m 755 -o root -g root "$REL/deploy/helper/devdash-helper.mjs" /usr/loca
 install -m 755 -o root -g root "$REL/deploy/backup.sh" /usr/local/libexec/devdash-backup.sh
 install -m 755 -o root -g root "$REL/deploy/claude-update.sh" /usr/local/libexec/devdash-claude-update.sh
 install -m 755 -o root -g root "$REL/deploy/self-deploy.sh" /usr/local/libexec/devdash-deploy.sh
-for unit in devdash-server.service devdash-helper.socket devdash-helper@.service devdash-agent@.socket devdash-agent@.service devdash-backup.service devdash-backup.timer devdash-claude-update.service devdash-deploy@.service; do
+for unit in system-devdash-agent.slice devdash-server.service devdash-helper.socket devdash-helper@.service devdash-agent@.socket devdash-agent@.service devdash-backup.service devdash-backup.timer devdash-claude-update.service devdash-deploy@.service; do
   install -m 644 "$REL/deploy/systemd/$unit" "/etc/systemd/system/$unit"
 done
 install -m 755 "$REL/deploy/devdash-cli" /usr/local/bin/devdash

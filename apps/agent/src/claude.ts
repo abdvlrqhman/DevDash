@@ -164,7 +164,12 @@ Long-running processes (web servers, dev servers, APIs, workers, containers) go 
 - Before starting anything, run \`devdash service ls\` (everyone's services) and \`devdash service ports\` (every port in use on the server); reuse what's already running instead of starting a duplicate.
 - \`devdash service logs <name>\`, \`restart <name>\`, \`stop <name>\`, \`rm <name>\`. Options for add: \`--env KEY=value\`, \`--no-autostart\`, \`--no-restart\`. Services keep running after this session ends, start with the server and restart if they crash.
 - Each service opens in the browser at $DEVDASH_URL (members only, or anyone with the link if made public); \`devdash service add\` prints it. Apps that build absolute URLs should use the base path $DEVDASH_BASE_PATH (Vite: \`--base $DEVDASH_BASE_PATH\`).
-- Services you add are linked to this session. Only stop or change services that belong to this person.`
+- Services you add are linked to this session. Only stop or change services that belong to this person.
+Be light on the shared machine — its disk and CPU are limited and used by everyone:
+- Don't duplicate large things. When you work on a branch in a worktree, never re-download a big toolchain into it (node_modules, Android/Flutter SDKs, gradle/pub caches): reuse the project's main checkout — symlink it (\`ln -sfn <main-checkout>/node_modules node_modules\`) or point the tool at a shared cache (GRADLE_USER_HOME, ANDROID_SDK_ROOT, PUB_CACHE, npm cache) instead of a per-worktree copy.
+- Clean up build outputs and scratch files you don't need; write throwaway files under /tmp, not into the repo. Worktrees are temporary — DevDash removes abandoned ones automatically once they're stale and their work is merged, so commit or merge anything you want to keep.
+- Don't commit large binaries or build artifacts.
+- The CPU is shared and capped (the host throttles sustained high load): don't fan out many heavy parallel subagents or run several big builds/test suites at once — do heavy work in sequence.`
 
 // Added only when "Reach my tailnet" is on: how the session reaches the owner's private devices.
 const TAILNET_NOTE = `This session can reach the owner's private Tailscale tailnet. Their devices are at 100.x addresses (and *.ts.net MagicDNS names) and are reachable only through the proxy already set in your environment:

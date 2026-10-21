@@ -1,0 +1,16 @@
+[Unit]
+Description=DevDash agents (all members' Claude sessions, terminals and the tools they spawn)
+
+# A shared, always-on VPS: the host throttles sustained high CPU, so cap EVERYTHING the agents run — together. This one
+# slice bounds the total CPU, memory and I/O of every member's sessions and the builds/tests/subagents they start, and
+# yields to the rest of the system (the DevDash server, Caddy, Postgres, neko). Tuned for a small box (~4 vCPU / 8 GB);
+# raise CPUQuota if you move to a bigger VPS, or lower it if the host still complains.
+[Slice]
+CPUAccounting=yes
+CPUQuota=200%
+CPUWeight=40
+MemoryAccounting=yes
+MemoryHigh=5G
+MemoryMax=6G
+IOAccounting=yes
+IOWeight=40

@@ -4,11 +4,13 @@ import { lstat, readdir, realpath, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
-// Worktree janitor: runs AS the member (one agent per member) and prunes Claude Code's own leftover subagent worktrees
-// so they stop filling the shared disk. Claude Code puts subagents in <repo>/.claude/worktrees/agent-<id>; when one does
-// `npm ci` that folder grows ~400 MB, and abandoned ones persist. We only ever remove something that is PROVABLY safe —
-// stale, with no uncommitted edits, and nothing unmerged to lose. When in any doubt we skip and log. We never touch the
-// main checkout, DevDash's own session worktrees (/srv/devdash/worktrees/*), or anything not matching agent-* here.
+// Worktree janitor: runs AS the member (one agent per member) and prunes leftover worktrees so they stop filling the
+// shared disk. Two kinds:
+//   1. Claude Code's own subagent worktrees, <repo>/.claude/worktrees/agent-<id> — one `npm ci` grows them ~400 MB.
+//   2. DevDash's session worktrees, /srv/devdash/worktrees/<slug>/<hex> — an abandoned session leaves one behind (and an
+//      agent that re-downloads an SDK/node_modules into it can make it gigabytes). Only the ones THIS member owns.
+// We only ever remove something PROVABLY safe — stale, with no uncommitted edits, and nothing unmerged to lose (git keeps
+// the branch's commits regardless). Any doubt → skip and log. We never touch a main checkout.
 
 const run = promisify(execFile)
 const ROOT = () => process.env.DEVDASH_PROJECTS_ROOT || '/srv/devdash'
@@ -160,6 +162,56 @@ async function handleOrphan(path: string, ageMs: number, out: Result): Promise<v
   console.log(`janitor: removed orphan ${path} (leftover files, no git state)`)
 }
 
+/** This member's own uid, to only ever touch worktrees they own (so one agent never fights another's permissions). */
+const myUid = () => (typeof process.getuid === 'function' ? process.getuid() : -1)
+
+/**
+ * DevDash's session worktrees (/srv/devdash/worktrees/<slug>/<hex>, branch dd/<hex>): remove this member's abandoned
+ * ones with the same safety policy as the subagent ones. Stale + clean + merged/nothing-ahead only; git keeps the branch.
+ */
+async function sweepDevdashWorktrees(now: number, out: Result): Promise<void> {
+  const wtRoot = join(ROOT(), 'worktrees')
+  const uid = myUid()
+  let slugs: string[]
+  try {
+    slugs = (await readdir(wtRoot, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name)
+  } catch { return } // no worktrees root, or no access
+  for (const slug of slugs) {
+    const repo = join(ROOT(), 'projects', slug)
+    if (!existsSync(join(repo, '.git'))) continue
+    let hexes: string[]
+    try {
+      hexes = (await readdir(join(wtRoot, slug), { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name)
+    } catch { continue }
+    if (!hexes.length) continue
+    const reg = await registered(repo)
+    if (!reg) continue // can't read git state → touch nothing in this repo
+    const base = await baseRef(repo)
+    for (const hex of hexes) {
+      const path = join(wtRoot, slug, hex)
+      try {
+        const st = await lstat(path)
+        if (uid >= 0 && st.uid !== uid) continue // only this member's own worktrees
+        const r = reg.get(await canon(path))
+        if (!r) continue // not a registered worktree (half-removed / unexpected) → leave it
+        const ageMs = now - (await newestMtimeMs(path))
+        const d = decide(await inspect(repo, path, r, base, ageMs))
+        if (d.remove) {
+          await removeWorktree(repo, path, r, base)
+          out.removed++
+          console.log(`janitor: removed session worktree ${path} (${d.reason})`)
+        } else if (ageMs >= STALE_MS) {
+          out.skipped++
+          console.log(`janitor: kept ${path} — ${d.reason}`)
+        }
+      } catch (err) {
+        out.skipped++
+        console.log(`janitor: kept ${path} — ${(err as Error).message}`)
+      }
+    }
+  }
+}
+
 /** One full sweep across the member's project checkouts. Never throws; returns how many it removed vs. kept. */
 export async function sweep(now = Date.now()): Promise<Result> {
   const out: Result = { removed: 0, skipped: 0 }
@@ -200,6 +252,7 @@ export async function sweep(now = Date.now()): Promise<Result> {
       }
     }
   }
+  await sweepDevdashWorktrees(now, out).catch((err) => console.log(`janitor: devdash worktrees sweep failed — ${(err as Error).message}`))
   if (out.removed || out.skipped) console.log(`janitor: removed ${out.removed}, kept ${out.skipped} stale/uncertain worktree(s)`)
   return out
 }
