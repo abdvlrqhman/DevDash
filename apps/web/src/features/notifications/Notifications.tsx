@@ -9,8 +9,9 @@ import { Separator } from '@/components/ui/separator'
 import { Switch } from '@/components/ui/switch'
 import { api, unwrap } from '@/lib/api'
 import { looking, useTopic } from '@/lib/live'
+import { disableIosPush, enableIosPush, iosPushActive, iosPushApp, iosPushState, syncIosPush, type IosPushState } from '@/lib/ios-push'
 import { disablePush, enablePush, needsHomeScreen, pushEnabled, pushSupported } from '@/lib/push'
-import { inIosShell, inShell, setBackgroundNotifications, syncBackgroundNotifications } from '@/lib/shell'
+import { backgroundOff, inIosShell, inShell, notificationPermission, setBackgroundNotifications, syncBackgroundNotifications } from '@/lib/shell'
 import { ErrorAlert } from '../auth/LoginPage'
 import { deliver } from './deliver'
 
@@ -19,14 +20,15 @@ type Event = { notification: { title: string; body: string; url: string } }
 /** Shows notifications as they happen: a toast while you're looking, a system notification from the native app otherwise. */
 export function useNotificationEvents() {
   const navigate = useNavigate()
-  useEffect(() => void syncBackgroundNotifications(), [])
+  useEffect(() => void syncBackgroundNotifications().then(syncIosPush), [])
   useTopic('notifications', (e) => {
     const n = (e as unknown as Event).notification
     const open = { label: 'Open', onClick: () => void navigate({ to: n.url }) }
     switch (deliver({
       looking: looking(),
       onPage: location.pathname === n.url,
-      androidBackground: !!window.DevDashAndroid?.backgroundNotifications(), // the app's background connection shows it
+      // The device's own pushes show it: Android's background connection, or Apple push in the iPhone app.
+      backgroundPush: !!window.DevDashAndroid?.backgroundNotifications() || iosPushActive(),
       nativeNotify: !!window.devdashShell?.notify, // the Tauri shell (desktop/iOS) posts a native OS notification
     })) {
       case 'native':
@@ -62,21 +64,24 @@ export function NotificationsPanel() {
   })
   // In the native app the server test would just toast (you're looking at this screen), so also fire a real system
   // notification through the shell bridge — that exercises the device's native path and shows whether it actually works.
-  const nativeTest = inShell() && !!window.devdashShell?.notify
+  // Not on an iPhone getting Apple push: the test itself arrives through Apple, which is the path worth checking.
+  const nativeTest = inShell() && !!window.devdashShell?.notify && !iosPushActive()
   const test = useMutation({
     mutationFn: async () => {
       await unwrap(api.api.notifications.test.$post())
       if (nativeTest) window.devdashShell!.notify!('DevDash', 'Test notification — this is how it looks on this device.')
     },
-    onSuccess: () => toast.success(nativeTest
-      ? 'Sent. Check for a system notification on this device — if none appears, allow DevDash in your phone’s Settings → Notifications.'
-      : 'Test sent. It shows on every device where notifications are on.'),
+    onSuccess: () => toast.success(iosPushActive()
+      ? 'Sent through Apple. It shows on this iPhone in a moment, the same way it will when the app is closed.'
+      : nativeTest
+        ? 'Sent. Check for a system notification on this device — if none appears, allow DevDash in your phone’s Settings → Notifications.'
+        : 'Test sent. It shows on every device where notifications are on.'),
   })
   const prefs = q.data?.prefs
 
   return (
     <FieldGroup>
-      <ThisDevice publicKey={q.data?.publicKey} />
+      <ThisDevice publicKey={q.data?.publicKey} apns={q.data?.apns} />
       <Separator />
       <ErrorAlert error={q.error ?? save.error} />
       {KINDS.map((k) => (
@@ -95,20 +100,43 @@ export function NotificationsPanel() {
   )
 }
 
-/** Turns notifications on for the device in hand: Web Push in browsers, system permission in the native app. */
-function ThisDevice({ publicKey }: { publicKey?: string }) {
+/** What reaches the iPhone app while it's closed, and if nothing does, why. */
+function iosNote(push: IosPushState | null | undefined, apns: boolean | undefined) {
+  if (push === undefined) return 'Arrive while the app is open. Checking whether they can arrive while it’s closed…'
+  if (push?.error === 'no-entitlement') {
+    return 'Arrive while the app is open. This copy of DevDash can’t get them while it’s closed: iPhone only allows that for apps signed with a paid Apple developer account, which AltStore and SideStore installs aren’t. The signed DevDash app or DevDash on your Home Screen (from Safari) can.'
+  }
+  if (apns === false) return 'Arrive while the app is open. For notifications while it’s closed, an admin adds the space’s Apple push key (Account → iPhone app notifications).'
+  if (push?.token) return 'Arrive even when the app is closed.'
+  return 'Arrive while the app is open. Apple hasn’t given this iPhone a push address yet: check the connection, then turn this off and on again.'
+}
+
+/** Turns notifications on for the device in hand: Web Push in browsers, system permission (and Apple push) in the app. */
+function ThisDevice({ publicKey, apns }: { publicKey?: string; apns?: boolean }) {
   const shell = inShell()
   const native = shell && !!window.devdashShell?.notificationPermission
   const android = !!window.DevDashAndroid
+  const ios = iosPushApp()
   const [on, setOn] = useState<boolean | null>(null)
+  const [push, setPush] = useState<IosPushState | null | undefined>(undefined) // undefined: not known yet
   const [error, setError] = useState<Error | null>(null)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    if (android) void window.devdashShell!.notificationPermission!(false).then((s) => setOn(s === 'granted' && window.DevDashAndroid!.backgroundNotifications()))
-    else if (native) void window.devdashShell!.notificationPermission!(false).then((s) => setOn(s === 'granted'))
+    if (android) void notificationPermission(false).then((s) => setOn(s === 'granted' && window.DevDashAndroid!.backgroundNotifications()))
+    else if (ios) {
+      void notificationPermission(false).then((s) => setOn(s === 'granted' && !backgroundOff()))
+      void iosPushState().then(setPush)
+    } else if (native) void notificationPermission(false).then((s) => setOn(s === 'granted'))
     else if (pushSupported()) void pushEnabled().then(setOn, () => setOn(false))
   }, [native])
+  // The app's answer can come later than this screen, or change.
+  useEffect(() => {
+    if (!ios) return
+    const changed = () => setPush(window.__devdashPushState ?? null)
+    window.addEventListener('devdash-push', changed)
+    return () => window.removeEventListener('devdash-push', changed)
+  }, [ios])
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true)
@@ -116,8 +144,12 @@ function ThisDevice({ publicKey }: { publicKey?: string }) {
     try { await fn() } catch (e) { setError(e as Error) } finally { setBusy(false) }
   }
   const enable = () => run(async () => {
-    if (native) {
-      const s = await window.devdashShell!.notificationPermission!(true)
+    if (ios) {
+      const r = await enableIosPush()
+      setPush(r.state)
+      setOn(true)
+    } else if (native) {
+      const s = await notificationPermission(true)
       if (s !== 'granted') throw new Error('Notifications are off for DevDash. Turn them on in your phone’s settings, then come back.')
       setBackgroundNotifications(true)
       setOn(true)
@@ -129,6 +161,7 @@ function ThisDevice({ publicKey }: { publicKey?: string }) {
   })
   const disable = () => run(async () => {
     if (android) setBackgroundNotifications(false)
+    else if (ios) await disableIosPush()
     else await disablePush()
     setOn(false)
   })
@@ -143,11 +176,12 @@ function ThisDevice({ publicKey }: { publicKey?: string }) {
         <FieldLabel htmlFor="n-device">Notifications on this device</FieldLabel>
         <FieldDescription>
           {android ? 'Arrive even when the app is closed. Android keeps a quiet “DevDash is connected” notification for that.'
+            : ios ? iosNote(push, apns)
             : inIosShell() ? 'Arrive while the app is open. For notifications when it’s closed, open this site in Safari, tap Share, then Add to Home Screen, and turn them on there.'
             : native ? 'Arrive while the app is open or in the background.' : 'Arrive even when DevDash is closed.'} You won't get them twice: while you're using DevDash somewhere, they show inside it.
         </FieldDescription>
       </FieldContent>
-      <Switch id="n-device" disabled={on === null || busy || (native && !android && on)} checked={!!on}
+      <Switch id="n-device" disabled={on === null || busy || (native && !android && !ios && on)} checked={!!on}
         onCheckedChange={(v) => void (v ? enable() : disable())} />
     </Field>
   )

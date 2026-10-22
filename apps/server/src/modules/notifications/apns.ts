@@ -119,11 +119,10 @@ function encode(e: ApnsEvent, origin: string) {
 }
 
 const KEY_HELP = "That isn't an APNs key. Choose (or paste) the whole AuthKey_….p8 file Apple gave you, from BEGIN PRIVATE KEY to END PRIVATE KEY."
-/** The .p8 file as PEM. Also takes just its base64 lines, which is what some people copy. */
+/** The .p8 file as PEM, rebuilt so that just its base64 lines, or a paste whose line breaks got lost, work too. */
 function readKey(text: string) {
-  const pem = text.includes('BEGIN')
-    ? text.trim()
-    : `-----BEGIN PRIVATE KEY-----\n${text.replace(/\s+/g, '').match(/.{1,64}/g)?.join('\n') ?? ''}\n-----END PRIVATE KEY-----`
+  const body = text.replace(/-----(BEGIN|END) [A-Z ]+-----/g, '').replace(/\s+/g, '')
+  const pem = `-----BEGIN PRIVATE KEY-----\n${body.match(/.{1,64}/g)?.join('\n') ?? ''}\n-----END PRIVATE KEY-----\n`
   let key: KeyObject
   try {
     key = createPrivateKey(pem)

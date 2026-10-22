@@ -81,9 +81,10 @@ test('an admin sets the APNs key once; it is sealed and never comes back', () =>
   // Same key and team: the .p8 can be left out (e.g. to fix the bundle ID). A new Key ID needs its file.
   assert.equal(t.apns.setConfig(t.ann, { teamId: TEAM, keyId: KEY_ID, bundleId: 'com.example.dd' }).bundleId, 'com.example.dd')
   assert.throws(() => t.apns.setConfig(t.ann, { teamId: TEAM, keyId: 'KEY7654321', bundleId: BUNDLE }), /\.p8 file/)
-  // Just the base64 lines of the file work too.
+  // Just the base64 lines of the file work too, and a paste that lost its line breaks.
   const lines = key.split('\n').filter((l) => l && !l.startsWith('-----')).join('\n')
   assert.equal(t.apns.setConfig(t.ann, { teamId: TEAM, keyId: KEY_ID, bundleId: BUNDLE, key: lines }).configured, true)
+  assert.equal(t.apns.setConfig(t.ann, { teamId: TEAM, keyId: KEY_ID, bundleId: BUNDLE, key: key.replace(/\n/g, '') }).configured, true)
   assert.ok(t.apple.closed >= 1, 'a new key starts new connections')
 
   t.apns.removeConfig()

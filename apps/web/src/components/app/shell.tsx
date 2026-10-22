@@ -16,6 +16,7 @@ import {
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { api, meQuery, spaceQuery } from '@/lib/api'
+import { forgetIosPush } from '@/lib/ios-push'
 import { APP_DOWNLOADS, inShell, openExternal } from '@/lib/shell'
 import { useMotion } from '@/lib/motion'
 import { setTheme, useTheme, type ThemePref } from '@/lib/theme'
@@ -218,6 +219,7 @@ export function useSignOut() {
   const qc = useQueryClient()
   const navigate = useNavigate()
   return async () => {
+    await forgetIosPush() // this iPhone stops getting the member's notifications
     await api.api.auth.logout.$post()
     qc.clear()
     navigate({ to: '/login' })
