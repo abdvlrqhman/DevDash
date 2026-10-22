@@ -96,7 +96,30 @@ const counts = (p: { openTasks: number; sessions: number }) =>
 
 const slugify = (s: string) => s.toLowerCase().replace(/\.git$/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40)
 
-const CHUNK = 8 * 1024 * 1024 // zips upload in ≤8 MB pieces (Cloudflare caps a request at 100 MB)
+const CHUNK = 32 * 1024 * 1024 // zips upload in ≤32 MB pieces (Cloudflare caps a request at 100 MB)
+const GB = 1024 ** 3
+const MAX_ZIP = 20 * GB // the agent refuses more (apps/agent/src/project.ts)
+const gb = (n: number) => `${(n / GB).toFixed(n < 10 * GB ? 1 : 0)} GB`
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** Sends one piece, trying again after a network blip or a busy server: a 20 GB upload is hundreds of pieces. */
+async function sendPiece(url: string, body: Blob) {
+  for (let attempt = 1; ; attempt++) {
+    let res: Response | null = null
+    try {
+      res = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/octet-stream' }, body })
+    } catch (err) {
+      if (attempt >= 5) throw new ApiError(`Upload interrupted: ${(err as Error).message}`, 0, 'upload')
+    }
+    if (res?.ok) return
+    if (res && res.status < 500 && res.status !== 429) {
+      const e = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
+      throw new ApiError(e?.error?.message ?? `Upload failed (${res.status})`, res.status, 'upload')
+    }
+    if (attempt >= 5) throw new ApiError(`Upload failed (${res?.status ?? 'network'}). Try again.`, res?.status ?? 0, 'upload')
+    await sleep(1000 * 2 ** attempt) // 2, 4, 8, 16 s
+  }
+}
 const hexId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('')
 
 function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -110,6 +133,7 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [slugTouched, setSlugTouched] = useState(false)
   const [instructions, setInstructions] = useState('')
   const [progress, setProgress] = useState<number | null>(null) // 0–100 while a zip is uploading
+  const [unpacking, setUnpacking] = useState(false)
   const zip = mode === 'zip'
   const guess = name || (zip ? file?.name.replace(/\.zip$/i, '') : repoUrl.split('/').pop()?.replace(/\.git$/, '')) || ''
   const effectiveSlug = slugTouched ? slug : slugify(guess)
@@ -118,27 +142,39 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
     mutationFn: async () => {
       if (!zip) return unwrap(api.api.projects.$post({ json: { name: name || guess, slug: effectiveSlug, repoUrl: repoUrl.trim() || undefined, instructions: instructions.trim() || undefined } }))
       if (!file) throw new ApiError('Choose a .zip file to upload.', 400, 'no_file')
+      if (file.size > MAX_ZIP) throw new ApiError(`That .zip is ${gb(file.size)}; the limit is ${gb(MAX_ZIP)}.`, 400, 'too_big')
       const uploadId = hexId()
+      let started = false
       try {
         setProgress(0)
-        // Stream the zip to the server in order, then finalize (unzip + git init) in one atomic step.
+        // Stream the zip to the server in order (the first piece says the whole size, so one that won't fit is refused
+        // at once), then start the import (unzip + git init) and wait for it: a big one takes minutes.
         for (let offset = 0; offset === 0 || offset < file.size; offset += CHUNK) {
-          const res = await fetch(`/api/projects/zip?${new URLSearchParams({ uploadId, offset: String(offset) })}`, {
-            method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/octet-stream' }, body: file.slice(offset, offset + CHUNK),
-          })
-          if (!res.ok) {
-            const e = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
-            throw new ApiError(e?.error?.message ?? `Upload failed (${res.status})`, res.status, 'upload')
-          }
+          const q = new URLSearchParams({ uploadId, offset: String(offset), ...(offset === 0 && { total: String(file.size) }) })
+          await sendPiece(`/api/projects/zip?${q}`, file.slice(offset, offset + CHUNK))
           setProgress(file.size ? Math.min(99, ((offset + CHUNK) / file.size) * 100) : 99)
           if (file.size === 0) break
         }
-        return await unwrap(api.api.projects['from-zip'].$post({ json: { name: name || guess, slug: effectiveSlug, uploadId, instructions: instructions.trim() || undefined } }))
+        setProgress(null)
+        setUnpacking(true)
+        await unwrap(api.api.projects['from-zip'].$post({ json: { name: name || guess, slug: effectiveSlug, uploadId, instructions: instructions.trim() || undefined } }))
+        started = true
+        for (;;) {
+          await sleep(2000)
+          const s = await unwrap(api.api.projects.zip.status.$get({ query: { uploadId } })).catch((err: ApiError) => {
+            if (err.status === 404) throw err // the server restarted mid-import
+            return null // a blip: ask again
+          })
+          if (s?.state === 'done' && s.project) return { project: s.project }
+          if (s?.state === 'failed') throw new ApiError(s.error ?? 'The import failed.', 400, 'import')
+        }
       } catch (err) {
-        void fetch('/api/projects/zip/abort', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ uploadId }) })
+        // The server cleans up a started import itself; before that, throw the half-uploaded zip away.
+        if (!started) void fetch('/api/projects/zip/abort', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ uploadId }) })
         throw err
       } finally {
         setProgress(null)
+        setUnpacking(false)
       }
     },
     onSuccess: ({ project }) => {
@@ -156,7 +192,9 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
     e.preventDefault()
     if (effectiveSlug && (!zip || file) && !create.isPending) create.mutate()
   }
-  const label = create.isPending ? (zip ? (progress === null ? 'Finishing…' : 'Uploading…') : repoUrl ? 'Cloning…' : 'Creating…') : zip ? 'Create from zip' : 'Add project'
+  const label = create.isPending
+    ? (zip ? (unpacking ? 'Unpacking…' : progress === null ? 'Finishing…' : `Uploading ${Math.floor(progress)}%${file && file.size > GB ? ` of ${gb(file.size)}` : ''}…`) : repoUrl ? 'Cloning…' : 'Creating…')
+    : zip ? 'Create from zip' : 'Add project'
   return (
     <ResponsiveDialog open={open} onOpenChange={close} title="Add a project" description="One shared checkout on the server that the whole team and their Claude sessions work in.">
       <form onSubmit={submit}>
@@ -169,7 +207,7 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
             <Field>
               <FieldLabel htmlFor="np-zip">Zip file</FieldLabel>
               <Input id="np-zip" type="file" accept=".zip,application/zip" className="h-10 py-2" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
-              <FieldDescription>Its contents become the project files here. DevDash unpacks it and starts a new git repository as you.</FieldDescription>
+              <FieldDescription>Up to {gb(MAX_ZIP)}. Its contents become the project files here. DevDash unpacks it and starts a new git repository as you; a big one takes a few minutes, so keep this open.</FieldDescription>
             </Field>
           ) : (
             <>

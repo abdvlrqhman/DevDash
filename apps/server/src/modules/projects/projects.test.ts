@@ -66,6 +66,51 @@ test('create-from-zip inserts the project only after the agent unzips it, and le
   assert.equal(projects.list(false, 1).length, 1, 'the failed zip left no dangling project')
 })
 
+test('a .zip import runs in the background: the page asks how it is going, sees the project or the reason it failed', async () => {
+  const db = openDb(':memory:')
+  const add = db.prepare("insert into users (id, email, username, name, password_hash, totp_secret, role) values (?, ?, ?, ?, 'x', 'x', 'member')")
+  add.run(1, 'a@x.io', 'ann', 'Ann Lee')
+  add.run(2, 'b@x.io', 'bob', 'Bob Day')
+  const hub = createHub()
+  const activity = activityService({ db, hub })
+  const tasks = tasksService({ db, hub, activity, search: searchService({ db }) })
+  let finish: (() => void) | undefined
+  const agents = {
+    request: async (_u: string, msg: { op: string; dest?: string }) => {
+      if (msg.op !== 'project.fromZip') return {}
+      if ((msg.dest ?? '').endsWith('/bad')) throw new Error('That .zip is too large once unpacked (over 20 GB).')
+      await new Promise<void>((r) => { finish = r }) // unpacking a big archive takes a while
+      return { defaultBranch: 'main' }
+    },
+  } as unknown as AgentsService
+  const projects = projectsService({ db, hub, agents, activity, tasks, gitSafeDir: async () => {}, root: '/srv/devdash' })
+  const ann: User = { id: 1, name: 'Ann Lee', username: 'ann', email: '', role: 'member' }
+  const bob: User = { id: 2, name: 'Bob Day', username: 'bob', email: '', role: 'member' }
+  const tick = () => new Promise((r) => setTimeout(r, 0))
+
+  // Starting answers at once, long before the unpacking is done (Cloudflare drops requests after 100 s).
+  assert.deepEqual(projects.startFromZip(ann, { name: 'Game', slug: 'game', uploadId: 'aaaa1111' }), { uploadId: 'aaaa1111', slug: 'game', state: 'importing' })
+  assert.equal(projects.importStatus(ann, 'aaaa1111').state, 'importing')
+  assert.throws(() => projects.importStatus(bob, 'aaaa1111'), /No import/) // only the person who started it
+  assert.throws(() => projects.startFromZip(bob, { name: 'Game', slug: 'game', uploadId: 'bbbb2222' }), /being imported right now/)
+  assert.throws(() => projects.startFromZip(ann, { name: 'Game', slug: 'game', uploadId: 'aaaa1111' }), /already being imported/)
+  assert.equal(projects.list(false, 1).length, 0) // no project row until the folder is a real repo
+
+  await tick()
+  finish!()
+  await tick(); await tick()
+  const done = projects.importStatus(ann, 'aaaa1111')
+  assert.equal(done.state, 'done')
+  assert.equal(done.project?.slug, 'game')
+  assert.equal(projects.list(false, 1).length, 1)
+  assert.throws(() => projects.startFromZip(ann, { name: 'Game', slug: 'game', uploadId: 'cccc3333' }), /already exists/)
+
+  projects.startFromZip(ann, { name: 'Bad', slug: 'bad', uploadId: 'dddd4444' })
+  await tick(); await tick()
+  assert.deepEqual(projects.importStatus(ann, 'dddd4444'), { state: 'failed', slug: 'bad', project: null, error: 'That .zip is too large once unpacked (over 20 GB).' })
+  assert.equal(projects.list(false, 1).length, 1)
+})
+
 test('connecting an existing project to a repo wires the origin remote, saves the url, and fetches', async () => {
   const db = openDb(':memory:')
   db.prepare("insert into users (id, email, username, name, password_hash, totp_secret, role) values (1, 'a@x.io', 'ann', 'Ann Lee', 'x', 'x', 'admin')").run()

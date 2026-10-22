@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { lstat, mkdir, open, readdir, realpath, rename, rm } from 'node:fs/promises'
+import { lstat, mkdir, open, readdir, realpath, rename, rm, statfs } from 'node:fs/promises'
 import { userInfo } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -15,9 +15,24 @@ const tmpRoot = () => `${srv()}/projects/.dd-uploads`
 const destRe = () => new RegExp(`^${srv().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/projects/[a-z0-9][a-z0-9-]{0,39}$`)
 const ID_RE = /^[a-f0-9]{8,64}$/
 
-const MAX_BYTES = 500 * 1024 ** 2 // refuse archives whose contents exceed ~500 MB
-const MAX_FILES = 20_000
+const GB = 1024 ** 3
+/** The biggest project a .zip may bring: the archive itself, and what it unpacks to. */
+export const MAX_BYTES = 20 * GB
+const MAX_FILES = 250_000
 const MAX_RATIO = 200 // uncompressed/compressed guard against zip bombs
+/** Room every upload leaves free on the shared disk, for everyone else's work. */
+export const DISK_SPARE = 5 * GB
+
+const gb = (n: number) => `${(n / GB).toFixed(n < 10 * GB ? 1 : 0)} GB`
+/** Whether `need` more bytes fit while keeping DISK_SPARE free; the reason why not, for the person uploading. */
+export function roomFor(free: number, need: number, what: string): string | null {
+  if (free - need >= DISK_SPARE) return null
+  return `Not enough free space on the server to ${what} (needs about ${gb(need + DISK_SPARE)}, ${gb(free)} free). Ask an admin to make room.`
+}
+const freeBytes = async (dir: string) => {
+  const s = await statfs(dir)
+  return s.bavail * s.bsize
+}
 
 const checkedId = (v: unknown) => {
   if (typeof v !== 'string' || !ID_RE.test(v)) throw new Error('bad upload id')
@@ -47,12 +62,22 @@ async function noEscapingLinks(dir: string, root: string) {
 }
 
 export const ops = {
-  /** One chunk of the uploaded zip. offset 0 starts it over; chunks arrive in order (same shape as fs.write). */
+  /**
+   * One chunk of the uploaded zip. offset 0 starts it over (and says how big the whole file is, so a zip that's too big
+   * or doesn't fit on the disk is refused before it uploads); chunks arrive in order (same shape as fs.write).
+   */
   async zipChunk(r: Record<string, unknown>) {
     const id = checkedId(r.id)
     const offset = Number(r.offset) || 0
     const data = Buffer.from(String(r.data ?? ''), 'base64')
+    if (offset + data.length > MAX_BYTES) throw new Error(`That .zip is over ${gb(MAX_BYTES)}.`)
     await mkdir(tmpRoot(), { recursive: true })
+    if (offset === 0) {
+      const total = Number(r.total) || data.length
+      if (total > MAX_BYTES) throw new Error(`That .zip is over ${gb(MAX_BYTES)}.`)
+      const full = roomFor(await freeBytes(tmpRoot()), total, 'upload this .zip')
+      if (full) throw new Error(full)
+    }
     const fh = await open(zipPath(id), offset === 0 ? 'w' : 'r+')
     try {
       await fh.write(data, 0, data.length, offset)
@@ -83,24 +108,27 @@ export const ops = {
     let made = false // only ever clean up a dest folder we created ourselves
     try {
       // 1. Vet entry names before touching the disk: no absolute paths, no `..` segments. (zip is our own controlled temp path.)
-      const names = (await run('unzip', ['-Z', '-1', zip], { maxBuffer: 64 * 1024 * 1024 })).stdout.split('\n').map((s) => s.trim()).filter(Boolean)
+      const names = (await run('unzip', ['-Z', '-1', zip], { maxBuffer: 256 * 1024 * 1024 })).stdout.split('\n').map((s) => s.trim()).filter(Boolean)
       if (!names.length) throw new Error('That .zip is empty.')
       for (const n of names) {
         if (n.startsWith('/') || n.split('/').some((seg) => seg === '..')) throw new Error('The .zip contains unsafe paths. It was not imported.')
       }
       // 2. Size/bomb guard from the archive listing: total uncompressed bytes and file count.
-      const listing = (await run('unzip', ['-l', zip], { maxBuffer: 16 * 1024 * 1024 })).stdout
+      const listing = (await run('unzip', ['-l', zip], { maxBuffer: 256 * 1024 * 1024 })).stdout
       const summary = listing.trim().split('\n').pop()!.match(/^\s*(\d+)\s+(\d+)\s+files?/)
       const totalBytes = summary ? Number(summary[1]) : 0
       const count = summary ? Number(summary[2]) : names.length
       const compressed = (await lstat(zip)).size
       if (count > MAX_FILES) throw new Error('That .zip has too many files.')
-      if (totalBytes > MAX_BYTES) throw new Error('That .zip is too large once unpacked (over 500 MB).')
+      if (totalBytes > MAX_BYTES) throw new Error(`That .zip is too large once unpacked (over ${gb(MAX_BYTES)}).`)
       if (compressed > 0 && totalBytes / compressed > MAX_RATIO && totalBytes > 50 * 1024 ** 2) throw new Error('That .zip looks like a zip bomb. It was not imported.')
+      // The files, plus git's copy of them in the import commit (media barely compresses), must fit with room to spare.
+      const full = roomFor(await freeBytes(tmpRoot()), totalBytes * 2, 'unpack this .zip')
+      if (full) throw new Error(full)
       // 3. Extract into a fresh temp dir, never over existing files (-n), no interpreter or build step involved.
       await rm(work, { recursive: true, force: true })
       await mkdir(work, { recursive: true })
-      await run('unzip', ['-qq', '-n', zip, '-d', work], { timeout: 5 * 60_000, maxBuffer: 16 * 1024 * 1024 })
+      await run('unzip', ['-qq', '-n', zip, '-d', work], { timeout: 60 * 60_000, maxBuffer: 16 * 1024 * 1024 })
       // 4. Belt-and-braces: resolve symlinks and confirm none escape the extraction dir.
       const workReal = await realpath(work)
       await noEscapingLinks(workReal, workReal)

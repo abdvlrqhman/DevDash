@@ -70,6 +70,18 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
   })
   // Who is asking, for the session count (0: nobody's own, shared sessions only).
   const me = (userId = 0) => ({ me: userId })
+  /** Background .zip imports by upload id (startFromZip); finished ones are kept an hour for the page to read. */
+  type ZipImport = { userId: number; slug: string; state: 'importing' | 'done' | 'failed'; project?: ReturnType<typeof dto>; error?: string; at: number }
+  const imports = new Map<string, ZipImport>()
+  /** A new project's name and short name from the .zip dialog, refused if the short name is taken or being imported. */
+  const zipTarget = (input: { name: string; slug?: string }) => {
+    const name = input.name.trim()
+    if (!name) throw new AppError(400, 'bad_name', 'Give the project a name.')
+    const slug = input.slug?.trim() || slugify(name)
+    if (!SLUG_RE.test(slug)) throw new AppError(400, 'bad_slug', 'The short name uses lowercase letters, digits and dashes (up to 40).')
+    if (q.bySlug.get(me(), slug)) throw new AppError(409, 'taken', `A project called ${slug} already exists.`)
+    return { name, slug }
+  }
   const byId = (id: number, userId?: number) => q.byId.get(me(userId), id) as Row | undefined
   function find(slug: string, userId?: number) {
     const p = q.bySlug.get(me(userId), slug) as Row | undefined
@@ -178,21 +190,17 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
     // Uploading a .zip from the member's PC: the browser streams the zip to this member's agent in 8 MB pieces (temp
     // file keyed to the upload id), then createFromZip unzips it + inits a repo + inserts the row — all in one step, so
     // a failed or garbage zip never leaves a dangling project. See apps/agent/src/project.ts for the safe extraction.
-    uploadZip(user: User, uploadId: string, offset: number, data: Buffer) {
-      return agents.request<{ size: number }>(user.username, { op: 'project.zipChunk', id: uploadId, offset, data: data.toString('base64') }, 120_000)
+    uploadZip(user: User, uploadId: string, offset: number, data: Buffer, total?: number) {
+      return agents.request<{ size: number }>(user.username, { op: 'project.zipChunk', id: uploadId, offset, total, data: data.toString('base64') }, 120_000)
     },
     abortZip(user: User, uploadId: string) {
       return agents.request(user.username, { op: 'project.zipAbort', id: uploadId }, 10_000).catch(() => ({ ok: true }))
     },
 
     async createFromZip(user: User, input: { name: string; slug?: string; uploadId: string; instructions?: string }) {
-      const name = input.name.trim()
-      if (!name) throw new AppError(400, 'bad_name', 'Give the project a name.')
-      const slug = input.slug?.trim() || slugify(name)
-      if (!SLUG_RE.test(slug)) throw new AppError(400, 'bad_slug', 'The short name uses lowercase letters, digits and dashes (up to 40).')
-      if (q.bySlug.get(me(), slug)) throw new AppError(409, 'taken', `A project called ${slug} already exists.`)
-      // Extract first (as the uploader): only insert the row once the folder is a real repo.
-      const r = await agents.request<{ defaultBranch: string }>(user.username, { op: 'project.fromZip', id: input.uploadId, dest: path(slug) }, 16 * 60_000)
+      const { name, slug } = zipTarget(input)
+      // Extract first (as the uploader): only insert the row once the folder is a real repo. A 20 GB archive takes a while.
+      const r = await agents.request<{ defaultBranch: string }>(user.username, { op: 'project.fromZip', id: input.uploadId, dest: path(slug) }, 3 * 3_600_000)
       await gitSafeDir(path(slug))
       const { id } = q.insert.get(slug, name, null, r.defaultBranch || 'main', user.id, input.instructions?.trim() ?? '') as { id: number }
       await scan(byId(id)!).catch(() => {})
@@ -200,6 +208,31 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
       activity.record({ projectId: id, userId: user.id, kind: 'project.created', summary: `added project ${name}`, url: `/projects/${slug}` })
       changed()
       return dto(byId(id, user.id)!)
+    },
+
+    /**
+     * Starts creating a project from an uploaded .zip in the background. Unpacking and committing a big archive takes
+     * minutes, longer than a request may last behind Cloudflare (100 s), so the page asks `importStatus` how it's going.
+     */
+    startFromZip(user: User, input: { name: string; slug?: string; uploadId: string; instructions?: string }) {
+      for (const [k, v] of imports) if (v.state !== 'importing' && Date.now() - v.at > 3_600_000) imports.delete(k)
+      const { slug } = zipTarget(input)
+      if (imports.has(input.uploadId)) throw new AppError(409, 'started', 'This upload is already being imported.')
+      if ([...imports.values()].some((i) => i.slug === slug && i.state === 'importing')) throw new AppError(409, 'taken', `A project called ${slug} is being imported right now.`)
+      imports.set(input.uploadId, { userId: user.id, slug, state: 'importing', at: Date.now() })
+      const done = (v: Partial<ZipImport>) => imports.set(input.uploadId, { ...imports.get(input.uploadId)!, ...v, at: Date.now() })
+      void this.createFromZip(user, input).then(
+        (project) => done({ state: 'done', project }),
+        (err: Error) => done({ state: 'failed', error: err.message || 'The import failed.' }),
+      )
+      return { uploadId: input.uploadId, slug, state: 'importing' as const }
+    },
+
+    /** How a background .zip import is going, for the member who started it. */
+    importStatus(user: User, uploadId: string) {
+      const i = imports.get(uploadId)
+      if (!i || i.userId !== user.id) throw new AppError(404, 'not_found', 'No import with that id.')
+      return { state: i.state, slug: i.slug, project: i.project ?? null, error: i.error ?? null }
     },
 
     /** Any member renames it or sets how new sessions start out; archiving is for whoever added it, or an admin. */

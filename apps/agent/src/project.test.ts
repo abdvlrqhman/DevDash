@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { ops } from './project.ts'
+import { DISK_SPARE, MAX_BYTES, ops, roomFor } from './project.ts'
 
 // A tiny, dependency-free ZIP writer (stored, no compression) so tests make real archives without a `zip` binary.
 const crcTable = (() => {
@@ -96,4 +96,15 @@ test('finalizing refuses to overwrite a folder that already has files', async ()
   const zip = makeZip([{ name: 'x.txt', data: Buffer.from('x') }])
   await assert.rejects(importZip(root, 'taken', zip), /already exists/)
   assert.ok(existsSync(join(dest, 'keep.me')), 'the existing folder is untouched')
+})
+
+test('a .zip over 20 GB is refused before it uploads; the disk keeps room for everyone else', async () => {
+  newRoot()
+  await assert.rejects(ops.zipChunk({ id: 'b1612345', offset: 0, total: MAX_BYTES + 1, data: '' }), /over 20 GB/)
+  await assert.rejects(ops.zipChunk({ id: 'b1612345', offset: MAX_BYTES, data: Buffer.from('x').toString('base64') }), /over 20 GB/)
+  const GB = 1024 ** 3
+  assert.equal(roomFor(100 * GB, 20 * GB, 'upload this .zip'), null)
+  assert.equal(roomFor(25 * GB, 20 * GB, 'upload this .zip'), null) // exactly the spare left
+  assert.match(roomFor(24 * GB, 20 * GB, 'unpack this .zip')!, /Not enough free space on the server to unpack this \.zip \(needs about 25 GB, 24 GB free\)/)
+  assert.equal(DISK_SPARE, 5 * GB)
 })
