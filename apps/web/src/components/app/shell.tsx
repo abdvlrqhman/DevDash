@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import {
-  Activity, ArrowLeftRight, ChevronsUpDown, Download, Ellipsis, FolderGit2, Globe, HardDrive, House, Inbox, KeyRound, ListTodo, LogOut, Monitor, Moon, Network, PocketKnife, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Sun, Users,
+  Activity, ArrowLeftRight, ChevronsUpDown, Cloud, Download, Ellipsis, FolderGit2, Globe, HardDrive, House, Inbox, KeyRound, ListTodo, LogOut, Monitor, Moon, Network, PocketKnife, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Sun, Users,
 } from 'lucide-react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
@@ -46,6 +46,7 @@ const NAV: { label?: string; items: NavItem[] }[] = [
     { to: '/browser', label: 'Browser', icon: Globe },
     { to: '/vault', label: 'Vault', icon: KeyRound },
     { to: '/network', label: 'Network', icon: Network },
+    { to: '/storage', label: 'Storage', icon: Cloud },
   ] },
   { label: 'Team', items: [
     { to: '/members', label: 'Members', icon: Users },
@@ -285,7 +286,7 @@ function MobileTabs({ waiting }: { waiting: number }) {
   // Inside a Claude chat the tabs step aside, as in messaging apps: the back arrow leads out.
   const inChat = useRouterState({ select: (s) => /^\/claude\/[0-9a-f-]{36}$/.test(s.location.pathname) })
   if (inChat) return null
-  const moreActive = ['/more', '/members', '/account', '/notes', '/tools', '/terminal', '/services', '/files', '/vault', '/network', '/browser', '/server'].some((p) => active(p)) || active('/claude/setup')
+  const moreActive = ['/more', '/members', '/account', '/notes', '/tools', '/terminal', '/services', '/files', '/vault', '/network', '/storage', '/browser', '/server'].some((p) => active(p)) || active('/claude/setup')
   return (
     <nav aria-label="Sections" className="grid shrink-0 grid-cols-5 border-t bg-background pb-[env(safe-area-inset-bottom)] md:hidden [.keyboard-open_&]:hidden">
       {TABS.map((t) => {

@@ -13,6 +13,7 @@ import { CLAUDE_BIN, loadSdk, type PermissionMode, type PermissionResult, type Q
 import { hasSession, listSessions, tmux } from './tmux.ts'
 import { getPorts } from './tailscale.ts'
 import { startForwarder, writeSshHelper } from './tailnet-session.ts'
+import * as storage from './storage.ts'
 
 export const PLUGIN_DIR = fileURLToPath(new URL('../../../packages/claude-plugin', import.meta.url))
 export const PROFILE_RE = /^[a-z0-9][a-z0-9-]{0,20}$/
@@ -44,6 +45,8 @@ export type Launch = {
   reachTailnet?: boolean
   /** Tailnet MCPs (e.g. IDA Pro at http://100.x:13337/mcp) to expose to the session, each reached over the proxy. */
   tailnetMcps?: { name: string; url: string }[] | null
+  /** The owner's connected cloud storage (their Google Drive), set up as an rclone remote before the session starts. */
+  storage?: storage.Storage | null
 }
 export type Status = 'working' | 'waiting' | 'idle' | 'stopped' | 'error'
 type Pending = { requestId: string; toolName: string; input: Record<string, unknown>; suggestions?: unknown[]; resolve: (r: PermissionResult) => void }
@@ -179,7 +182,7 @@ const TAILNET_NOTE = `This session can reach the owner's private Tailscale tailn
 Your own Anthropic API calls are NOT proxied; they go out directly as usual.`
 
 const systemAppend = (l: Launch) => {
-  const parts = [RULES]
+  const parts = [RULES, storage.note(l.storage)]
   if (l.reachTailnet) parts.push(TAILNET_NOTE)
   if (l.instructions?.trim()) parts.push(l.instructions.trim())
   return parts.join('\n\n')
@@ -190,9 +193,14 @@ const systemAppend = (l: Launch) => {
 const INTERACTIVE = new Set(['AskUserQuestion', 'ExitPlanMode'])
 const WEEK_S = 7 * 86_400
 
+/** Makes sure the owner's Drive remote is in their rclone config before Claude starts (a new profile, a deleted file). */
+const ensureStorage = (l: Launch) =>
+  l.storage ? storage.configure(l.storage).catch((err: Error) => console.error(`[${l.id.slice(0, 8)}] storage:`, err.message)) : undefined
+
 async function startChat(l: Launch): Promise<Chat> {
   validate(l)
   await requireLogin(l.profile)
+  await ensureStorage(l)
   const sdk = await loadSdk()
   // Route this session through the owner's tailnet when asked (env + an optional MCP forwarder); off → null.
   const tn = await setupTailnet(l).catch((err: Error) => { console.error(`[${l.id.slice(0, 8)}] tailnet:`, err.message); return null })
@@ -421,6 +429,7 @@ async function openCliNow(l: Launch, cols: number, rows: number) {
   if (await hasSession(cliName(l.id))) return
   cliLaunches.set(l.id, l)
   try { trustFolder(claudeConfig(l.profile), l.cwd) } catch { /* Claude Code asks instead */ }
+  await ensureStorage(l)
   // Route this session through the owner's tailnet when asked (env + an optional MCP forwarder); off → null.
   const tn = await setupTailnet(l).catch((err: Error) => { console.error(`[${l.id.slice(0, 8)}] tailnet:`, err.message); return null })
   const args = [CLAUDE_BIN, ...(l.started ? ['--resume', l.id] : ['--session-id', l.id]), '--plugin-dir', PLUGIN_DIR, '--append-system-prompt', systemAppend(l)]

@@ -21,6 +21,8 @@ import { servicePages } from './modules/previews/service.ts'
 import { statusService } from './modules/status/service.ts'
 import { deployService } from './modules/status/deploy.ts'
 import { vaultService } from './modules/vault/service.ts'
+import { storageRoutes, storageTokenRoutes } from './modules/storage/routes.ts'
+import { storageService } from './modules/storage/service.ts'
 import { tailnetRoutes } from './modules/tailnet/routes.ts'
 import { tailnetService, type TailnetService } from './modules/tailnet/service.ts'
 import { buildsService } from './modules/builds/service.ts'
@@ -70,7 +72,14 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   // Per-user tailnets: claude asks whether the owner has a connected node before letting a session route through it.
   // The tailnet service is built further down (it needs Team's isRole), so this reads it late, like Team's own wiring.
   let tailnet: TailnetService | undefined
-  const claude = claudeService({ db, agents, hub, notify: notifications.notify, projects, tailnetConnected: (userId) => !!tailnet?.isConnected(userId) })
+  // Members' own Google Drive (docs/design/storage.md): rclone in their account trades a handle for tokens on loopback.
+  const storage = storageService({
+    db, agents, masterKey: config.masterKey, origin: config.origin, tokenUrl: `http://127.0.0.1:${config.port}/internal/storage/token`,
+  })
+  const claude = claudeService({
+    db, agents, hub, notify: notifications.notify, projects, tailnetConnected: (userId) => !!tailnet?.isConnected(userId),
+    storageFor: (userId) => storage.forLaunch(userId),
+  })
 
   // "Give to Claude": a Chat session in the task's project (its own worktree by default), linked to the task.
   const giveToClaude: GiveToClaude = async (user, slug, number, o) => {
@@ -119,6 +128,8 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     // Public share links (the only public pages): a small download page, no app, no listing.
     .route('/s', publicShareRoutes(shares, ip))
     .route('/watch', watchRoutes(browser, ip))
+    // rclone's token endpoint for members' Drives: loopback only, Caddy never proxies /internal (docs/design/storage.md).
+    .route('/internal/storage', storageTokenRoutes(storage))
     .use('/api/*', sameOrigin(config.origin))
     .route('/api/auth', authRoutes(auth, mw, ip, (u) => void provisioning.ensure(u)))
     .route('/api/members', membersRoutes(auth, mw, ip, config.origin, (id) => vault.memberRemoved(id)))
@@ -133,6 +144,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     .route('/api/builds', buildsRoutes(builds, mw))
     .route('/api/vault', vaultRoutes(vault, mw))
     .route('/api/tailnet', tailnetRoutes(tailnet, mw))
+    .route('/api/storage', storageRoutes(storage, mw))
     .route('/api/browser', browserRoutes(browser, mw))
     .route('/api/status', statusRoutes(status, deploys, mw))
     .route('/api/team', team.routes) // Team

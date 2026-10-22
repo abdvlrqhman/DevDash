@@ -91,6 +91,9 @@ const files = createRoute({
 const serverRoute = createRoute({ getParentRoute: () => app, path: '/server', component: lazy(() => import('./features/status/ServerPage'), 'ServerPage') })
 const browserRoute = createRoute({ getParentRoute: () => app, path: '/browser', component: lazy(() => import('./features/browser/BrowserPage'), 'BrowserPage') })
 const vaultRoute = createRoute({ getParentRoute: () => app, path: '/vault', component: lazy(() => import('./features/vault/VaultPage'), 'VaultPage') })
+const storage = createRoute({ getParentRoute: () => app, path: '/storage', component: lazy(() => import('./features/storage/StoragePage'), 'StoragePage') })
+// Google sends the browser back here; outside the sign-in guard because the native app finishes in the system browser.
+const storageCallback = createRoute({ getParentRoute: () => root, path: '/storage/callback', component: lazy(() => import('./features/storage/StoragePage'), 'StorageCallbackPage') })
 const network = createRoute({ getParentRoute: () => app, path: '/network', component: lazy(() => import('./features/network/NetworkPage'), 'NetworkPage') })
 const services = createRoute({ getParentRoute: () => app, path: '/services', component: lazyRouteComponent(() => import('./features/services/ServicesPage'), 'ServicesPage') })
 const service = createRoute({ getParentRoute: () => app, path: '/services/$name', component: lazyRouteComponent(() => import('./features/services/ServicePage'), 'ServicePage') })
@@ -105,7 +108,7 @@ const claudeSession = createRoute({
 })
 
 const router = createRouter({
-  routeTree: root.addChildren([login, invite, app.addChildren([home, claude.addChildren([claudeIndex, claudeSetup, claudeSession]), terminal, files, vaultRoute, network, browserRoute, serverRoute, services, service, projects, project, teamRole, teamThreads, teamThread, approvals, approvalsProject, buildRun, tasks, task, tools, tool, notes, note, members, account, more])]),
+  routeTree: root.addChildren([login, invite, storageCallback, app.addChildren([home, claude.addChildren([claudeIndex, claudeSetup, claudeSession]), terminal, files, vaultRoute, network, storage, browserRoute, serverRoute, services, service, projects, project, teamRole, teamThreads, teamThread, approvals, approvalsProject, buildRun, tasks, task, tools, tool, notes, note, members, account, more])]),
   context: { queryClient },
   defaultPreload: 'intent',
 })

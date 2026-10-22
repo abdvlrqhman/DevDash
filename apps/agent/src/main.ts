@@ -10,6 +10,7 @@ import { createInterface } from 'node:readline'
 import * as claude from './claude.ts'
 import * as services from './services.ts'
 import * as tailscale from './tailscale.ts'
+import * as storage from './storage.ts'
 import { ops as git } from './git.ts'
 import { startJanitor } from './janitor.ts'
 import * as files from './files.ts'
@@ -72,6 +73,9 @@ const ops: Record<string, (r: Req) => Promise<unknown> | unknown> = {
     upgrading = true
     return { ok: true }
   },
+  // The member's cloud storage remote (apps/agent/src/storage.ts): set up when they connect, removed when they disconnect.
+  'storage.configure': async (r) => ({ changed: await storage.configure(r.storage as storage.Storage) }),
+  'storage.remove': async (r) => ({ changed: await storage.remove(str(r.remote, 'remote'), str(r.tokenUrl, 'tokenUrl')) }),
   'claude.send': async (r) => (await claude.send(r.launch as claude.Launch, r.content as unknown[], str(r.uuid, 'uuid')), { ok: true }),
   'claude.answer': (r) => (claude.answer(str(r.id, 'id'), str(r.requestId, 'requestId'), r.result as never), { ok: true }),
   'claude.interrupt': async (r) => (await claude.interrupt(str(r.id, 'id')), { ok: true }),

@@ -5,6 +5,7 @@ import { AppError } from '../../core/http.ts'
 import type { AgentsService } from '../agents/service.ts'
 import type { NotificationKind } from '../notifications/service.ts'
 import type { ProjectsService } from '../projects/service.ts'
+import type { LaunchStorage } from '../storage/service.ts'
 import type { User } from '../auth/repo.ts'
 import { claudeRepo, type Defaults, type Patch, type SessionRow, type SessionStatus, type TurnRow } from './repo.ts'
 
@@ -149,7 +150,7 @@ export type MemoryHealth = {
 export const memoryHealth = (agents: AgentsService, username: string, timeoutMs = 10_000) =>
   agents.request<{ health: MemoryHealth }>(username, { op: 'claude.memory.health' }, timeoutMs).then((r) => r.health)
 
-const launch = (s: SessionRow) => ({
+const baseLaunch = (s: SessionRow) => ({
   id: s.id, cwd: s.cwd, profile: s.profile, model: s.model, effort: s.effort, permissionMode: s.permission_mode, started: !!s.started,
   fast: !!s.fast_mode, remote: !!s.remote_control, title: s.title,
   instructions: s.instructions, toolPolicy: s.tool_policy ? (JSON.parse(s.tool_policy) as { tools?: string[]; allow?: string[] }) : null,
@@ -214,13 +215,17 @@ export function requestNotification(toolName: string, input: Record<string, unkn
   return { title: `Claude needs permission: ${sessionTitle}`, body: clip(`Allow ${toolName}${what ? `: ${what}` : ''}`) }
 }
 
-export function claudeService({ db, agents, hub, notify, projects, tailnetConnected }: {
+export function claudeService({ db, agents, hub, notify, projects, tailnetConnected, storageFor }: {
   db: Db; agents: AgentsService; hub: Hub; notify: Notify; projects: ProjectsService
   /** Whether the member has a connected tailnet node (so "Reach my tailnet" can only go on when they do). Optional:
    *  wired late in app.ts like Team's isRole, since the tailnet service is built after this one. */
   tailnetConnected?: (userId: number) => boolean
+  /** The owner's connected cloud storage, for the agent to set up as an rclone remote (null: none connected). */
+  storageFor?: (userId: number) => LaunchStorage | null
 }) {
   const repo = claudeRepo(db)
+  // Every launch also says whether the owner's Drive is connected: the agent sets up the remote and tells Claude about it.
+  const launch = (s: SessionRow) => ({ ...baseLaunch(s), storage: storageFor?.(s.owner_id) ?? null })
   // The owner, everyone while it's shared with the team, or the members it's shared with by name.
   const canView = (u: Pick<User, 'id'>, s: SessionRow) => s.owner_id === u.id || s.shared === 1 || repo.isViewer(s.id, u.id)
   // A failing turn can report twice (its result, then the process exiting): one error alert per session per minute.

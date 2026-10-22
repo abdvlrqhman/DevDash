@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { Activity, ArrowLeftRight, ChevronRight, Download, Globe, HardDrive, Inbox, KeyRound, LogOut, Network, PocketKnife, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Users } from 'lucide-react'
+import { Activity, ArrowLeftRight, ChevronRight, Cloud, Download, Globe, HardDrive, Inbox, KeyRound, LogOut, Network, PocketKnife, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Users } from 'lucide-react'
 import { initials } from '@/components/app/brand'
 import { PageBody, PageHeader, Section } from '@/components/app/page'
 import { useSignOut } from '@/components/app/shell'
@@ -17,6 +17,7 @@ const LINKS = [
   { to: '/tools', label: 'Tools', description: 'Offline developer utilities — JSON, base64, cron and more', icon: PocketKnife },
   { to: '/vault', label: 'Vault', description: 'Passwords and 2FA codes, encrypted on your device', icon: KeyRound },
   { to: '/network', label: 'Network', description: 'Reach your own devices over your private tailnet', icon: Network },
+  { to: '/storage', label: 'Storage', description: 'Your Google Drive, for big files like videos', icon: Cloud },
   { to: '/notes', label: 'Notes', description: 'Decisions, setup steps and links for the team', icon: StickyNote },
   { to: '/terminal', label: 'Terminal', description: 'Shells on the server that keep running', icon: SquareTerminal },
   { to: '/browser', label: 'Browser', description: 'A shared browser on the server that stays signed in', icon: Globe },
