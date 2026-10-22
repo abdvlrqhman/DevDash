@@ -6,7 +6,7 @@ import type { Hub } from '../../core/hub.ts'
 import { AppError } from '../../core/http.ts'
 import type { AgentsService } from '../agents/service.ts'
 import type { User } from '../auth/repo.ts'
-import type { SessionRow } from '../claude/repo.ts'
+import { canSeeSql, type SessionRow } from '../claude/repo.ts'
 import type { NotificationKind } from '../notifications/service.ts'
 import type { ProjectsService } from '../projects/service.ts'
 import { reviewsRepo, type DeliveryRow, type Stats } from './repo.ts'
@@ -161,7 +161,7 @@ export function reviewsService({ db, hub, agents, projects, notify, onMerged }: 
         if (!status) throw new AppError(400, 'bad_args', 'status is "merged" or "dismissed".')
         const user = db.prepare('select id from users where username = ? and disabled_at is null').get(username) as { id: number } | undefined
         if (!user) throw new AppError(403, 'forbidden', 'Unknown member.')
-        const slug = c.sessionId ? (db.prepare(`select p.slug from claude_sessions s join projects p on p.id = s.project_id where s.id = ? and (s.owner_id = ? or s.shared = 1)`).get(c.sessionId, user.id) as { slug: string } | undefined)?.slug : undefined
+        const slug = c.sessionId ? (db.prepare(`select p.slug from claude_sessions s join projects p on p.id = s.project_id where s.id = ?1 and ${canSeeSql('?2')}`).get(c.sessionId, user.id) as { slug: string } | undefined)?.slug : undefined
         if (!slug) throw new AppError(400, 'no_project', 'Run this from a session in the project whose branch you merged.')
         const d = repo.byBranch(projects.bySlug(slug).id, branch)
         if (!d) return `No "Ready to review" card for ${branch} (nothing to close).`

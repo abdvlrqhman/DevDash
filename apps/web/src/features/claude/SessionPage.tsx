@@ -33,6 +33,7 @@ import {
 import { reconcilePending, type PendingChange } from './pending'
 import { createLiveText, type LiveTextStore } from './live-text'
 import { useArchiveSession } from './ArchiveSession'
+import { ShareDialog, sharingLabel } from './ShareDialog'
 import { Requests, requestSummary } from './Requests'
 import { PlanUsage } from './Usage'
 import { servicesQuery, stateOf } from '../services/data'
@@ -74,6 +75,7 @@ function SessionView({ id }: { id: string }) {
   const [settings, setSettings] = useState(false)
   const [usage, setUsage] = useState(false)
   const [tailnet, setTailnet] = useState(false)
+  const [share, setShare] = useState(false)
   const [viewers, setViewers] = useState<Person[]>([])
   const [commentCount, setCommentCount] = useState(0)
   const [commentsOpen, setCommentsOpen] = useState(false)
@@ -269,7 +271,7 @@ function SessionView({ id }: { id: string }) {
               ? <span className="flex shrink-0 items-center gap-1"><Bot className="size-3" />{role.name} · AI team</span>
               : <>
                   {s.owner.id !== me.id && <span className="shrink-0">, {s.owner.name}'s</span>}
-                  {s.shared && s.owner.id === me.id && <span className="flex shrink-0 items-center gap-1">, <Share2 className="size-3" />shared{s.sharedCanSend ? ', others can type' : ''}</span>}
+                  {s.audience !== 'private' && s.owner.id === me.id && <span className="flex shrink-0 items-center gap-1">, <Share2 className="size-3" />{sharingLabel(s)}</span>}
                 </>}
             {watching > 0 && <span className="shrink-0 sm:hidden">, {watching} watching</span>}
           </span>
@@ -284,7 +286,7 @@ function SessionView({ id }: { id: string }) {
               <TabsTrigger value="cli" disabled={!canSend || switchMode.isPending}><SquareTerminal /><span className="hidden sm:inline">CLI</span></TabsTrigger>
             </TabsList>
           </Tabs>
-          <SessionMenu s={s} isOwner={isOwner} canSend={canSend} writers={info.data!.writers} onUpdate={(v) => update.mutate(v)} onRename={() => setSettings(true)} onUsage={() => setUsage(true)} onTailnet={() => setTailnet(true)} />
+          <SessionMenu s={s} isOwner={isOwner} canSend={canSend} onUpdate={(v) => update.mutate(v)} onShare={() => setShare(true)} onRename={() => setSettings(true)} onUsage={() => setUsage(true)} onTailnet={() => setTailnet(true)} />
         </>} />
 
 
@@ -325,6 +327,7 @@ function SessionView({ id }: { id: string }) {
       <Comments id={id} open={commentsOpen} onOpenChange={setCommentsOpen} me={me.id} />
       {isOwner && <RenameDialog open={settings} onOpenChange={setSettings} s={s} onSave={(title) => update.mutate({ title })} />}
       {isOwner && <TailnetDialog open={tailnet} onOpenChange={setTailnet} s={s} onUpdate={(v) => update.mutateAsync(v)} />}
+      {isOwner && <ShareDialog open={share} onOpenChange={setShare} s={s} me={me.id} people={info.data!.people} writers={info.data!.writers} onSaved={() => void info.refetch()} />}
       {isOwner && (
         <ResponsiveDialog open={usage} onOpenChange={setUsage} title="Usage" description="This session's own cost and tokens, and your Claude plan's limits (the same as /usage in Claude Code).">
           <PlanUsage profile={s.profile} sessionId={s.id} className="pb-2 text-sm" />
@@ -542,16 +545,10 @@ function SwitchRow({ label, hint, checked, onChange }: { label: string; hint: st
   )
 }
 
-function SessionMenu({ s, isOwner, canSend, writers, onUpdate, onRename, onUsage, onTailnet }: {
-  s: Session; isOwner: boolean; canSend: boolean; writers: Person[]; onUpdate: Updater; onRename: () => void; onUsage: () => void; onTailnet: () => void
+function SessionMenu({ s, isOwner, canSend, onUpdate, onShare, onRename, onUsage, onTailnet }: {
+  s: Session; isOwner: boolean; canSend: boolean; onUpdate: Updater; onShare: () => void; onRename: () => void; onUsage: () => void; onTailnet: () => void
 }) {
   const navigate = useNavigate()
-  const qc = useQueryClient()
-  const remove = useMutation({
-    mutationFn: (userId: number) => unwrap(api.api.claude.sessions[':id'].writers[':userId'].$put({ param: { id: s.id, userId: String(userId) }, json: { allowed: false } })),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: sessionQuery(s.id).queryKey }),
-    onError: (e) => toast.error(e.message),
-  })
   const archive = useArchiveSession(() => void navigate({ to: '/claude' }))
   return (
     <>
@@ -566,31 +563,9 @@ function SessionMenu({ s, isOwner, canSend, writers, onUpdate, onRename, onUsage
             <DropdownMenuItem onSelect={onRename}><Pencil />Rename</DropdownMenuItem>
             <DropdownMenuItem onSelect={onUsage}><Gauge />Usage</DropdownMenuItem>
             <DropdownMenuItem onSelect={onTailnet}><Network />Reach my tailnet{s.reachTailnet ? ' · on' : ''}</DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <div className="flex items-center justify-between gap-3 px-2 py-1.5 text-sm">
-              <span>Share with the team</span>
-              <Switch checked={s.shared} onCheckedChange={(v) => onUpdate({ shared: v })} />
-            </div>
-            {s.shared && (
-              <div className="flex items-center justify-between gap-3 px-2 py-1.5 text-sm">
-                <span>Others can send messages</span>
-                <Switch checked={s.sharedCanSend} onCheckedChange={(v) => onUpdate({ sharedCanSend: v })} />
-              </div>
-            )}
-            {s.shared && !s.sharedCanSend && writers.length > 0 && (
-              <div className="flex flex-col gap-1 px-2 py-1.5 text-sm">
-                <span className="text-xs text-muted-foreground">Also sending messages</span>
-                {writers.map((w) => (
-                  <div key={w.id} className="flex items-center justify-between gap-2">
-                    <span>{w.name}</span>
-                    <Button size="icon" variant="ghost" className="size-6" aria-label={`Stop ${w.name} sending messages`} onClick={() => remove.mutate(w.id)}><X /></Button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <p className="px-2 pb-1.5 text-xs text-muted-foreground">
-              {s.shared ? 'Claude still runs as you, with your account and permissions.' : 'Only you can see this session.'}
-            </p>
+            <DropdownMenuItem onSelect={onShare}>
+              <Share2 />Share…<span className="ml-auto truncate text-xs text-muted-foreground">{sharingLabel(s) || 'only you'}</span>
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             {s.archived
               ? <DropdownMenuItem onSelect={() => onUpdate({ archived: false })}><ArchiveRestore />Restore from archive</DropdownMenuItem>

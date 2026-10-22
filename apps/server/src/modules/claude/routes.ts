@@ -60,6 +60,11 @@ const PatchInput = z.object({
   tailnetMcp: z.string().max(300).nullable().optional(),
   tailnetMcps: z.array(z.object({ name: z.string().max(60), url: z.string().max(300) })).max(8).nullable().optional(),
 })
+const SharingInput = z.object({
+  audience: z.enum(['private', 'everyone', 'people']),
+  everyoneCanSend: z.boolean().optional(),
+  people: z.array(z.object({ id: z.number().int().positive(), canSend: z.boolean() })).max(200).optional(),
+})
 const ModeInput = z.object({ mode: z.enum(['chat', 'cli']), cols: Size.default(100), rows: z.number().int().min(4).max(200).default(30) })
 const DefaultsInput = z.object({
   profile: z.string().max(21), model: Model, effort: Effort, permission_mode: Mode, open_in: z.enum(['chat', 'cli']),
@@ -94,6 +99,7 @@ export function claudeRoutes(claude: ClaudeService, mw: ReturnType<typeof authMi
       claude.askToJoin(c.get('user'), c.req.param('id'))
       return c.json({ ok: true })
     })
+    .put('/sessions/:id/sharing', json(SharingInput), (c) => c.json(claude.setSharing(c.get('user'), c.req.param('id'), c.req.valid('json'))))
     .put('/sessions/:id/writers/:userId', json(z.object({ allowed: z.boolean() })), (c) =>
       c.json(claude.setWriter(c.get('user'), c.req.param('id'), Number(c.req.param('userId')), c.req.valid('json').allowed)))
     .get('/sessions/:id/comments', (c) => c.json(claude.comments(c.get('user'), c.req.param('id'))))

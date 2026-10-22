@@ -5,6 +5,7 @@ import { AppError } from '../../core/http.ts'
 import type { ActivityService } from '../activity/service.ts'
 import type { AgentsService } from '../agents/service.ts'
 import type { User } from '../auth/repo.ts'
+import { canSeeSql } from '../claude/repo.ts'
 import type { TasksService } from '../tasks/service.ts'
 
 export const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,39}$/
@@ -20,12 +21,12 @@ type Row = {
 export const SESSION_SHARING = ['private', 'shared', 'shared_can_send'] as const
 export type SessionSharing = (typeof SESSION_SHARING)[number]
 
-// `sessions` is what the member asking ($me) can open: their own and everyone's shared ones, team roles' included.
+// `sessions` is what the member asking ($me) can open: their own, ones shared with everyone or with them, team roles' included.
 // Live Claude work counts every session in the project, private ones too, but only as numbers and owners' names:
 // people see that someone's Claude is in the shared checkout, never what it is doing.
 const SELECT = `select p.*, u.username as creator_username, u.name as creator_name,
   (select count(*) from tasks t where t.project_id = p.id and t.status != 'done') as open_tasks,
-  (select count(*) from claude_sessions s where s.project_id = p.id and s.archived = 0 and (s.owner_id = $me or s.shared = 1)) as sessions,
+  (select count(*) from claude_sessions s where s.project_id = p.id and s.archived = 0 and ${canSeeSql('$me')}) as sessions,
   (select count(*) from claude_sessions s where s.project_id = p.id and s.archived = 0 and s.status = 'working') as working,
   (select count(*) from claude_sessions s where s.project_id = p.id and s.archived = 0 and s.status = 'waiting') as waiting,
   (select json_group_array(distinct o.name) from claude_sessions s join users o on o.id = s.owner_id

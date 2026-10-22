@@ -35,6 +35,8 @@ export type SessionRow = {
   tailnet_mcps: string | null
   origin_kind: 'proposal' | null
   origin_role: string | null
+  /** How many members it's shared with by name (claude_session_viewers); 0 unless shared with chosen people. */
+  people: number
   project_slug: string | null
   project_name: string | null
 }
@@ -46,8 +48,12 @@ export type TurnRow = {
 export type Comment = { id: number; body: string; createdAt: number; user: { id: number; name: string } }
 export type Defaults = { profile: string; model: string | null; effort: string | null; permission_mode: string; open_in: 'chat' | 'cli' }
 
-const SELECT = `select s.*, u.username as owner_username, u.name as owner_name, p.slug as project_slug, p.name as project_name
+const SELECT = `select s.*, u.username as owner_username, u.name as owner_name, p.slug as project_slug, p.name as project_name,
+  (select count(*) from claude_session_viewers v where v.session_id = s.id) as people
   from claude_sessions s join users u on u.id = s.owner_id left join projects p on p.id = s.project_id`
+/** The sessions member `who` may open: their own, ones shared with everyone, and ones shared with them by name. */
+export const canSeeSql = (who: string) =>
+  `(s.owner_id = ${who} or s.shared = 1 or s.id in (select session_id from claude_session_viewers where user_id = ${who}))`
 
 // Columns a PATCH may touch; anything else is ignored.
 const PATCHABLE = ['title', 'title_custom', 'shared', 'shared_can_send', 'archived', 'model', 'effort', 'permission_mode', 'mode', 'started', 'fast_mode', 'remote_control', 'context_json', 'instructions', 'tool_policy', 'listed', 'reach_tailnet', 'tailnet_mcp', 'tailnet_mcps', 'origin_kind', 'origin_role'] as const
@@ -58,12 +64,12 @@ const toComment = (r: { id: number; body: string; created_at: number; user_id: n
 export function claudeRepo(db: Db) {
   const s = {
     byId: db.prepare(`${SELECT} where s.id = ?`),
-    visible: db.prepare(`${SELECT} where (s.owner_id = ?1 or s.shared = 1) and s.archived = ?2 and s.listed = 1 order by s.last_activity_at desc limit 200`),
+    visible: db.prepare(`${SELECT} where ${canSeeSql('?1')} and s.archived = ?2 and s.listed = 1 order by s.last_activity_at desc limit 200`),
     // Unlisted ones too (a team role's chat and shifts): a project's page shows everything in it the member may open.
-    inProject: db.prepare(`${SELECT} where s.project_id = ?1 and s.archived = ?2 and (s.owner_id = ?3 or s.shared = 1)
+    inProject: db.prepare(`${SELECT} where s.project_id = ?1 and s.archived = ?2 and ${canSeeSql('?3')}
       order by s.last_activity_at desc limit 500`),
     hiddenInProject: db.prepare(`select u.name, count(*) as n from claude_sessions s join users u on u.id = s.owner_id
-      where s.project_id = ?1 and s.archived = ?2 and s.owner_id != ?3 and s.shared = 0 group by u.id order by n desc, u.name`),
+      where s.project_id = ?1 and s.archived = ?2 and not ${canSeeSql('?3')} group by u.id order by n desc, u.name`),
     ownedActive: db.prepare(`${SELECT} where u.username = ? and s.archived = 0`),
     insert: db.prepare(`insert into claude_sessions (id, owner_id, profile, title, cwd, mode, model, effort, permission_mode)
       values (?, ?, ?, ?, ?, ?, ?, ?, ?)`),
@@ -80,6 +86,12 @@ export function claudeRepo(db: Db) {
     writers: db.prepare(`select u.id, u.name from claude_session_writers w join users u on u.id = w.user_id where w.session_id = ? order by u.name`),
     addWriter: db.prepare(`insert or ignore into claude_session_writers (session_id, user_id) values (?, ?)`),
     removeWriter: db.prepare(`delete from claude_session_writers where session_id = ? and user_id = ?`),
+    clearWriters: db.prepare(`delete from claude_session_writers where session_id = ?`),
+    isViewer: db.prepare(`select 1 from claude_session_viewers where session_id = ? and user_id = ?`),
+    people: db.prepare(`select u.id, u.name, exists(select 1 from claude_session_writers w where w.session_id = v.session_id and w.user_id = v.user_id) as can_send
+      from claude_session_viewers v join users u on u.id = v.user_id where v.session_id = ? order by u.name`),
+    addViewer: db.prepare(`insert or ignore into claude_session_viewers (session_id, user_id) values (?, ?)`),
+    clearViewers: db.prepare(`delete from claude_session_viewers where session_id = ?`),
     comments: db.prepare(`select c.id, c.body, c.created_at, u.id as user_id, u.name from claude_session_comments c join users u on u.id = c.user_id
       where c.session_id = ? order by c.id`),
     addComment: db.prepare(`insert into claude_session_comments (session_id, user_id, body) values (?, ?, ?)`),
@@ -119,6 +131,20 @@ export function claudeRepo(db: Db) {
     isWriter: (sessionId: string, userId: number) => !!s.isWriter.get(sessionId, userId),
     writers: (sessionId: string) => (s.writers.all(sessionId) as { id: number; name: string }[]).map(({ id, name }) => ({ id, name })),
     setWriter: (sessionId: string, userId: number, on: boolean) => void (on ? s.addWriter : s.removeWriter).run(sessionId, userId),
+    isViewer: (sessionId: string, userId: number) => !!s.isViewer.get(sessionId, userId),
+    /** The members it's shared with by name, and whether each may send messages too. */
+    people: (sessionId: string) =>
+      (s.people.all(sessionId) as { id: number; name: string; can_send: number }[]).map((r) => ({ id: r.id, name: r.name, canSend: r.can_send === 1 })),
+    /** Replaces who it's shared with by name (none: the owner only, or everyone while `shared` is on). Run in a transaction. */
+    setPeople(sessionId: string, people: { id: number; canSend: boolean }[]) {
+      s.clearViewers.run(sessionId)
+      s.clearWriters.run(sessionId)
+      for (const p of people) {
+        s.addViewer.run(sessionId, p.id)
+        if (p.canSend) s.addWriter.run(sessionId, p.id)
+      }
+    },
+    clearPeople: (sessionId: string) => void s.clearViewers.run(sessionId),
     comments: (sessionId: string) => (s.comments.all(sessionId) as Parameters<typeof toComment>[0][]).map(toComment),
     addComment(sessionId: string, userId: number, body: string) {
       const id = Number(s.addComment.run(sessionId, userId, body).lastInsertRowid)

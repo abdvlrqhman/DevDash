@@ -99,7 +99,7 @@ function SessionRow({ s, me, highlight, onArchive }: { s: Session; me: number; h
         </ItemContent>
         <ItemActions>
           {s.mode === 'cli' && <Badge variant="outline">CLI</Badge>}
-          {s.owner.id === me && s.shared && <Badge variant="secondary">Shared</Badge>}
+          {s.owner.id === me && s.audience !== 'private' && <Badge variant="secondary">{s.audience === 'people' ? `Shared with ${s.sharedWith}` : 'Shared'}</Badge>}
           {s.owner.id !== me && <Avatar className="size-7"><AvatarFallback className="text-[11px]">{initials(s.owner.name)}</AvatarFallback></Avatar>}
           <ChevronRight className="size-4 text-muted-foreground" />
         </ItemActions>

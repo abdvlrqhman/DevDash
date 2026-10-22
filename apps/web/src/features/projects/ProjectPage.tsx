@@ -131,7 +131,7 @@ const branch = (s: Session) => (s.worktree ? `dd/${s.worktree.split('/').pop()}`
 function Who({ s }: { s: ProjectSession }) {
   if (s.kind === 'proposal' && s.role) return <span className="flex items-center gap-1"><BadgeCheck className="size-3.5" />{s.role.name}'s approval</span>
   if (s.role) return <span className="flex items-center gap-1"><Bot className="size-3.5" />{s.role.name}</span>
-  if (s.kind === 'mine') return <span className="flex items-center gap-1">{s.shared ? <Share2 className="size-3" aria-label="Shared" /> : <Lock className="size-3" aria-label="Private" />}You</span>
+  if (s.kind === 'mine') return <span className="flex items-center gap-1">{s.audience !== 'private' ? <Share2 className="size-3" aria-label="Shared" /> : <Lock className="size-3" aria-label="Private" />}You</span>
   return <span>{firstName(s.owner.name)}</span>
 }
 

@@ -273,3 +273,61 @@ test('sumTurns: session total is the last answer’s cumulative cost, with token
   ])
   assert.deepEqual(total, { cost: 0.3, inputTokens: 30, outputTokens: 6, cacheReadTokens: 300, cacheWriteTokens: 12, turns: 2 })
 })
+
+test('sharing with chosen people: only they see it, each watching or also sending; the rest lose it', async () => {
+  const { claude, notified, ann, bob, cat } = setup() // s1 starts shared with the whole team
+  notified.length = 0
+  const r = claude.setSharing(ann, 's1', { audience: 'people', people: [{ id: 2, canSend: false }, { id: 2, canSend: false }, { id: 1, canSend: true }] })
+  assert.deepEqual(r.people, [{ id: 2, name: 'Bob', canSend: false }]) // de-duplicated; the owner is never "shared with"
+  assert.deepEqual([r.session.audience, r.session.sharedWith, r.session.shared], ['people', 1, false])
+  assert.equal(notified.length, 0) // Bob could already see it; nobody new
+
+  assert.equal((await claude.get(bob, 's1')).canSend, false)
+  assert.deepEqual((await claude.get(bob, 's1')).people, [{ id: 2, name: 'Bob', canSend: false }])
+  await assert.rejects(() => claude.get(cat, 's1'), /private/)
+  assert.deepEqual(claude.list(bob, false).map((s) => s.id), ['s1'])
+  assert.deepEqual(claude.list(cat, false), [])
+  assert.throws(() => claude.askToJoin(cat, 's1'), /private/)
+
+  // Bob may send too; asking to join works for people it's shared with.
+  claude.setSharing(ann, 's1', { audience: 'people', people: [{ id: 2, canSend: true }, { id: 3, canSend: false }] })
+  assert.equal((await claude.get(bob, 's1')).canSend, true)
+  assert.equal((await claude.get(cat, 's1')).canSend, false)
+  assert.deepEqual(notified.map((n) => [n.userId, n.title]), [[3, 'Ann shared a Claude session with you']])
+  claude.askToJoin(cat, 's1')
+  claude.setWriter(ann, 's1', 3, true)
+  assert.equal((await claude.get(cat, 's1')).canSend, true)
+
+  assert.throws(() => claude.setSharing(bob, 's1', { audience: 'private' }), /Only the owner/)
+  assert.throws(() => claude.setSharing(ann, 's1', { audience: 'people', people: [{ id: 99, canSend: false }] }), /No such member/)
+
+  // Only the owner: nobody else sees it; the people list goes with it.
+  notified.length = 0
+  claude.setSharing(ann, 's1', { audience: 'private' })
+  await assert.rejects(() => claude.get(bob, 's1'), /private/)
+  assert.deepEqual((await claude.get(ann, 's1')).people, [])
+  assert.equal((await claude.get(ann, 's1')).session.audience, 'private')
+
+  // The whole team: everyone sees it and hears about it; only the owner sends unless everyone may.
+  claude.setSharing(ann, 's1', { audience: 'everyone', everyoneCanSend: false })
+  assert.deepEqual(notified.map((n) => n.userId).sort(), [2, 3])
+  assert.equal((await claude.get(cat, 's1')).session.audience, 'everyone')
+  claude.setSharing(ann, 's1', { audience: 'everyone', everyoneCanSend: true })
+  assert.equal((await claude.get(bob, 's1')).canSend, true)
+
+  // The plain team switch means the team (or only the owner), never a stale list of people.
+  claude.setSharing(ann, 's1', { audience: 'people', people: [{ id: 2, canSend: false }] })
+  await claude.update(ann, 's1', { shared: false })
+  await assert.rejects(() => claude.get(bob, 's1'), /private/)
+})
+
+test("a project's sessions shared with chosen people: listed for them, only counted for everyone else", () => {
+  const { db, claude, ann, bob, cat } = inProject()
+  db.prepare(`insert into claude_sessions (id, owner_id, title, cwd, shared, listed, archived, status, project_id, last_activity_at)
+    values ('a1', 1, 'Ann for Bob', '/x', 0, 1, 0, 'idle', 1, 100)`).run()
+  claude.setSharing(ann, 'a1', { audience: 'people', people: [{ id: 2, canSend: false }] })
+  assert.deepEqual(claude.inProject(bob, 'app', false).sessions.map((s) => [s.id, s.kind]), [['a1', 'shared']])
+  assert.deepEqual(claude.inProject(bob, 'app', false).hidden, { count: 0, people: [] })
+  assert.deepEqual(claude.inProject(cat, 'app', false).sessions, [])
+  assert.deepEqual(claude.inProject(cat, 'app', false).hidden, { count: 1, people: ['Ann Lee'] })
+})

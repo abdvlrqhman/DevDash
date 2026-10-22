@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { Db } from '../../core/db.ts'
+import { transaction, type Db } from '../../core/db.ts'
 import type { Hub } from '../../core/hub.ts'
 import { AppError } from '../../core/http.ts'
 import type { AgentsService } from '../agents/service.ts'
@@ -19,8 +19,6 @@ export type Attachment = { name: string; mediaType: string; data: string }
 export type PermissionAnswer =
   | { behavior: 'allow'; updatedInput?: Record<string, unknown>; updatedPermissions?: unknown[] }
   | { behavior: 'deny'; message: string; interrupt?: boolean }
-
-const canView = (u: User, s: SessionRow) => s.owner_id === u.id || s.shared === 1
 
 /**
  * A tailnet address: Tailscale's 100.64.0.0/10 CGNAT range, or a *.ts.net MagicDNS name. Pure, so it is unit-tested.
@@ -109,6 +107,8 @@ export function toDto(s: SessionRow) {
     id: s.id, title: s.title, cwd: s.cwd, profile: s.profile, mode: s.mode, status: s.status, statusDetail: s.status_detail,
     model: s.model, effort: s.effort, permissionMode: s.permission_mode, started: !!s.started,
     shared: !!s.shared, sharedCanSend: !!s.shared_can_send, archived: !!s.archived,
+    // Who can see it: just the owner, the whole team, or the members it's shared with by name (`sharedWith` of them).
+    audience: (s.shared ? 'everyone' : s.people > 0 ? 'people' : 'private') as Audience, sharedWith: s.people ?? 0,
     owner: { id: s.owner_id, username: s.owner_username, name: s.owner_name },
     createdAt: s.created_at, lastActivityAt: s.last_activity_at,
     project: s.project_slug ? { slug: s.project_slug, name: s.project_name! } : null, worktree: s.worktree,
@@ -172,6 +172,8 @@ export type SessionExtras = {
 /** What a feature that starts sessions says about them on a project's page (a team role's chat or one of its shifts). */
 export type SessionLabel = { kind: 'role' | 'shift'; role: { id: number; name: string } }
 export type SessionKind = 'mine' | 'shared' | 'proposal' | SessionLabel['kind']
+export type Audience = 'private' | 'everyone' | 'people'
+export type Sharing = { audience: Audience; everyoneCanSend?: boolean; people?: { id: number; canSend: boolean }[] }
 
 /** A Claude turn ended: what features that watch sessions (e.g. a project journal) are told. */
 /** `costUsd`: what the turn would cost on the API (Claude Code reports it on subscriptions too). */
@@ -219,6 +221,8 @@ export function claudeService({ db, agents, hub, notify, projects, tailnetConnec
   tailnetConnected?: (userId: number) => boolean
 }) {
   const repo = claudeRepo(db)
+  // The owner, everyone while it's shared with the team, or the members it's shared with by name.
+  const canView = (u: Pick<User, 'id'>, s: SessionRow) => s.owner_id === u.id || s.shared === 1 || repo.isViewer(s.id, u.id)
   // A failing turn can report twice (its result, then the process exiting): one error alert per session per minute.
   const lastError = new Map<string, number>()
   // Per session: the id of the last message of the answer being written (the saved numbers go after it).
@@ -295,10 +299,11 @@ export function claudeService({ db, agents, hub, notify, projects, tailnetConnec
 
   /** A team role's own session (its chat or a shift): it belongs to the whole team, named after the role. */
   const roleLabel = (s: SessionRow) => (s.project_id != null ? labels(s.project_id).get(s.id) : undefined)
-  // Owner; anyone when the owner lets everyone send; teammates the owner let in after they asked; and any member in a
-  // team role's session, which the team shares (it's the CEO's, not one person's).
+  // Owner; anyone when the owner lets everyone send; people who can see it and were let in to send (picked by name, or
+  // after they asked); and any member in a team role's session, which the team shares (it's the CEO's, not one person's).
   const canSend = (u: User, s: SessionRow) =>
-    s.owner_id === u.id || (s.shared === 1 && (s.shared_can_send === 1 || repo.isWriter(s.id, u.id))) || !!roleLabel(s)
+    s.owner_id === u.id || !!roleLabel(s)
+    || (canView(u, s) && ((s.shared === 1 && s.shared_can_send === 1) || repo.isWriter(s.id, u.id)))
 
   function find(user: User, id: string) {
     const s = repo.byId(id)
@@ -583,6 +588,7 @@ export function claudeService({ db, agents, hub, notify, projects, tailnetConnec
         // A team role's session is shown as the role ("CEO · AI team"), not the account the team runs on.
         role: rl ? { kind: rl.kind, name: rl.role.name } : null,
         viewers: hub.viewers(`session:${id}`), comments: repo.commentCount(id), writers: isOwner ? repo.writers(id) : [],
+        people: repo.people(id), // who it's shared with by name: anyone who can see it can see with whom
       }
     },
 
@@ -681,6 +687,42 @@ export function claudeService({ db, agents, hub, notify, projects, tailnetConnec
       return { writers: repo.writers(id) }
     },
 
+    /**
+     * Who can see the session: only the owner, the whole team (and whether they all may send), or chosen people, each
+     * watching or also sending. People who just got access hear about it; people who lost it see it leave their lists.
+     */
+    setSharing(user: User, id: string, input: Sharing) {
+      const s = find(user, id)
+      requireOwner(user, s)
+      const others = db.prepare('select id from users where disabled_at is null and id != ?').all(s.owner_id) as { id: number }[]
+      const known = new Set(others.map((u) => u.id))
+      const picked = input.audience === 'people' ? (input.people ?? []).filter((p) => p.id !== s.owner_id) : []
+      if (picked.some((p) => !known.has(p.id))) throw new AppError(404, 'not_found', 'No such member.')
+      const people = [...new Map(picked.map((p) => [p.id, p])).values()]
+      const before = new Set(others.filter((u) => canView(u, s)).map((u) => u.id))
+      transaction(db, () => {
+        repo.patch(id, {
+          shared: input.audience === 'everyone' ? 1 : 0,
+          shared_can_send: input.audience === 'everyone' && input.everyoneCanSend ? 1 : 0,
+        })
+        // Chosen people replace who may send too; the whole team keeps the people let in after they asked.
+        if (input.audience === 'people') repo.setPeople(id, people)
+        else repo.clearPeople(id)
+      })
+      const after = repo.byId(id)!
+      const now = new Set(others.filter((u) => canView(u, after)).map((u) => u.id))
+      const title = input.audience === 'everyone' ? `${user.name} shared a Claude session` : `${user.name} shared a Claude session with you`
+      for (const uid of now) {
+        if (!before.has(uid)) void notify(uid, 'shared', { title, body: s.title, url: `/claude/${id}` }).catch(() => {})
+      }
+      const lost = new Set([...before].filter((uid) => !now.has(uid)))
+      if (lost.size) hub.publish('sessions', { type: 'gone', id }, (u) => lost.has(u.id))
+      // Everyone with it open asks again what they may do: send, only watch, or not see it at all.
+      hub.publish(`session:${id}`, { type: 'access' }, (u) => u.id !== s.owner_id)
+      publish(id)
+      return { session: toDto(after), people: repo.people(id) }
+    },
+
     comments: (user: User, id: string) => (find(user, id), { comments: repo.comments(id) }),
 
     /** A comment for the team, never sent to Claude. The owner hears about comments from others. */
@@ -742,6 +784,7 @@ export function claudeService({ db, agents, hub, notify, projects, tailnetConnec
         if (s.started) await agents.request(s.owner_username, { op: 'claude.rename', launch: launch(s), title: patch.title }).catch(() => {})
       }
       repo.patch(id, patch)
+      if (p.shared !== undefined) repo.clearPeople(id) // the plain switch means the whole team, or only the owner
       for (const [key, value] of [['model', p.model], ['effort', p.effort], ['permissionMode', p.permissionMode], ['fast', p.fastMode]] as const) {
         if (value !== undefined && s.mode === 'chat') await agents.request(s.owner_username, { op: 'claude.set', id, key, value })
       }

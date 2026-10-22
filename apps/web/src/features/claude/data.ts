@@ -46,6 +46,11 @@ export const commandsQuery = (profile: string) => queryOptions({
 export function useLiveSessions() {
   const qc = useQueryClient()
   useTopic('sessions', (e) => {
+    // The owner stopped sharing it with this member: it leaves their list.
+    if (e.type === 'gone') {
+      qc.setQueryData(sessionsQuery(false).queryKey, (old) => old && { sessions: old.sessions.filter((x) => x.id !== e.id) })
+      return
+    }
     if (e.type !== 'session') return
     const s = e.session as Session
     qc.setQueryData(sessionsQuery(false).queryKey, (old) => {
@@ -67,6 +72,7 @@ export const projectSessionsQuery = (slug: string, archived = false) => queryOpt
 export function useLiveProjectSessions(slug: string) {
   const qc = useQueryClient()
   useTopic('sessions', (e) => {
+    if (e.type === 'gone') return void qc.invalidateQueries({ queryKey: ['claude', 'sessions', 'project', slug] })
     if (e.type !== 'session') return
     const s = e.session as Session
     if (s.project?.slug !== slug) return
