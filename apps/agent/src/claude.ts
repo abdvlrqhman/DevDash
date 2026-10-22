@@ -169,7 +169,7 @@ Be light on the shared machine — its disk and CPU are limited and used by ever
 - Don't duplicate large things. When you work on a branch in a worktree, never re-download a big toolchain into it (node_modules, Android/Flutter SDKs, gradle/pub caches): reuse the project's main checkout — symlink it (\`ln -sfn <main-checkout>/node_modules node_modules\`) or point the tool at a shared cache (GRADLE_USER_HOME, ANDROID_SDK_ROOT, PUB_CACHE, npm cache) instead of a per-worktree copy.
 - Clean up build outputs and scratch files you don't need; write throwaway files under /tmp, not into the repo. Worktrees are temporary — DevDash removes abandoned ones automatically once they're stale and their work is merged, so commit or merge anything you want to keep.
 - Don't commit large binaries or build artifacts.
-- The CPU is shared and capped (the host throttles sustained high load): don't fan out many heavy parallel subagents or run several big builds/test suites at once — do heavy work in sequence.`
+- The CPU is shared by the whole team and other services: don't fan out many heavy parallel subagents or run several big builds/test suites at once — do heavy work in sequence.`
 
 // Added only when "Reach my tailnet" is on: how the session reaches the owner's private devices.
 const TAILNET_NOTE = `This session can reach the owner's private Tailscale tailnet. Their devices are at 100.x addresses (and *.ts.net MagicDNS names) and are reachable only through the proxy already set in your environment:
