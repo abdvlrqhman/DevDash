@@ -121,7 +121,7 @@ class DevDashPushPlugin: Plugin, UNUserNotificationCenterDelegate {
         environment: DevDashPushPlugin.environment ?? "production"))
       tokenBefore?(me, tokenSel, app, token)
     }
-    Self.install(cls, tokenSel, imp_implementationWithBlock(unsafeBitCast(onToken, to: AnyObject.self)))
+    DevDashPushPlugin.install(cls, tokenSel, imp_implementationWithBlock(unsafeBitCast(onToken, to: AnyObject.self)))
 
     typealias FailFn = @convention(c) (AnyObject, Selector, UIApplication, NSError) -> Void
     let failSel = #selector(UIApplicationDelegate.application(_:didFailToRegisterForRemoteNotificationsWithError:))
@@ -130,7 +130,7 @@ class DevDashPushPlugin: Plugin, UNUserNotificationCenterDelegate {
       self?.emit(PushEvent(event: "error", message: error.localizedDescription))
       failBefore?(me, failSel, app, error)
     }
-    Self.install(cls, failSel, imp_implementationWithBlock(unsafeBitCast(onFail, to: AnyObject.self)))
+    DevDashPushPlugin.install(cls, failSel, imp_implementationWithBlock(unsafeBitCast(onFail, to: AnyObject.self)))
   }
 
   private static func install(_ cls: AnyClass, _ sel: Selector, _ imp: IMP) {
