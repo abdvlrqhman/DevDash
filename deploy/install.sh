@@ -33,6 +33,31 @@ if [[ ! -x /usr/local/bin/bun ]]; then
   curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash >/dev/null
 fi
 
+# rclone for members' own cloud storage (docs/design/storage.md): their sessions move big files to Google Drive with it.
+# Pinned. The hashes were checked against rclone's GPG-signed SHA256SUMS (key FBF737ECE9F8AB18604BD2AC93935E02FF3B54FA)
+# when this pin was set, so a download is trusted only if it matches them — not a checksum fetched alongside it.
+RCLONE_VERSION=1.75.2
+if [[ "$(/usr/local/bin/rclone version 2>/dev/null | head -1)" != "rclone v$RCLONE_VERSION" ]]; then
+  case "$(uname -m)" in
+    x86_64|amd64) RC_ARCH=amd64 RC_SHA=349ac8fba6ff65d6247043f1750cdcb518ec5d500ef91463a10d37c0ccdf3702 ;;
+    aarch64|arm64) RC_ARCH=arm64 RC_SHA=7e1e8d69654941b7b7df84ee74c5f7fb09cce7d5496947fb7bf16b55ff427d10 ;;
+    *) echo "unsupported arch for rclone: $(uname -m)" >&2; RC_ARCH="" ;;
+  esac
+  if [[ -n $RC_ARCH ]]; then
+    RC_TMP=$(mktemp -d)
+    RC_ZIP="rclone-v${RCLONE_VERSION}-linux-${RC_ARCH}.zip"
+    if curl -fsSL "https://downloads.rclone.org/v${RCLONE_VERSION}/${RC_ZIP}" -o "$RC_TMP/$RC_ZIP" \
+       && echo "$RC_SHA  $RC_TMP/$RC_ZIP" | sha256sum -c - >/dev/null; then
+      command -v unzip >/dev/null || apt-get install -yq unzip >/dev/null
+      unzip -qo "$RC_TMP/$RC_ZIP" -d "$RC_TMP"
+      install -m 755 "$RC_TMP/rclone-v${RCLONE_VERSION}-linux-${RC_ARCH}/rclone" /usr/local/bin/rclone
+    else
+      echo "could not download/verify rclone $RCLONE_VERSION; members' cloud storage stays unavailable until it installs" >&2
+    fi
+    rm -rf "$RC_TMP"
+  fi
+fi
+
 # Tailscale (static binaries only) for per-user userspace tailnet nodes (docs/design/tailnet.md). We never enable a
 # host-level tailscaled; each member runs their own rootless userspace daemon inside their agent. Pinned and idempotent:
 # skip when the pinned version is already installed. Guard against a system daemon that a package may have started.
