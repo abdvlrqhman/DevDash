@@ -34,7 +34,7 @@ jobs:
 
           - **Windows:** `DevDash_*_x64-setup.exe`
           - **Android:** `DevDash-*.apk` (allow installs from your browser or files app)
-          - **iPhone / iPad:** `DevDash-*-unsigned.ipa`, install with AltStore or SideStore. Or open your space in Safari and use Share, Add to Home Screen.
+          - **iPhone / iPad:** `DevDash-*.ipa` when this release is signed (notifications even when the app is closed; for the iPhones in its provisioning profile, or through TestFlight), otherwise `DevDash-*-unsigned.ipa` for AltStore or SideStore (notifications only while it's open). Or open your space in Safari and use Share, Add to Home Screen.
           EOF
           )"
 
@@ -128,6 +128,16 @@ jobs:
     if: contains(inputs.platforms || 'windows,android,ios', 'ios')
     runs-on: macos-15
     defaults: { run: { working-directory: apps/shell } }
+    env:
+      # Signing (docs/design/ios-push.md). With all three, the IPA is signed and gets notifications while the app is
+      # closed; the provisioning profile decides development, ad hoc or App Store. Without them, the unsigned IPA.
+      IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+      IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+      IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+      # Optional, App Store profiles only: an App Store Connect API key (not the APNs key) to send the build to TestFlight.
+      APP_STORE_CONNECT_KEY: ${{ secrets.APP_STORE_CONNECT_KEY }}
+      APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -137,7 +147,9 @@ jobs:
       - run: rustup target add aarch64-apple-ios
       - run: npm ci --no-fund --no-audit
       - name: Build unsigned IPA (sideload with AltStore or SideStore)
+        if: env.IOS_CERTIFICATE == '' || env.IOS_CERTIFICATE_PASSWORD == '' || env.IOS_MOBILE_PROVISION == ''
         run: |
+          unset IOS_CERTIFICATE IOS_CERTIFICATE_PASSWORD IOS_MOBILE_PROVISION
           npx tauri ios init --ci
           npx tauri icon app-icon.png
           npx tauri ios build --no-sign --ci
@@ -152,10 +164,38 @@ jobs:
             (cd "$RUNNER_TEMP/pkg" && zip -qry "$out" Payload)
           fi
           ls -la "$out"
+      - name: Build signed IPA (notifications while the app is closed)
+        if: env.IOS_CERTIFICATE != '' && env.IOS_CERTIFICATE_PASSWORD != '' && env.IOS_MOBILE_PROVISION != ''
+        run: |
+          npx tauri ios init --ci
+          npx tauri icon app-icon.png
+          # The Push Notifications entitlement as the profile allows it, and the export method the profile is for.
+          signing=$(bash ios/prepare.sh)
+          read -r method team <<<"$signing"
+          echo "Team $team, export method $method"
+          echo "IOS_EXPORT_METHOD=$method" >> "$GITHUB_ENV"
+          # Tauri imports IOS_CERTIFICATE into a temporary keychain and signs manually with IOS_MOBILE_PROVISION.
+          APPLE_DEVELOPMENT_TEAM="$team" npx tauri ios build --ci --export-method "$method"
+          ipa=$(find src-tauri/gen/apple/build -name '*.ipa' | head -1)
+          [ -n "$ipa" ] || { echo "no signed IPA"; find src-tauri/gen/apple/build -maxdepth 4; exit 1; }
+          # Without aps-environment in what ships, Apple gives the app no push token: fail here, not on the phone.
+          mkdir -p "$RUNNER_TEMP/check" && unzip -q "$ipa" -d "$RUNNER_TEMP/check"
+          codesign -d --entitlements - --xml "$RUNNER_TEMP"/check/Payload/*.app > "$RUNNER_TEMP/entitlements.plist"
+          grep -A1 aps-environment "$RUNNER_TEMP/entitlements.plist" || { echo "::error::The signed app has no aps-environment entitlement."; cat "$RUNNER_TEMP/entitlements.plist"; exit 1; }
+          cp "$ipa" "$RUNNER_TEMP/DevDash-${TAG#app-v}.ipa"
+          ls -la "$RUNNER_TEMP/DevDash-${TAG#app-v}.ipa"
       - name: Upload IPA
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" "$RUNNER_TEMP/DevDash-${TAG#app-v}-unsigned.ipa" --clobber --repo "$GITHUB_REPOSITORY"
+        run: gh release upload "$TAG" "$RUNNER_TEMP"/DevDash-*.ipa --clobber --repo "$GITHUB_REPOSITORY"
+      - name: Send to TestFlight
+        if: env.IOS_EXPORT_METHOD == 'app-store-connect' && env.APP_STORE_CONNECT_KEY != '' && env.APP_STORE_CONNECT_KEY_ID != '' && env.APP_STORE_CONNECT_ISSUER_ID != ''
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          printf '%s' "$APP_STORE_CONNECT_KEY" | base64 --decode > ~/.appstoreconnect/private_keys/AuthKey_"$APP_STORE_CONNECT_KEY_ID".p8
+          xcrun altool --upload-app --type ios --file "$RUNNER_TEMP/DevDash-${TAG#app-v}.ipa" \
+            --apiKey "$APP_STORE_CONNECT_KEY_ID" --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
+          rm -f ~/.appstoreconnect/private_keys/AuthKey_"$APP_STORE_CONNECT_KEY_ID".p8
 
   # Assemble the updater manifest once, after the platform builds, from the signed artifacts
   # that actually landed on the release. The installed app fetches this latest.json from
