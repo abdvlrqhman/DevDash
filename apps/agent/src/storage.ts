@@ -1,6 +1,6 @@
 import { chmod, mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 
 // The member's cloud storage as an rclone remote (`drive:`) in their own rclone config (docs/design/storage.md). The
 // remote holds no Google secret: its refresh token is an opaque DevDash handle that the server's loopback token endpoint
@@ -90,14 +90,29 @@ function check(s: Storage) {
 export const configure = (s: Storage) => update((text) => withRemote(text, check(s)))
 export const remove = (remote: string, tokenUrl: string) => update((text) => withoutRemote(text, remote, tokenUrl))
 
-/** What Claude is told: where big outputs go, with the commands that keep the local disk free. */
-export function note(s: Storage | null | undefined) {
+/** The Drive folder a session's files go in: its project (shared checkout or worktree), else its own folder's name. */
+export function driveFolder(cwd: string) {
+  const m = /^\/srv\/devdash\/(?:projects|worktrees)\/([^/]+)/.exec(cwd)
+  if (m) return m[1]!
+  const base = basename(cwd).replace(/[^\w.-]+/g, '-').replace(/^[-.]+/, '')
+  return cwd.replace(/\/+$/, '') === homedir() || !base ? 'files' : base
+}
+
+/**
+ * What Claude is told. Not a recipe for one kind of file: a rule to apply with judgment — anything heavy that doesn't
+ * have to live on the shared server goes to the member's Drive, on Claude's own initiative, organised by project.
+ */
+export function note(s: Storage | null | undefined, folder = 'files') {
   if (!s) {
-    return 'No cloud storage is connected for this person. If the work produces big files (videos, renders, large datasets), suggest they connect their Google Drive on the Storage page in DevDash, so the files don\'t have to stay on this server.'
+    return `No cloud storage is connected for this person. If the work produces heavy files that don't need to stay on this server (videos, audio, renders, builds, datasets, archives — roughly 100 MB or more), suggest they connect their Google Drive on DevDash's Storage page; meanwhile keep only what the work needs and clean up the rest.`
   }
-  return `Big files go to cloud storage, not this server's disk. ${s.account}'s Google Drive is connected as the rclone remote \`${s.remote}:\` (a "DevDash" folder in their Drive; you only see files DevDash put there, not the rest of their Drive).
-- Move a finished big output there (the local copy is deleted once it's uploaded): \`rclone move out.mp4 ${s.remote}:videos/ --drive-chunk-size 128M --stats 30s\`
-- List, fetch back, share: \`rclone lsf ${s.remote}:videos/\`, \`rclone copy ${s.remote}:videos/out.mp4 .\`, \`rclone link ${s.remote}:videos/out.mp4\` (a link they can open or send)
-- Free space: \`rclone about ${s.remote}:\` — personal Google accounts have 15 GB shared with Gmail, so check before big uploads and tell them when it's nearly full.
-Tell them where you put things (the path in \`${s.remote}:\` and the link).`
+  const d = `${s.remote}:${folder}`
+  return `Heavy files belong in ${s.account}'s Google Drive, not on this server — its disk is small and shared by the whole team. The Drive is the rclone remote \`${s.remote}:\` (a "DevDash" folder in their Drive; you only see what DevDash put there, never the rest of their Drive). Apply this with judgment, on your own initiative, without waiting to be asked:
+- What goes there: anything heavy (roughly 100 MB or more, or many files adding up) that the work doesn't need on the server to keep going — finished videos, audio, renders and image sets, exported builds (APK, IPA, zips), datasets and large downloads you're done with, recordings, backups, dumps and archives.
+- What stays: what the work runs on (source and git repos, node_modules, SDKs, caches, virtualenvs, databases in use, files a service serves), and anything secret — never upload .env files, keys or credentials.
+- When: as soon as a heavy thing is finished, not at the end of the task. Keep what you still need locally; once a big input is used up, delete the local copy.
+- Where: this session's folder is \`${d}/\`; group by kind inside it (\`${d}/videos/\`, \`${d}/builds/\`, \`${d}/data/\`).
+- How: a file \`rclone move <file> ${d}/<kind>/ --drive-chunk-size 128M --stats 30s\` (the local copy is deleted only after a successful upload); a folder \`rclone move <dir> ${d}/<dir> --delete-empty-src-dirs\`; thousands of small files: archive first (\`tar czf name.tgz <dir>\`) — Drive is slow per file. Use \`rclone copy\` instead of move when the server still needs it.
+- Back and around: \`rclone lsf ${d}/\`, \`rclone copy ${d}/<path> .\`, \`rclone link ${d}/<path>\` (a link they can open or send), \`rclone about ${s.remote}:\` (free space: personal accounts have 15 GB shared with Gmail; check before multi-GB uploads and tell them when it's nearly full).
+- Then say what you moved: the \`${s.remote}:\` path and a link.`
 }

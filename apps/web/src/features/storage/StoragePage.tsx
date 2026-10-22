@@ -141,14 +141,20 @@ function Connected({ s, onReconnect }: { s: Status; onReconnect: () => void }) {
 
 function HowClaudeUsesIt() {
   return (
-    <SettingsSection title="How Claude uses it" description="Every session you start is told about it. You can also ask for it by name, or use it yourself in a terminal.">
+    <SettingsSection title="How Claude uses it" description="Every session you start knows the rule and applies it on its own — you don't have to ask. You can also use drive: yourself in a terminal.">
+      <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm text-muted-foreground">
+        <li><span className="text-foreground">Goes to your Drive:</span> anything heavy (about 100 MB or more, or lots of files adding up) the work doesn't need on the server — videos, audio, renders and image sets, exported builds (APK, IPA, zips), datasets and big downloads once used, recordings, backups, dumps and archives.</li>
+        <li><span className="text-foreground">Stays on the server:</span> what the work runs on — code and git repos, node_modules, SDKs, caches, databases in use, files a service serves. Secrets (.env, keys) never leave.</li>
+        <li><span className="text-foreground">When and where:</span> as soon as something heavy is finished, into a folder per project (<code>drive:my-app/videos/</code>, <code>drive:my-app/builds/</code>), and Claude tells you the path and a share link.</li>
+      </ul>
       <pre className="overflow-x-auto rounded-md bg-muted px-3 py-2 font-mono text-xs leading-relaxed">{[
-        '# move a finished video off the server (deleted locally once uploaded)',
-        'rclone move out.mp4 drive:videos/ --drive-chunk-size 128M --stats 30s',
-        'rclone lsf drive:videos/            # list',
-        'rclone copy drive:videos/out.mp4 .  # bring one back',
-        'rclone link drive:videos/out.mp4    # a link to open or send',
-        'rclone about drive:                 # free space',
+        'rclone move render.mp4 drive:my-app/videos/   # off the server once uploaded',
+        'rclone move dist/ drive:my-app/builds/dist    # a whole folder',
+        'tar czf frames.tgz frames/                    # many small files: archive first',
+        'rclone lsf drive:my-app/                      # what is there',
+        'rclone copy drive:my-app/data/set.csv .       # bring one back',
+        'rclone link drive:my-app/videos/render.mp4    # a link to open or send',
+        'rclone about drive:                           # free space',
       ].join('\n')}</pre>
       <p className="text-xs text-muted-foreground">Files you add to the folder yourself in Google Drive aren't visible to DevDash: it can only see what it created.</p>
     </SettingsSection>

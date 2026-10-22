@@ -1,9 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { configure, note, remove, withoutRemote, withRemote, type Storage } from './storage.ts'
+import { configure, driveFolder, note, remove, withoutRemote, withRemote, type Storage } from './storage.ts'
 
 const URL_ = 'http://127.0.0.1:8787/internal/storage/token'
 const s: Storage = { remote: 'drive', account: 'bob@gmail.com', folderId: 'F1abc', handle: `ddh_${'a'.repeat(43)}`, tokenUrl: URL_ }
@@ -53,8 +53,23 @@ test('configure writes the rclone config privately and refuses values that could
   }
 })
 
-test('Claude is told where big files go, or how to get somewhere to put them', () => {
-  assert.match(note(s), /bob@gmail\.com's Google Drive is connected as the rclone remote `drive:`/)
-  assert.match(note(s), /rclone move out\.mp4 drive:videos\//)
-  assert.match(note(null), /connect their Google Drive on the Storage page/)
+test('Claude gets a rule for anything heavy, not a recipe for one kind of file, filed under the session\'s project', () => {
+  const n = note(s, 'my-app')
+  assert.match(n, /Heavy files belong in bob@gmail\.com's Google Drive/)
+  assert.match(n, /on your own initiative/)
+  for (const kind of ['videos', 'audio', 'exported builds', 'datasets', 'backups', 'archives']) assert.ok(n.includes(kind), kind)
+  assert.match(n, /never upload \.env files, keys or credentials/)
+  assert.match(n, /this session's folder is `drive:my-app\/`/)
+  assert.match(n, /rclone move <file> drive:my-app\/<kind>\/ --drive-chunk-size 128M/)
+  assert.match(n, /archive first/)
+  assert.match(note(null), /heavy files .* connect their Google Drive on DevDash's Storage page/)
+})
+
+test("a session's Drive folder is its project, or its own folder's name", () => {
+  assert.equal(driveFolder('/srv/devdash/projects/claude-games'), 'claude-games')
+  assert.equal(driveFolder('/srv/devdash/projects/claude-games/apps/web'), 'claude-games')
+  assert.equal(driveFolder('/srv/devdash/worktrees/seevil/7e122970'), 'seevil')
+  assert.equal(driveFolder(`${homedir()}/sessions/Trailer edit`), 'Trailer-edit')
+  assert.equal(driveFolder(homedir()), 'files')
+  assert.equal(driveFolder(`${homedir()}/`), 'files')
 })

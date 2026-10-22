@@ -182,7 +182,7 @@ const TAILNET_NOTE = `This session can reach the owner's private Tailscale tailn
 Your own Anthropic API calls are NOT proxied; they go out directly as usual.`
 
 const systemAppend = (l: Launch) => {
-  const parts = [RULES, storage.note(l.storage)]
+  const parts = [RULES, storage.note(l.storage, storage.driveFolder(l.cwd))]
   if (l.reachTailnet) parts.push(TAILNET_NOTE)
   if (l.instructions?.trim()) parts.push(l.instructions.trim())
   return parts.join('\n\n')
