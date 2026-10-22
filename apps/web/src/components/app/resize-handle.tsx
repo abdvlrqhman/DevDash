@@ -23,6 +23,12 @@ export function useStoredWidth(key: string, initial: number, min: number, max: n
  */
 export function useDragWidth(width: number, onWidth: (w: number) => void, dir: 1 | -1 = 1) {
   const drag = useRef<{ x: number; w: number; moved: boolean } | null>(null)
+  // Clear the page-wide resize cursor/overlay and end the drag. Must run on every way a drag can end — pointerup can be
+  // missed once the pointer is captured, which left the col-resize cursor stuck on the whole page.
+  const end = () => {
+    delete document.documentElement.dataset.resizing
+    setTimeout(() => (drag.current = null)) // after the click that follows pointerup
+  }
   return {
     moved: () => !!drag.current?.moved,
     handlers: {
@@ -40,10 +46,11 @@ export function useDragWidth(width: number, onWidth: (w: number) => void, dir: 1
         document.documentElement.dataset.resizing = ''
         onWidth(d.w + dx)
       },
-      onPointerUp: () => {
-        delete document.documentElement.dataset.resizing
-        setTimeout(() => (drag.current = null)) // after the click that follows pointerup
-      },
+      // lostpointercapture always fires when the captured pointer is released (or capture is lost), so the cursor is
+      // never left stuck; pointerup and pointercancel are kept as belt-and-suspenders. All three are idempotent.
+      onPointerUp: end,
+      onPointerCancel: end,
+      onLostPointerCapture: end,
     },
   }
 }
