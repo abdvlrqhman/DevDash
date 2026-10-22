@@ -179,8 +179,8 @@ function GoogleApp() {
     <SettingsSection title="Google app (admins)" description="One Google OAuth app for the whole space; each member connects their own Drive with it. Only admins see this.">
       <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-sm text-muted-foreground">
         <li>In <a className="text-foreground underline underline-offset-4" href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noreferrer">Google Cloud</a>, create a project and enable the <a className="text-foreground underline underline-offset-4" href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noreferrer">Google Drive API</a>.</li>
-        <li>Under Google Auth Platform: audience <b className="text-foreground">External</b>, and add the scopes <code>openid</code>, <code>email</code> and <code>…/auth/drive.file</code> (all non-sensitive).</li>
-        <li>Then <b className="text-foreground">Publish app</b> (In production). Left in Testing, everyone's connection stops working every 7 days. drive.file needs no Google review.</li>
+        <li>Under Google Auth Platform: audience <b className="text-foreground">External</b>, and under Data access add only <code>openid</code>, <code>…/auth/userinfo.email</code> and <code>…/auth/drive.file</code> (all non-sensitive). Skip the logo: a logo needs Google's brand verification.</li>
+        <li>Then Audience → <b className="text-foreground">Publish app</b> (In production). While it's in Testing, Google blocks everyone who isn't listed as a test user ("has not completed the Google verification process"), and connections stop working every 7 days. With only these scopes, publishing needs no Google review.</li>
         <li>Create an OAuth client: type <b className="text-foreground">Web application</b>, with this authorized redirect URI:</li>
       </ol>
       <div className="flex items-center gap-2">

@@ -10,7 +10,9 @@ the shared server's disk.
   sealed with the master key). Each member connects their own Drive through it.
 - **Scope `drive.file`** (plus `openid email` to know the account). DevDash only sees files it creates — a `DevDash`
   folder in the member's Drive — never the rest of it. All three scopes are non-sensitive, so the app can be published
-  "In production" with no Google review. Left in "Testing", every connection dies after 7 days.
+  "In production" with no Google review. Left in "Testing", Google blocks anyone not listed as a test user ("has not
+  completed the Google verification process", 403 access_denied) and every connection dies after 7 days. A logo on the
+  consent screen would need brand verification, so the app has none.
 - **rclone does the transfers**, in the member's own Linux account: chunked, resumable, retried uploads of multi-GB
   files. `rclone move` deletes the local copy only after a successful upload. Pinned and hash-checked in
   `deploy/install.sh`.
