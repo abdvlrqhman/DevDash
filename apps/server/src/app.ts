@@ -38,6 +38,7 @@ import { tasksService } from './modules/tasks/service.ts'
 import { servicesRoutes } from './modules/services/routes.ts'
 import { servicesService } from './modules/services/service.ts'
 import { membersRoutes } from './modules/members/routes.ts'
+import { apnsService } from './modules/notifications/apns.ts'
 import { notificationsRoutes } from './modules/notifications/routes.ts'
 import { notificationsService } from './modules/notifications/service.ts'
 import { provisioningService } from './modules/provisioning/service.ts'
@@ -53,7 +54,9 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   const agents = agentsService({ runDir: config.runDir })
   const provisioning = provisioningService({ db, runDir: config.runDir, onReady: (username) => agents.watch(username) })
   const terms = terminalsService({ agents })
-  const notifications = notificationsService({ db, hub, dataDir: config.dataDir, origin: config.origin })
+  // The iPhone app's notifications while it's closed (docs/design/ios-push.md), with the space's APNs key.
+  const apns = apnsService({ db, masterKey: config.masterKey, origin: config.origin })
+  const notifications = notificationsService({ db, hub, dataDir: config.dataDir, origin: config.origin, apns })
   hub.authorize('notifications', () => true)
   const shares = sharesService({
     db, dataDir: config.dataDir, masterKey: config.masterKey, origin: config.origin,
@@ -141,7 +144,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     }))
     .route('/api/terminals', terminalsRoutes(terms, auth, mw, provisioning, ip))
     .route('/api/claude', claudeRoutes(claude, mw))
-    .route('/api/notifications', notificationsRoutes(notifications, mw))
+    .route('/api/notifications', notificationsRoutes(notifications, apns, mw))
     .route('/api/services', servicesRoutes(services, mw))
     .route('/api/projects', projectsRoutes(projects, activity, mw))
     .route('/api/tasks', tasksRoutes(tasks, giveToClaude, mw))
