@@ -2,10 +2,13 @@
 // The bundled connect screen (../ui) asks for a space domain, checks /.well-known/devdash.json,
 // then loads the space. The space gets no native permissions (no IPC capabilities); it can only ask the shell,
 // through navigations to devdash-shell://, to open a link in the system browser, go back to the connect screen,
-// or show a system notification.
+// or show a system notification. On iPhone the shell also hands the space its push token (ios_push.rs).
 use tauri::{plugin::PermissionState, Manager, Url, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
+
+#[cfg(target_os = "ios")]
+mod ios_push;
 
 /// URL of the bundled connect screen, so "Switch space" can return to it from the space.
 struct Home(Url);
@@ -42,9 +45,16 @@ fn param(url: &Url, key: &str) -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_notification::init());
+    // iPhone: notifications while the app is closed, through Apple's push service (docs/design/ios-push.md). After the
+    // notification plugin, so local notifications stay that plugin's.
+    #[cfg(target_os = "ios")]
+    let builder = builder
+        .manage(ios_push::Shared::default())
+        .plugin(tauri_plugin_devdash_push::init(ios_push::on_event));
+    builder
         .setup(|app| {
             // Self-update is desktop-only: the connect screen checks GitHub Releases on launch
             // (ui/updater.js), the updater plugin downloads + installs the signed update, and the
@@ -56,9 +66,13 @@ pub fn run() {
                 app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
             }
 
+            #[cfg(target_os = "ios")]
+            let bridge = [BRIDGE, ios_push::BRIDGE].concat();
+            #[cfg(not(target_os = "ios"))]
+            let bridge = BRIDGE.to_string();
             let nav_app = app.handle().clone();
             let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .initialization_script(BRIDGE)
+                .initialization_script(bridge)
                 .on_navigation(move |url| {
                     if url.scheme() != "devdash-shell" {
                         return true;
@@ -96,6 +110,8 @@ pub fn run() {
                                 }
                             });
                         }
+                        #[cfg(target_os = "ios")]
+                        Some("push-register") => ios_push::register(&app),
                         Some("switch") => {
                             // Navigate after this callback returns.
                             std::thread::spawn(move || {
@@ -110,6 +126,14 @@ pub fn run() {
                     }
                     false
                 });
+
+            // iPhone: each loaded space page gets the push token, and a tapped notification's page opens once its space is up.
+            #[cfg(target_os = "ios")]
+            let builder = builder.on_page_load(|w, p| {
+                if p.event() == tauri::webview::PageLoadEvent::Finished && p.url().scheme() == "https" {
+                    ios_push::page_loaded(&w, p.url());
+                }
+            });
 
             #[cfg(desktop)]
             let builder = {

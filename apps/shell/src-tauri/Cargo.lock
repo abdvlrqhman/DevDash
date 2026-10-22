@@ -725,6 +725,7 @@ version = "0.1.5"
 dependencies = [
  "tauri",
  "tauri-build",
+ "tauri-plugin-devdash-push",
  "tauri-plugin-notification",
  "tauri-plugin-opener",
 ]
@@ -3560,6 +3561,16 @@ dependencies = [
  "serde_json",
  "tauri-utils",
  "walkdir",
+]
+
+[[package]]
+name = "tauri-plugin-devdash-push"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
 ]
 
 [[package]]
