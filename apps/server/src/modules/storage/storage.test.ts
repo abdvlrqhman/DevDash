@@ -5,6 +5,7 @@ import { openDb } from '../../core/db.ts'
 import { sha256 } from '../../core/crypto.ts'
 import type { AgentsService } from '../agents/service.ts'
 import type { User } from '../auth/repo.ts'
+import { spacePagesRoutes } from './pages.ts'
 import { storageTokenRoutes } from './routes.ts'
 import { storageService } from './service.ts'
 
@@ -191,4 +192,43 @@ test('disconnecting revokes at Google, kills the handle and removes the remote; 
   t.storage.setApp(t.ann, { clientId: '999-new.apps.googleusercontent.com', clientSecret: 'GOCSPX-new' })
   assert.match((await t.storage.status(t.bob)).broken!, /Google app changed/)
   assert.equal(t.storage.forLaunch(2), null)
+})
+
+test("the public /about and /privacy pages say what the space is and what it does with Google data, without signing in", async () => {
+  const routes = spacePagesRoutes(() => ({ name: 'Spacie <Dev>', origin: 'https://dev.example.com', contact: 'ops@example.com' }))
+  const about = await routes.request('/about')
+  assert.equal(about.status, 200)
+  assert.match(about.headers.get('content-type')!, /text\/html/)
+  const a = await about.text()
+  assert.ok(a.includes('<h1>Spacie &lt;Dev&gt;</h1>') && !a.includes('<Dev>')) // the space name is escaped
+  assert.match(a, /The private workspace of the team at dev\.example\.com\./)
+  assert.match(a, /only the files Spacie &lt;Dev&gt; creates<\/strong> \(Google's <code>drive\.file<\/code> permission\)/)
+  assert.match(a, /<a href="\/privacy">Privacy policy<\/a>/)
+  assert.match(a, /mailto:ops@example\.com/)
+
+  const p = await (await routes.request('/privacy')).text()
+  assert.match(p, /Last updated \d{4}-\d{2}-\d{2}/)
+  assert.match(p, /Google API Services User Data Policy<\/a>,\s+including the Limited Use requirements/)
+  assert.match(p, /does not sell Google user data/)
+  assert.match(p, /revokes Spacie &lt;Dev&gt;'s access at Google/)
+  // No contact set yet: the pages still read sensibly.
+  const bare = await (await spacePagesRoutes(() => ({ name: 'DevDash', origin: 'https://x.io', contact: null })).request('/privacy')).text()
+  assert.match(bare, /Questions about this policy or your data: the people who run DevDash\./)
+})
+
+test('the contact email is kept when the app is edited, cleared on request; a removed member loses their Drive connection', async () => {
+  const t = setup()
+  const info = t.storage.setApp(t.ann, { clientId: CLIENT, clientSecret: 'GOCSPX-shh', contactEmail: 'ops@example.com' })
+  assert.deepEqual([info.contactEmail, info.homeUrl, info.privacyUrl], ['ops@example.com', 'https://dev.example.com/about', 'https://dev.example.com/privacy'])
+  t.storage.setApp(t.ann, { clientId: CLIENT })
+  assert.equal(t.storage.contactEmail(), 'ops@example.com')
+  t.storage.setApp(t.ann, { clientId: CLIENT, contactEmail: '' })
+  assert.equal(t.storage.contactEmail(), null)
+
+  await connect(t)
+  const handle = t.storage.forLaunch(2)!.handle
+  await t.storage.memberRemoved(2)
+  assert.ok(t.google.calls.some((c) => c.url.endsWith('/revoke')))
+  assert.equal(t.db.prepare('select count(*) as n from member_storage').get()!.n, 0)
+  await assert.rejects(() => t.storage.token(handle), /disconnected/)
 })

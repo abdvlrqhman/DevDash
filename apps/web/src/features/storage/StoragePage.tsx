@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { Spinner } from '@/components/ui/spinner'
-import { api, meQuery, unwrap } from '@/lib/api'
+import { api, meQuery, spaceQuery, unwrap } from '@/lib/api'
 import { inShell, openExternal } from '@/lib/shell'
 import { ErrorAlert } from '../auth/LoginPage'
 
@@ -155,17 +155,35 @@ function HowClaudeUsesIt() {
   )
 }
 
-/** Admins register the space's Google OAuth app once (Google Cloud console). */
+/** A read-only value with a copy button (addresses to paste into Google Cloud). */
+function CopyField({ label, value }: { label: string; value: string }) {
+  const [copied, setCopied] = useState(false)
+  const copy = () => void navigator.clipboard.writeText(value).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
+  return (
+    <div className="flex items-center gap-2">
+      <Input readOnly aria-label={label} value={value} className="h-10 font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
+      <Button type="button" variant="outline" size="icon" className="size-10 shrink-0" aria-label={`Copy ${label}`} onClick={copy}>{copied ? <Check /> : <Copy />}</Button>
+    </div>
+  )
+}
+
+const link = 'text-foreground underline underline-offset-4'
+
+/** Admins register the space's Google OAuth app once (Google Cloud console), following Google's own checklist. */
 function GoogleApp() {
   const qc = useQueryClient()
   const app = useQuery(appQuery).data
+  const space = useQuery(spaceQuery).data
   const [clientId, setClientId] = useState('')
   const [secret, setSecret] = useState('')
+  const [contact, setContact] = useState('')
   const [error, setError] = useState<Error | null>(null)
-  const [copied, setCopied] = useState(false)
-  useEffect(() => { if (app?.clientId) setClientId(app.clientId) }, [app?.clientId])
+  useEffect(() => {
+    if (app?.clientId) setClientId(app.clientId)
+    if (app?.contactEmail) setContact(app.contactEmail)
+  }, [app?.clientId, app?.contactEmail])
   const save = useMutation({
-    mutationFn: () => unwrap(api.api.storage.google.app.$put({ json: { clientId, ...(secret.trim() && { clientSecret: secret }) } })),
+    mutationFn: () => unwrap(api.api.storage.google.app.$put({ json: { clientId, contactEmail: contact.trim(), ...(secret.trim() && { clientSecret: secret }) } })),
     onSuccess: () => { toast.success('Google app saved'); setSecret(''); setError(null); void qc.invalidateQueries({ queryKey: ['storage'] }) },
     onError: (e) => setError(e),
   })
@@ -174,19 +192,27 @@ function GoogleApp() {
     e.preventDefault()
     save.mutate()
   }
-  const copy = () => void navigator.clipboard.writeText(app.redirectUri).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) })
+  const domain = new URL(app.homeUrl).hostname.split('.').slice(-2).join('.') // dev.spacie.net → spacie.net
   return (
     <SettingsSection title="Google app (admins)" description="One Google OAuth app for the whole space; each member connects their own Drive with it. Only admins see this.">
-      <ol className="flex list-decimal flex-col gap-1.5 pl-5 text-sm text-muted-foreground">
-        <li>In <a className="text-foreground underline underline-offset-4" href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noreferrer">Google Cloud</a>, create a project and enable the <a className="text-foreground underline underline-offset-4" href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noreferrer">Google Drive API</a>.</li>
-        <li>Under Google Auth Platform: audience <b className="text-foreground">External</b>, and under Data access add only <code>openid</code>, <code>…/auth/userinfo.email</code> and <code>…/auth/drive.file</code> (all non-sensitive). Skip the logo: a logo needs Google's brand verification.</li>
-        <li>Then Audience → <b className="text-foreground">Publish app</b> (In production). While it's in Testing, Google blocks everyone who isn't listed as a test user ("has not completed the Google verification process"), and connections stop working every 7 days. With only these scopes, publishing needs no Google review.</li>
-        <li>Create an OAuth client: type <b className="text-foreground">Web application</b>, with this authorized redirect URI:</li>
+      <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm text-muted-foreground">
+        <li>In <a className={link} href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noreferrer">Google Cloud</a>, create a project and enable the <a className={link} href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noreferrer">Google Drive API</a>.</li>
+        <li>Google Auth Platform → <b className="text-foreground">Data access</b>: add only <code>openid</code>, <code>…/auth/userinfo.email</code> and <code>…/auth/drive.file</code> (all non-sensitive).</li>
+        <li>
+          <b className="text-foreground">Branding</b>: app name <b className="text-foreground">{space?.name ?? 'DevDash'}</b> (the same name the pages below show), your support email, no logo (a logo needs extra review), the authorized domain <b className="text-foreground">{domain}</b>, and these two public pages, which explain the app without signing in:
+          <div className="mt-2 flex flex-col gap-2">
+            <span className="text-xs">Application home page</span>
+            <CopyField label="home page address" value={app.homeUrl} />
+            <span className="text-xs">Privacy policy</span>
+            <CopyField label="privacy policy address" value={app.privacyUrl} />
+          </div>
+        </li>
+        <li><b className="text-foreground">Audience</b>: External, then <b className="text-foreground">Publish app</b> (greyed out until Branding is complete — hover it to see what's missing). While it's in Testing, Google blocks everyone who isn't a listed test user ("has not completed the Google verification process"), and connections stop working every 7 days. If Google asks, prove you own {domain} in <a className={link} href="https://search.google.com/search-console" target="_blank" rel="noreferrer">Search Console</a> (a DNS record).</li>
+        <li>
+          <b className="text-foreground">Clients</b>: create an OAuth client of type <b className="text-foreground">Web application</b> with this authorized redirect URI, and paste its ID and secret below.
+          <div className="mt-2"><CopyField label="redirect URI" value={app.redirectUri} /></div>
+        </li>
       </ol>
-      <div className="flex items-center gap-2">
-        <Input readOnly value={app.redirectUri} className="h-10 font-mono text-xs" onFocus={(e) => e.currentTarget.select()} />
-        <Button type="button" variant="outline" size="icon" className="size-10 shrink-0" aria-label="Copy redirect URI" onClick={copy}>{copied ? <Check /> : <Copy />}</Button>
-      </div>
       <form onSubmit={submit}>
         <FieldGroup>
           <Field>
@@ -197,6 +223,11 @@ function GoogleApp() {
             <FieldLabel htmlFor="g-secret">Client secret</FieldLabel>
             <Input id="g-secret" type="password" className="h-10 font-mono text-xs" placeholder={app.configured ? 'Saved — paste a new one to replace it' : 'GOCSPX-…'} value={secret} onChange={(e) => setSecret(e.target.value)} autoComplete="off" />
             <FieldDescription>Google shows the secret only once, when you create the client. It's encrypted on the server and never shown again.</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="g-contact">Contact email for the public pages</FieldLabel>
+            <Input id="g-contact" type="email" className="h-10" placeholder="team@example.com" value={contact} onChange={(e) => setContact(e.target.value)} autoComplete="off" />
+            <FieldDescription>Shown on the home page and privacy policy above, for questions about members' data. Anyone can see it.</FieldDescription>
           </Field>
           {app.configured && app.clientId && clientId.trim() !== app.clientId && (
             <p className="text-sm text-attention-foreground">A different Google app disconnects everyone; they'll need to connect their Drive again.</p>

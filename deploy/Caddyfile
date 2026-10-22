@@ -41,11 +41,16 @@
 		}
 		reverse_proxy 127.0.0.1:8090
 	}
-	# Public share links and browser invites: nothing else is public.
+	# Public share links, browser invites, and the two pages about this space that Google checks before it lets members
+	# connect their Google Drive (/about, /privacy): nothing else is public.
 	handle /watch/* {
 		reverse_proxy 127.0.0.1:8787
 	}
 	handle /s/* {
+		reverse_proxy 127.0.0.1:8787
+	}
+	@space_pages path /about /privacy
+	handle @space_pages {
 		reverse_proxy 127.0.0.1:8787
 	}
 	handle {

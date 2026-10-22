@@ -6,7 +6,12 @@ import { GoogleError } from './google.ts'
 import type { StorageService } from './service.ts'
 
 // Members' own cloud storage (docs/design/storage.md). The client secret is posted once, sealed, and never returned.
-const AppInput = z.object({ clientId: z.string().trim().min(1).max(200), clientSecret: z.string().trim().max(200).optional() })
+const AppInput = z.object({
+  clientId: z.string().trim().min(1).max(200),
+  clientSecret: z.string().trim().max(200).optional(),
+  // Shown on the public /about and /privacy pages; empty clears it.
+  contactEmail: z.union([z.email().max(200), z.literal('')]).nullable().optional(),
+})
 const Callback = z.object({ code: z.string().max(2000).optional(), state: z.string().max(200).optional(), error: z.string().max(200).optional() })
 
 export function storageRoutes(storage: StorageService, mw: ReturnType<typeof authMiddleware>) {

@@ -38,6 +38,7 @@ Claude session (as bob) ── rclone move out.mp4 drive:videos/ ──► googl
 | `apps/server/src/modules/storage/service.ts` | connect / callback / disconnect, the token broker (cached, de-duplicated refreshes), `forLaunch` |
 | `apps/server/src/modules/storage/routes.ts` | `/api/storage/*` and `/internal/storage/token` |
 | `apps/agent/src/storage.ts` | writes/removes the `[drive]` section (other remotes untouched), and the note Claude gets |
+| `apps/server/src/modules/storage/pages.ts` | the public `/about` and `/privacy` pages Google checks (Caddy proxies just these two) |
 | `apps/web/src/features/storage/StoragePage.tsx` | the Storage page, the admin setup, and `/storage/callback` |
 
 ## Flows
@@ -55,6 +56,15 @@ Claude session (as bob) ── rclone move out.mp4 drive:videos/ ──► googl
   getting the remote and the Storage page asks to connect again. A different Google app (new client ID) marks everyone.
 - **Disconnect:** revokes at Google, deletes the row (the handle stops working), and removes DevDash's `[drive]`
   section — only if it points at DevDash's token endpoint, so a member's own `drive` remote is never touched.
+
+## Publishing the Google app
+
+Google won't publish an External app until its Branding page has an app name, a support email, a public home page that
+explains the app without signing in, a privacy policy, and the authorized domain. DevDash serves both pages itself from
+the space's name, address and an admin-set contact email (`/about`, `/privacy`; plain HTML so Google's checker reads
+them). The app name in Google must match the name those pages show. Google may also ask to verify the domain in Search
+Console. The privacy page promises that a member's connection goes when they leave: removing a member revokes and
+deletes it (`storage.memberRemoved`).
 
 ## Limits worth knowing
 

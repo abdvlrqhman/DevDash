@@ -10,7 +10,7 @@ import * as google from './google.ts'
 // every profile, and their terminals then reach it as the rclone remote `drive:`, rooted at a "DevDash" folder.
 // The Google refresh token stays here, sealed. The member's rclone config only holds an opaque handle, which the local
 // token endpoint (/internal/storage/token, never proxied to the internet) trades for short-lived access tokens.
-type AppRow = { provider: string; client_id: string; client_secret_sealed: string; updated_at: number }
+type AppRow = { provider: string; client_id: string; client_secret_sealed: string; contact_email: string | null; updated_at: number }
 type Row = {
   user_id: number; provider: string; account_sub: string; account_email: string; folder_id: string
   refresh_token_sealed: string; handle_hash: string; handle_sealed: string; broken: string | null; created_at: number; updated_at: number
@@ -32,9 +32,9 @@ export function storageService({ db, agents, masterKey, origin, tokenUrl, fetch:
 }) {
   const q = {
     app: db.prepare("select * from storage_apps where provider = 'gdrive'"),
-    saveApp: db.prepare(`insert into storage_apps (provider, client_id, client_secret_sealed, updated_by) values ('gdrive', ?, ?, ?)
+    saveApp: db.prepare(`insert into storage_apps (provider, client_id, client_secret_sealed, contact_email, updated_by) values ('gdrive', ?, ?, ?, ?)
       on conflict(provider) do update set client_id = excluded.client_id, client_secret_sealed = excluded.client_secret_sealed,
-        updated_by = excluded.updated_by, updated_at = unixepoch()`),
+        contact_email = excluded.contact_email, updated_by = excluded.updated_by, updated_at = unixepoch()`),
     get: db.prepare('select * from member_storage where user_id = ?'),
     byHandle: db.prepare('select * from member_storage where handle_hash = ?'),
     upsert: db.prepare(`insert into member_storage (user_id, provider, account_sub, account_email, folder_id, refresh_token_sealed, handle_hash, handle_sealed)
@@ -106,21 +106,39 @@ export function storageService({ db, agents, masterKey, origin, tokenUrl, fetch:
   /** The admin view of the Google app. The secret never comes back out. */
   const appInfo = () => {
     const r = q.app.get() as AppRow | undefined
-    return { configured: !!r, clientId: r?.client_id ?? null, redirectUri, scopes: google.SCOPES, updatedAt: r?.updated_at ?? null }
+    return {
+      configured: !!r, clientId: r?.client_id ?? null, redirectUri, scopes: google.SCOPES, updatedAt: r?.updated_at ?? null,
+      // Google's Branding page wants a public home page and privacy policy (spacePagesRoutes) and a contact for them.
+      contactEmail: r?.contact_email ?? null, homeUrl: `${origin}/about`, privacyUrl: `${origin}/privacy`,
+    }
+  }
+
+  /** Revokes and forgets a member's connection: on disconnect, and when they leave the space. */
+  async function forget(userId: number, username: string | null) {
+    const r = row(userId)
+    if (!r) return
+    q.remove.run(userId)
+    access.delete(userId)
+    await google.revoke(f, unseal(masterKey, r.refresh_token_sealed, aad.token(userId)).toString())
+    if (username) await pushRemote(username, null)
   }
 
   return {
     forLaunch,
     appInfo,
 
+    /** The public pages' contact (spacePagesRoutes): null until an admin sets it. */
+    contactEmail: () => (q.app.get() as AppRow | undefined)?.contact_email ?? null,
+
     /** An admin registers (or replaces) the space's Google OAuth app. A different app can't use the old grants. */
-    setApp(admin: User, input: { clientId: string; clientSecret?: string }) {
+    setApp(admin: User, input: { clientId: string; clientSecret?: string; contactEmail?: string | null }) {
       const before = q.app.get() as AppRow | undefined
       const secret = input.clientSecret?.trim() || (before ? unseal(masterKey, before.client_secret_sealed, aad.app).toString() : '')
       if (!secret) throw new AppError(400, 'no_secret', 'Paste the client secret too.')
       const clientId = input.clientId.trim()
       if (!/^[\w.-]+\.apps\.googleusercontent\.com$/.test(clientId)) throw new AppError(400, 'bad_client_id', 'That does not look like a Google client ID (…apps.googleusercontent.com).')
-      q.saveApp.run(clientId, seal(masterKey, Buffer.from(secret), aad.app), admin.id)
+      const contact = input.contactEmail === undefined ? (before?.contact_email ?? null) : input.contactEmail?.trim() || null
+      q.saveApp.run(clientId, seal(masterKey, Buffer.from(secret), aad.app), contact, admin.id)
       if (before && before.client_id !== clientId) {
         q.breakAll.run(APP_CHANGED)
         access.clear()
@@ -182,14 +200,12 @@ export function storageService({ db, agents, masterKey, origin, tokenUrl, fetch:
 
     /** Disconnects: Google forgets DevDash, the handle dies, and the remote leaves the member's rclone config. */
     async disconnect(user: User) {
-      const r = row(user.id)
-      if (!r) return { ok: true }
-      q.remove.run(user.id)
-      access.delete(user.id)
-      await google.revoke(f, unseal(masterKey, r.refresh_token_sealed, aad.token(user.id)).toString())
-      await pushRemote(user.username, null)
+      await forget(user.id, user.username)
       return { ok: true }
     },
+
+    /** A member left the space: their connection goes too (the privacy page promises it). */
+    memberRemoved: (userId: number) => forget(userId, null),
 
     /**
      * The local token endpoint's work (rclone's `token_url`). Trades a member's handle for a short-lived Google access

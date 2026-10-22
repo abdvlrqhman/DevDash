@@ -21,6 +21,7 @@ import { servicePages } from './modules/previews/service.ts'
 import { statusService } from './modules/status/service.ts'
 import { deployService } from './modules/status/deploy.ts'
 import { vaultService } from './modules/vault/service.ts'
+import { spacePagesRoutes } from './modules/storage/pages.ts'
 import { storageRoutes, storageTokenRoutes } from './modules/storage/routes.ts'
 import { storageService } from './modules/storage/service.ts'
 import { tailnetRoutes } from './modules/tailnet/routes.ts'
@@ -128,11 +129,16 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     // Public share links (the only public pages): a small download page, no app, no listing.
     .route('/s', publicShareRoutes(shares, ip))
     .route('/watch', watchRoutes(browser, ip))
+    // What this space is and its privacy policy, public for Google's app review (Caddy proxies just these two paths).
+    .route('/', spacePagesRoutes(() => ({ name: config.spaceName, origin: config.origin, contact: storage.contactEmail() })))
     // rclone's token endpoint for members' Drives: loopback only, Caddy never proxies /internal (docs/design/storage.md).
     .route('/internal/storage', storageTokenRoutes(storage))
     .use('/api/*', sameOrigin(config.origin))
     .route('/api/auth', authRoutes(auth, mw, ip, (u) => void provisioning.ensure(u)))
-    .route('/api/members', membersRoutes(auth, mw, ip, config.origin, (id) => vault.memberRemoved(id)))
+    .route('/api/members', membersRoutes(auth, mw, ip, config.origin, (id) => {
+      vault.memberRemoved(id)
+      void storage.memberRemoved(id).catch((err) => console.error('storage: forgetting a removed member:', err))
+    }))
     .route('/api/terminals', terminalsRoutes(terms, auth, mw, provisioning, ip))
     .route('/api/claude', claudeRoutes(claude, mw))
     .route('/api/notifications', notificationsRoutes(notifications, mw))
