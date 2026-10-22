@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DISK_SPARE, MAX_BYTES, ops, roomFor } from './project.ts'
+import { busy, DISK_SPARE, MAX_BYTES, ops, roomFor } from './project.ts'
 
 // A tiny, dependency-free ZIP writer (stored, no compression) so tests make real archives without a `zip` binary.
 const crcTable = (() => {
@@ -107,4 +107,26 @@ test('a .zip over 20 GB is refused before it uploads; the disk keeps room for ev
   assert.equal(roomFor(25 * GB, 20 * GB, 'upload this .zip'), null) // exactly the spare left
   assert.match(roomFor(24 * GB, 20 * GB, 'unpack this .zip')!, /Not enough free space on the server to unpack this \.zip \(needs about 25 GB, 24 GB free\)/)
   assert.equal(DISK_SPARE, 5 * GB)
+})
+
+test("a deploy's restart waits for an upload in progress, and asking again for an import never imports twice", async () => {
+  const root = newRoot()
+  const zip = makeZip([{ name: 'README.md', data: Buffer.from('# hi\n') }])
+  assert.equal(busy(), false)
+  await ops.zipChunk({ id: 'a1b2c3d4', offset: 0, data: zip.toString('base64') })
+  assert.equal(busy(), true) // a piece just arrived
+  assert.equal(busy(Date.now() + 3 * 60_000), false) // two quiet minutes: the page gave up
+  await ops.zipChunk({ id: 'a1b2c3d4', offset: 0, data: zip.toString('base64') })
+
+  // The server restarted mid-import and asks again: both calls get the one import, which runs once.
+  const dest = `${root}/projects/twice`
+  const [a, b] = await Promise.all([ops.fromZip({ id: 'a1b2c3d4', dest }), ops.fromZip({ id: 'a1b2c3d4', dest })])
+  assert.deepEqual([a, b], [{ defaultBranch: 'main' }, { defaultBranch: 'main' }])
+  // Asked again after it finished (the answer was lost): it's done, not "the folder already exists".
+  assert.deepEqual(await ops.fromZip({ id: 'a1b2c3d4', dest }), { defaultBranch: 'main' })
+  assert.equal(execFileSync('git', ['-C', dest, 'rev-list', '--count', 'HEAD'], { encoding: 'utf8' }).trim(), '1')
+  assert.equal(busy(), false)
+  // A different upload into that folder is still refused.
+  await ops.zipChunk({ id: 'e5f6a7b8', offset: 0, data: zip.toString('base64') })
+  await assert.rejects(ops.fromZip({ id: 'e5f6a7b8', dest }), /already exists/)
 })

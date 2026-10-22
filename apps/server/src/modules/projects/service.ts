@@ -216,8 +216,12 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
      */
     startFromZip(user: User, input: { name: string; slug?: string; uploadId: string; instructions?: string }) {
       for (const [k, v] of imports) if (v.state !== 'importing' && Date.now() - v.at > 3_600_000) imports.delete(k)
+      // Asked again (the page lost the answer): say how it's going. After a server restart this map is empty, and starting
+      // again is safe: the agent joins the import still running, or reports the finished one (apps/agent/src/project.ts).
+      const known = imports.get(input.uploadId)
+      if (known && known.userId === user.id) return { uploadId: input.uploadId, slug: known.slug, state: known.state }
+      if (known) throw new AppError(409, 'started', 'This upload is already being imported.')
       const { slug } = zipTarget(input)
-      if (imports.has(input.uploadId)) throw new AppError(409, 'started', 'This upload is already being imported.')
       if ([...imports.values()].some((i) => i.slug === slug && i.state === 'importing')) throw new AppError(409, 'taken', `A project called ${slug} is being imported right now.`)
       imports.set(input.uploadId, { userId: user.id, slug, state: 'importing', at: Date.now() })
       const done = (v: Partial<ZipImport>) => imports.set(input.uploadId, { ...imports.get(input.uploadId)!, ...v, at: Date.now() })
@@ -225,7 +229,7 @@ export function projectsService({ db, hub, agents, activity, tasks, gitSafeDir, 
         (project) => done({ state: 'done', project }),
         (err: Error) => done({ state: 'failed', error: err.message || 'The import failed.' }),
       )
-      return { uploadId: input.uploadId, slug, state: 'importing' as const }
+      return { uploadId: input.uploadId, slug, state: 'importing' as ZipImport['state'] }
     },
 
     /** How a background .zip import is going, for the member who started it. */

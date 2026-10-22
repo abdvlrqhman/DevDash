@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import { lstat, mkdir, open, readdir, realpath, rename, rm, statfs } from 'node:fs/promises'
+import { lstat, mkdir, open, readdir, readFile, realpath, rename, rm, statfs, writeFile } from 'node:fs/promises'
 import { userInfo } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -32,6 +32,20 @@ export function roomFor(free: number, need: number, what: string): string | null
 const freeBytes = async (dir: string) => {
   const s = await statfs(dir)
   return s.bavail * s.bsize
+}
+
+/** Uploads arriving here (upload id → when its last piece came) and archives being unpacked: a deploy's restart waits. */
+const arriving = new Map<string, number>()
+let unpacking = 0
+/** Imports in progress by upload id: asking again (the server restarted and forgot) joins the one already running. */
+const importing = new Map<string, Promise<{ defaultBranch: string }>>()
+/** Written into a finished import's .git, so asking again after a lost answer says it's done instead of failing. */
+const MARKER = 'devdash-import'
+const QUIET_MS = 2 * 60_000
+/** Whether an upload is in progress (a piece in the last two minutes) or an archive is being unpacked (main.ts). */
+export function busy(now = Date.now()) {
+  for (const [id, at] of arriving) if (now - at > QUIET_MS) arriving.delete(id)
+  return unpacking > 0 || arriving.size > 0
 }
 
 const checkedId = (v: unknown) => {
@@ -78,6 +92,7 @@ export const ops = {
       const full = roomFor(await freeBytes(tmpRoot()), total, 'upload this .zip')
       if (full) throw new Error(full)
     }
+    arriving.set(id, Date.now()) // only an accepted upload holds off a restart
     const fh = await open(zipPath(id), offset === 0 ? 'w' : 'r+')
     try {
       await fh.write(data, 0, data.length, offset)
@@ -89,6 +104,7 @@ export const ops = {
 
   /** Throw away a half-finished upload (the member closed the dialog or the finalize failed). */
   async zipAbort(r: Record<string, unknown>) {
+    arriving.delete(checkedId(r.id))
     await rm(zipPath(checkedId(r.id)), { force: true }).catch(() => {})
     return { ok: true }
   },
@@ -96,60 +112,82 @@ export const ops = {
   /**
    * Unzip the uploaded archive into a NEW empty project folder and git-init it, as the member.
    * Safe against path traversal, absolute paths, escaping symlinks and zip bombs; runs no code from the archive.
+   * Asking again for the same upload (the server restarted mid-import and lost the answer) is safe: it joins the import
+   * still running, or reports the finished one.
    */
   async fromZip(r: Record<string, unknown>) {
     const id = checkedId(r.id)
     const dest = String(r.dest ?? '')
     if (!destRe().test(dest)) throw new Error('not a DevDash project folder')
-    if (existsSync(dest) && (await readdir(dest).catch(() => [])).length) throw new Error('That folder already exists on the server.')
-    const zip = zipPath(id)
-    if (!existsSync(zip)) throw new Error('The upload did not arrive. Try again.')
-    const work = join(tmpRoot(), `${id}.x`)
-    let made = false // only ever clean up a dest folder we created ourselves
+    arriving.delete(id) // the upload is over, however the import goes
+    const running = importing.get(id)
+    if (running) return running
+    // Registered before the first await, so a second ask arriving meanwhile joins this one instead of racing it.
+    const p = (async () => {
+      if ((await readFile(join(dest, '.git', MARKER), 'utf8').catch(() => '')).trim() === id) return { defaultBranch: 'main' }
+      return importZip(id, dest)
+    })()
+    importing.set(id, p)
     try {
-      // 1. Vet entry names before touching the disk: no absolute paths, no `..` segments. (zip is our own controlled temp path.)
-      const names = (await run('unzip', ['-Z', '-1', zip], { maxBuffer: 256 * 1024 * 1024 })).stdout.split('\n').map((s) => s.trim()).filter(Boolean)
-      if (!names.length) throw new Error('That .zip is empty.')
-      for (const n of names) {
-        if (n.startsWith('/') || n.split('/').some((seg) => seg === '..')) throw new Error('The .zip contains unsafe paths. It was not imported.')
-      }
-      // 2. Size/bomb guard from the archive listing: total uncompressed bytes and file count.
-      const listing = (await run('unzip', ['-l', zip], { maxBuffer: 256 * 1024 * 1024 })).stdout
-      const summary = listing.trim().split('\n').pop()!.match(/^\s*(\d+)\s+(\d+)\s+files?/)
-      const totalBytes = summary ? Number(summary[1]) : 0
-      const count = summary ? Number(summary[2]) : names.length
-      const compressed = (await lstat(zip)).size
-      if (count > MAX_FILES) throw new Error('That .zip has too many files.')
-      if (totalBytes > MAX_BYTES) throw new Error(`That .zip is too large once unpacked (over ${gb(MAX_BYTES)}).`)
-      if (compressed > 0 && totalBytes / compressed > MAX_RATIO && totalBytes > 50 * 1024 ** 2) throw new Error('That .zip looks like a zip bomb. It was not imported.')
-      // The files, plus git's copy of them in the import commit (media barely compresses), must fit with room to spare.
-      const full = roomFor(await freeBytes(tmpRoot()), totalBytes * 2, 'unpack this .zip')
-      if (full) throw new Error(full)
-      // 3. Extract into a fresh temp dir, never over existing files (-n), no interpreter or build step involved.
-      await rm(work, { recursive: true, force: true })
-      await mkdir(work, { recursive: true })
-      await run('unzip', ['-qq', '-n', zip, '-d', work], { timeout: 60 * 60_000, maxBuffer: 16 * 1024 * 1024 })
-      // 4. Belt-and-braces: resolve symlinks and confirm none escape the extraction dir.
-      const workReal = await realpath(work)
-      await noEscapingLinks(workReal, workReal)
-      // 5. Flatten a lone top-level folder (common: `myapp/...`) so the project holds the files directly.
-      let content = workReal
-      const top = await readdir(workReal)
-      if (top.length === 1 && (await lstat(join(workReal, top[0]!))).isDirectory()) content = join(workReal, top[0]!)
-      // 6. Move into place, then make it a shared git repo with one import commit (so worktrees/branches work).
-      await mkdir(`${srv()}/projects`, { recursive: true }).catch(() => {})
-      await rename(content, dest)
-      made = true
-      await run('git', ['init', '--quiet', '--initial-branch=main', '--shared=group', dest])
-      await run('git', ['-C', dest, ...(await gitIdentity(dest)), 'add', '-A'])
-      await run('git', ['-C', dest, ...(await gitIdentity(dest)), 'commit', '--quiet', '--allow-empty', '-m', 'Import project'])
-      return { defaultBranch: 'main' }
-    } catch (err) {
-      if (made) await rm(dest, { recursive: true, force: true }).catch(() => {}) // never leave a half-made folder
-      throw err instanceof Error ? err : new Error(String(err))
+      return await p
     } finally {
-      await rm(work, { recursive: true, force: true }).catch(() => {})
-      await rm(zip, { force: true }).catch(() => {}) // the uploaded zip is done with, success or not
+      if (importing.get(id) === p) importing.delete(id)
     }
   },
+}
+
+async function importZip(id: string, dest: string) {
+  if (existsSync(dest) && (await readdir(dest).catch(() => [])).length) throw new Error('That folder already exists on the server.')
+  const zip = zipPath(id)
+  if (!existsSync(zip)) throw new Error('The upload did not arrive. Try again.')
+  const work = join(tmpRoot(), `${id}.x`)
+  let made = false // only ever clean up a dest folder we created ourselves
+  unpacking++
+  try {
+    // 1. Vet entry names before touching the disk: no absolute paths, no `..` segments. (zip is our own controlled temp path.)
+    const names = (await run('unzip', ['-Z', '-1', zip], { maxBuffer: 256 * 1024 * 1024 })).stdout.split('\n').map((s) => s.trim()).filter(Boolean)
+    if (!names.length) throw new Error('That .zip is empty.')
+    for (const n of names) {
+      if (n.startsWith('/') || n.split('/').some((seg) => seg === '..')) throw new Error('The .zip contains unsafe paths. It was not imported.')
+    }
+    // 2. Size/bomb guard from the archive listing: total uncompressed bytes and file count.
+    const listing = (await run('unzip', ['-l', zip], { maxBuffer: 256 * 1024 * 1024 })).stdout
+    const summary = listing.trim().split('\n').pop()!.match(/^\s*(\d+)\s+(\d+)\s+files?/)
+    const totalBytes = summary ? Number(summary[1]) : 0
+    const count = summary ? Number(summary[2]) : names.length
+    const compressed = (await lstat(zip)).size
+    if (count > MAX_FILES) throw new Error('That .zip has too many files.')
+    if (totalBytes > MAX_BYTES) throw new Error(`That .zip is too large once unpacked (over ${gb(MAX_BYTES)}).`)
+    if (compressed > 0 && totalBytes / compressed > MAX_RATIO && totalBytes > 50 * 1024 ** 2) throw new Error('That .zip looks like a zip bomb. It was not imported.')
+    // The files, plus git's copy of them in the import commit (media barely compresses), must fit with room to spare.
+    const full = roomFor(await freeBytes(tmpRoot()), totalBytes * 2, 'unpack this .zip')
+    if (full) throw new Error(full)
+    // 3. Extract into a fresh temp dir, never over existing files (-n), no interpreter or build step involved.
+    await rm(work, { recursive: true, force: true })
+    await mkdir(work, { recursive: true })
+    await run('unzip', ['-qq', '-n', zip, '-d', work], { timeout: 60 * 60_000, maxBuffer: 16 * 1024 * 1024 })
+    // 4. Belt-and-braces: resolve symlinks and confirm none escape the extraction dir.
+    const workReal = await realpath(work)
+    await noEscapingLinks(workReal, workReal)
+    // 5. Flatten a lone top-level folder (common: `myapp/...`) so the project holds the files directly.
+    let content = workReal
+    const top = await readdir(workReal)
+    if (top.length === 1 && (await lstat(join(workReal, top[0]!))).isDirectory()) content = join(workReal, top[0]!)
+    // 6. Move into place, then make it a shared git repo with one import commit (so worktrees/branches work).
+    await mkdir(`${srv()}/projects`, { recursive: true }).catch(() => {})
+    await rename(content, dest)
+    made = true
+    await run('git', ['init', '--quiet', '--initial-branch=main', '--shared=group', dest])
+    await run('git', ['-C', dest, ...(await gitIdentity(dest)), 'add', '-A'])
+    await run('git', ['-C', dest, ...(await gitIdentity(dest)), 'commit', '--quiet', '--allow-empty', '-m', 'Import project'])
+    await writeFile(join(dest, '.git', MARKER), `${id}\n`)
+    return { defaultBranch: 'main' }
+  } catch (err) {
+    if (made) await rm(dest, { recursive: true, force: true }).catch(() => {}) // never leave a half-made folder
+    throw err instanceof Error ? err : new Error(String(err))
+  } finally {
+    unpacking--
+    await rm(work, { recursive: true, force: true }).catch(() => {})
+    await rm(zip, { force: true }).catch(() => {}) // the uploaded zip is done with, success or not
+  }
 }

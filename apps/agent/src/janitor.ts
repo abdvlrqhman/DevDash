@@ -212,6 +212,34 @@ async function sweepDevdashWorktrees(now: number, out: Result): Promise<void> {
   }
 }
 
+/**
+ * Partial .zip uploads (apps/agent/src/project.ts) whose page never finished or threw them away — closed mid-upload, or
+ * the server restarted at the wrong moment: this member's, untouched for a day, go. They can be gigabytes.
+ */
+async function sweepUploads(now: number, out: Result): Promise<void> {
+  const dir = join(ROOT(), 'projects', '.dd-uploads')
+  const uid = myUid()
+  let names: string[]
+  try {
+    names = await readdir(dir)
+  } catch { return } // nothing uploaded yet
+  for (const name of names) {
+    if (!/^[a-f0-9]{8,64}\.(zip|x)$/.test(name)) continue // only what project.ts makes
+    const path = join(dir, name)
+    try {
+      const st = await lstat(path)
+      if (uid >= 0 && st.uid !== uid) continue
+      const ageMs = now - (st.isDirectory() ? await newestMtimeMs(path) : st.mtimeMs)
+      if (ageMs < STALE_MS) continue
+      await rm(path, { recursive: true, force: true })
+      out.removed++
+      console.log(`janitor: removed abandoned upload ${path}`)
+    } catch (err) {
+      console.log(`janitor: kept ${path} — ${(err as Error).message}`)
+    }
+  }
+}
+
 /** One full sweep across the member's project checkouts. Never throws; returns how many it removed vs. kept. */
 export async function sweep(now = Date.now()): Promise<Result> {
   const out: Result = { removed: 0, skipped: 0 }
@@ -253,6 +281,7 @@ export async function sweep(now = Date.now()): Promise<Result> {
     }
   }
   await sweepDevdashWorktrees(now, out).catch((err) => console.log(`janitor: devdash worktrees sweep failed — ${(err as Error).message}`))
+  await sweepUploads(now, out).catch((err) => console.log(`janitor: uploads sweep failed — ${(err as Error).message}`))
   if (out.removed || out.skipped) console.log(`janitor: removed ${out.removed}, kept ${out.skipped} stale/uncertain worktree(s)`)
   return out
 }

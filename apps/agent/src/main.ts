@@ -16,7 +16,7 @@ import { startJanitor } from './janitor.ts'
 import * as files from './files.ts'
 import * as memory from './memory.ts'
 import * as mentions from './mentions.ts'
-import { ops as project } from './project.ts'
+import { busy as projectBusy, ops as project } from './project.ts'
 import * as sqlite from './sqlite.ts'
 import * as gh from './gh.ts'
 import { attachPty, hasSession, listSessions, send, tmux, TMUX_CONF } from './tmux.ts'
@@ -236,10 +236,11 @@ async function handle(conn: Socket) {
   }
 }
 
-// Deploys ask agents to restart; wait until no Chat turn is running, so nobody's Claude is cut off mid-answer.
+// Deploys ask agents to restart; wait until no Chat turn is running and no .zip is uploading or unpacking, so nobody's
+// Claude is cut off mid-answer and nobody's 20 GB upload dies halfway.
 let upgrading = false
 setInterval(() => {
-  if (upgrading && !claude.busy()) process.exit(0) // systemd starts the new code
+  if (upgrading && !claude.busy() && !projectBusy()) process.exit(0) // systemd starts the new code
 }, 5_000).unref()
 
 // Apply the current tmux.conf and environment to an already running tmux server (no-op when none is running).

@@ -93,7 +93,9 @@ test('a .zip import runs in the background: the page asks how it is going, sees 
   assert.equal(projects.importStatus(ann, 'aaaa1111').state, 'importing')
   assert.throws(() => projects.importStatus(bob, 'aaaa1111'), /No import/) // only the person who started it
   assert.throws(() => projects.startFromZip(bob, { name: 'Game', slug: 'game', uploadId: 'bbbb2222' }), /being imported right now/)
-  assert.throws(() => projects.startFromZip(ann, { name: 'Game', slug: 'game', uploadId: 'aaaa1111' }), /already being imported/)
+  // Asking again for the same upload (the page lost the answer) reports how it's going instead of failing.
+  assert.deepEqual(projects.startFromZip(ann, { name: 'Game', slug: 'game', uploadId: 'aaaa1111' }), { uploadId: 'aaaa1111', slug: 'game', state: 'importing' })
+  assert.throws(() => projects.startFromZip(bob, { name: 'Other', slug: 'other', uploadId: 'aaaa1111' }), /already being imported/)
   assert.equal(projects.list(false, 1).length, 0) // no project row until the folder is a real repo
 
   await tick()

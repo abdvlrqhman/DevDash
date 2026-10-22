@@ -102,24 +102,55 @@ const MAX_ZIP = 20 * GB // the agent refuses more (apps/agent/src/project.ts)
 const gb = (n: number) => `${(n / GB).toFixed(n < 10 * GB ? 1 : 0)} GB`
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-/** Sends one piece, trying again after a network blip or a busy server: a 20 GB upload is hundreds of pieces. */
-async function sendPiece(url: string, body: Blob) {
+/** Worth waiting out: the network, a busy or restarting server, a member's agent restarting after a deploy. */
+const temporary = (status: number, code?: string) => status === 0 || status >= 500 || status === 429 || code === 'agent_unavailable'
+const RETRIES = 8 // 2, 4, 8, 16, 30, 30, 30 s: about two minutes, longer than a deploy's restart
+const backoff = (attempt: number) => sleep(Math.min(30_000, 1000 * 2 ** attempt))
+
+/**
+ * Sends one piece with live progress (XHR: fetch can't report upload progress), trying again through network blips and
+ * restarts. A 20 GB upload is hundreds of pieces, and the server writes each at its offset, so resending one is safe.
+ */
+async function sendPiece(url: string, body: Blob, onProgress: (loaded: number) => void, onRetry: () => void) {
   for (let attempt = 1; ; attempt++) {
-    let res: Response | null = null
-    try {
-      res = await fetch(url, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/octet-stream' }, body })
-    } catch (err) {
-      if (attempt >= 5) throw new ApiError(`Upload interrupted: ${(err as Error).message}`, 0, 'upload')
-    }
-    if (res?.ok) return
-    if (res && res.status < 500 && res.status !== 429) {
-      const e = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
-      throw new ApiError(e?.error?.message ?? `Upload failed (${res.status})`, res.status, 'upload')
-    }
-    if (attempt >= 5) throw new ApiError(`Upload failed (${res?.status ?? 'network'}). Try again.`, res?.status ?? 0, 'upload')
-    await sleep(1000 * 2 ** attempt) // 2, 4, 8, 16 s
+    const r = await new Promise<{ status: number; text: string }>((resolve) => {
+      const x = new XMLHttpRequest()
+      x.open('POST', url)
+      x.setRequestHeader('content-type', 'application/octet-stream')
+      x.upload.onprogress = (e) => onProgress(e.loaded)
+      x.onload = () => resolve({ status: x.status, text: x.responseText })
+      x.onerror = () => resolve({ status: 0, text: '' }) // no answer at all: the network or a restarting server
+      x.send(body)
+    })
+    if (r.status >= 200 && r.status < 300) return
+    let error: { code?: string; message?: string } = {}
+    try { error = (JSON.parse(r.text) as { error?: typeof error }).error ?? {} } catch { /* not JSON (Cloudflare's page) */ }
+    if (!temporary(r.status, error.code)) throw new ApiError(error.message ?? `Upload failed (${r.status})`, r.status, error.code ?? 'upload')
+    if (attempt >= RETRIES) throw new ApiError('The server stayed out of reach for a few minutes. Try again shortly.', r.status, 'upload')
+    onRetry()
+    onProgress(0)
+    await backoff(attempt)
   }
 }
+
+/** Calls the API, trying again while the server or the member's agent restarts (a deploy). */
+async function patiently<T>(call: () => Promise<T>) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await call()
+    } catch (err) {
+      const e = err as ApiError
+      if (attempt >= RETRIES || !temporary(e.status ?? 0, e.code)) throw err
+      await backoff(attempt)
+    }
+  }
+}
+
+const rate = (bps: number) => (bps >= 1024 ** 2 ? `${(bps / 1024 ** 2).toFixed(1)} MB/s` : `${Math.max(1, Math.round(bps / 1024))} KB/s`)
+const eta = (s: number) => (s < 60 ? 'under a minute left' : s < 3600 ? `about ${Math.ceil(s / 60)} min left` : `about ${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min left`)
+/** Upload progress for the dialog: how much is sent, how fast (over the last few seconds), and whether it's reconnecting. */
+type UploadStats = { sent: number; total: number; speed: number | null; reconnecting: boolean }
+
 const hexId = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('')
 
 function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -134,6 +165,7 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [instructions, setInstructions] = useState('')
   const [progress, setProgress] = useState<number | null>(null) // 0–100 while a zip is uploading
   const [unpacking, setUnpacking] = useState(false)
+  const [stats, setStats] = useState<UploadStats | null>(null)
   const zip = mode === 'zip'
   const guess = name || (zip ? file?.name.replace(/\.zip$/i, '') : repoUrl.split('/').pop()?.replace(/\.git$/, '')) || ''
   const effectiveSlug = slugTouched ? slug : slugify(guess)
@@ -147,23 +179,41 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
       let started = false
       try {
         setProgress(0)
+        // Speed over the last ~8 seconds, updated a few times a second.
+        const samples: [number, number][] = []
+        let shown = 0
+        const report = (sent: number) => {
+          const t = performance.now()
+          samples.push([t, sent])
+          while (samples.length > 2 && t - samples[0]![0] > 8000) samples.shift()
+          if (t - shown < 250 && sent < file.size) return
+          shown = t
+          const [t0, b0] = samples[0]!
+          const speed = t - t0 > 1500 && sent > b0 ? ((sent - b0) / (t - t0)) * 1000 : null
+          setProgress(file.size ? Math.min(99, (sent / file.size) * 100) : 99)
+          setStats({ sent, total: file.size, speed, reconnecting: false })
+        }
         // Stream the zip to the server in order (the first piece says the whole size, so one that won't fit is refused
         // at once), then start the import (unzip + git init) and wait for it: a big one takes minutes.
         for (let offset = 0; offset === 0 || offset < file.size; offset += CHUNK) {
           const q = new URLSearchParams({ uploadId, offset: String(offset), ...(offset === 0 && { total: String(file.size) }) })
-          await sendPiece(`/api/projects/zip?${q}`, file.slice(offset, offset + CHUNK))
-          setProgress(file.size ? Math.min(99, ((offset + CHUNK) / file.size) * 100) : 99)
+          await sendPiece(`/api/projects/zip?${q}`, file.slice(offset, offset + CHUNK), (loaded) => report(offset + loaded),
+            () => setStats((s) => s && { ...s, speed: null, reconnecting: true }))
           if (file.size === 0) break
         }
         setProgress(null)
+        setStats(null)
         setUnpacking(true)
-        await unwrap(api.api.projects['from-zip'].$post({ json: { name: name || guess, slug: effectiveSlug, uploadId, instructions: instructions.trim() || undefined } }))
+        const start = () => patiently(() => unwrap(api.api.projects['from-zip'].$post({ json: { name: name || guess, slug: effectiveSlug, uploadId, instructions: instructions.trim() || undefined } })))
+        await start()
         started = true
         for (;;) {
           await sleep(2000)
-          const s = await unwrap(api.api.projects.zip.status.$get({ query: { uploadId } })).catch((err: ApiError) => {
-            if (err.status === 404) throw err // the server restarted mid-import
-            return null // a blip: ask again
+          const s = await unwrap(api.api.projects.zip.status.$get({ query: { uploadId } })).catch(async (err: ApiError) => {
+            // The server restarted and forgot the import: asking again joins it (the agent keeps going) or finds it done.
+            if (err.status === 404) await start()
+            else if (!temporary(err.status ?? 0, err.code)) throw err
+            return null // a blip or a restart: ask again
           })
           if (s?.state === 'done' && s.project) return { project: s.project }
           if (s?.state === 'failed') throw new ApiError(s.error ?? 'The import failed.', 400, 'import')
@@ -174,6 +224,7 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
         throw err
       } finally {
         setProgress(null)
+        setStats(null)
         setUnpacking(false)
       }
     },
@@ -193,7 +244,7 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
     if (effectiveSlug && (!zip || file) && !create.isPending) create.mutate()
   }
   const label = create.isPending
-    ? (zip ? (unpacking ? 'Unpacking…' : progress === null ? 'Finishing…' : `Uploading ${Math.floor(progress)}%${file && file.size > GB ? ` of ${gb(file.size)}` : ''}…`) : repoUrl ? 'Cloning…' : 'Creating…')
+    ? (zip ? (unpacking ? 'Unpacking…' : progress === null ? 'Finishing…' : stats?.reconnecting ? 'Reconnecting…' : `Uploading ${Math.floor(progress)}%…`) : repoUrl ? 'Cloning…' : 'Creating…')
     : zip ? 'Create from zip' : 'Add project'
   return (
     <ResponsiveDialog open={open} onOpenChange={close} title="Add a project" description="One shared checkout on the server that the whole team and their Claude sessions work in.">
@@ -235,6 +286,14 @@ function NewProject({ open, onClose }: { open: boolean; onClose: () => void }) {
             <FieldDescription>Rules every Claude session in this project follows — set once, like a Claude Project's instructions. You can change them later on the project page.</FieldDescription>
           </Field>
           {progress !== null && <Progress value={progress} />}
+          {stats && (
+            <p className="flex flex-wrap justify-between gap-x-3 text-xs text-muted-foreground tabular-nums" aria-live="polite">
+              <span>{gb(stats.sent)} of {gb(stats.total)}</span>
+              <span>{stats.reconnecting ? 'Connection lost — reconnecting…'
+                : stats.speed ? `${rate(stats.speed)} · ${eta((stats.total - stats.sent) / stats.speed)}` : 'Measuring speed…'}</span>
+            </p>
+          )}
+          {unpacking && <p className="text-xs text-muted-foreground">Uploaded. Unpacking and saving it as a git repository — a big one takes a few minutes.</p>}
           <ErrorAlert error={create.error} />
           <Button type="submit" className="h-10" disabled={!effectiveSlug || (zip && !file) || create.isPending}>
             {create.isPending && <Spinner />}{label}
