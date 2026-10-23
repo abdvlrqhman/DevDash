@@ -39,6 +39,47 @@ fn is_external(url: &Url) -> bool {
     matches!(url.scheme(), "http" | "https" | "mailto")
 }
 
+/**
+ * A page that opens a blank window and points it somewhere afterwards gets a hidden one of ours: the first web address
+ * it goes to opens in the system browser instead, and the window goes away (also if it never goes anywhere).
+ */
+#[cfg(desktop)]
+fn catch_popup(app: &tauri::AppHandle, features: tauri::webview::NewWindowFeatures) -> Option<tauri::WebviewWindow> {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    static NEXT: AtomicU32 = AtomicU32::new(0);
+    let label = format!("popup-{}", NEXT.fetch_add(1, Ordering::Relaxed));
+    let close = |app: &tauri::AppHandle, label: &str| {
+        let (app, label) = (app.clone(), label.to_string());
+        std::thread::spawn(move || {
+            if let Some(w) = app.get_webview_window(&label) {
+                let _ = w.destroy();
+            }
+        });
+    };
+    let (nav_app, nav_label) = (app.clone(), label.clone());
+    let window = WebviewWindowBuilder::new(app, &label, WebviewUrl::External("about:blank".parse().ok()?))
+        .window_features(features)
+        .visible(false)
+        .on_navigation(move |url| {
+            if !is_external(url) {
+                return true;
+            }
+            let _ = nav_app.opener().open_url(url.as_str(), None::<&str>);
+            close(&nav_app, &nav_label);
+            false
+        })
+        .build()
+        .ok()?;
+    let (late_app, late_label) = (app.clone(), label);
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(30));
+        if let Some(w) = late_app.get_webview_window(&late_label) {
+            let _ = w.destroy();
+        }
+    });
+    Some(window)
+}
+
 fn param(url: &Url, key: &str) -> String {
     url.query_pairs().find(|(k, _)| k == key).map(|(_, v)| v.chars().take(300).collect()).unwrap_or_default()
 }
@@ -142,10 +183,16 @@ pub fn run() {
                     .title("DevDash")
                     .inner_size(1200.0, 800.0)
                     .min_inner_size(360.0, 560.0)
-                    // window.open(): links go to the system browser instead of a stray in-app window.
-                    .on_new_window(move |url, _features| {
+                    // window.open() and target=_blank, from the space's pages or a service shown inside them (WebView2
+                    // raises popups from frames here too): links go to the system browser, not a stray in-app window.
+                    .on_new_window(move |url, features| {
                         if is_external(&url) {
                             let _ = new_win_app.opener().open_url(url.as_str(), None::<&str>);
+                        } else if url.as_str() == "about:blank" {
+                            // window.open('') now, the address later (common around async work): catch it.
+                            if let Some(window) = catch_popup(&new_win_app, features) {
+                                return tauri::webview::NewWindowResponse::Create { window };
+                            }
                         }
                         tauri::webview::NewWindowResponse::Deny
                     })

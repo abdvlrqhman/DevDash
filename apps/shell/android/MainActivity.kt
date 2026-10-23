@@ -1,6 +1,7 @@
 // Copied over the generated MainActivity by .github/workflows/app-release.yml after `tauri android init`.
 // Android back goes back through the page history like a native app, and only leaves the app at the first screen.
 // The space can turn background notifications on and off (NotifyService); tapping one opens its page.
+// New windows (target=_blank, window.open — also from a service shown inside the space) go to the system (NewWindows).
 package io.github.abdvlrqhman.devdash
 
 import android.content.Intent
@@ -18,6 +19,8 @@ class MainActivity : TauriActivity() {
   override fun onWebViewCreate(webView: WebView) {
     this.webView = webView
     webView.addJavascriptInterface(Bridge(), "DevDashAndroid")
+    // Wry sets its WebChromeClient right after this hook, in the same step; posting runs once it has.
+    webView.post { NewWindows.install(webView) }
   }
 
   /** window.DevDashAndroid in the space's pages (lib/shell.ts). */
