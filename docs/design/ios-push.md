@@ -1,5 +1,11 @@
 # iPhone app notifications while it's closed (APNs)
 
+> **Status (2026-10-23):** dormant. The team has no paid Apple developer account and installs the iPhone app with a
+> sideloading service, which re-signs it with that service's account — so Apple push can't reach it. The admin page
+> for the Apple key (Account → iPhone app notifications, `ApnsSetup.tsx`) was removed; restore it from git history
+> (commit a272511) with a paid account. Meanwhile iPhones get notifications while DevDash is closed through ntfy
+> (apps/server/src/modules/notifications/ntfy.ts).
+
 **Status:** built, not yet run on a device (needs a paid Apple account and a signed build; see "Untested").
 The native iPhone app gets DevDash's notifications in real time while it's closed or suspended, through Apple's push
 service (APNs), the only way iOS lets an app be woken for that. Before this it only showed them while it ran (local

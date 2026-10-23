@@ -4,6 +4,7 @@ import webpush from 'web-push'
 import type { Db } from '../../core/db.ts'
 import type { Hub } from '../../core/hub.ts'
 import type { ApnsService } from './apns.ts'
+import type { NtfyService } from './ntfy.ts'
 
 export type NotificationKind = 'needs_you' | 'finished' | 'errors' | 'shared'
 export type Prefs = Record<NotificationKind, boolean>
@@ -17,9 +18,11 @@ type Sub = { id: number; endpoint: string; p256dh: string; auth: string }
  * and Apple's push service to the iPhone app (apns.ts). Pushes are skipped while the member has DevDash open and
  * focused somewhere, so nothing arrives twice.
  */
-export function notificationsService({ db, hub, dataDir, origin, apns }: {
+export function notificationsService({ db, hub, dataDir, origin, apns, ntfy }: {
   db: Db; hub: Hub; dataDir: string; origin: string
   apns?: Pick<ApnsService, 'deliver'>
+  /** Members who turned on ntfy (phones without Apple push for the app): ntfy.ts. */
+  ntfy?: Pick<NtfyService, 'deliver'>
 }) {
   // VAPID keys identify this server to browsers' push services. Created once, kept with the data.
   const keyFile = join(dataDir, 'vapid.json')
@@ -90,7 +93,7 @@ export function notificationsService({ db, hub, dataDir, origin, apns }: {
       const kept = (recent.get(userId) ?? []).filter((e) => e.at > Date.now() - 900_000).slice(-19)
       recent.set(userId, [...kept, { ...event, at: Date.now() }])
       for (const send of streams.get(userId) ?? []) send(event)
-      await Promise.all([push(userId, event), apns?.deliver(userId, event)])
+      await Promise.all([push(userId, event), apns?.deliver(userId, event), ntfy?.deliver(userId, event)])
     },
 
     /** Subscribes a stream; returns what it missed since `since` (a notification id) and how to unsubscribe. */

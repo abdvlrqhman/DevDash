@@ -15,7 +15,7 @@ import { squarePicture } from '@/lib/avatar'
 import { APP_DOWNLOADS, inShell, openExternal } from '@/lib/shell'
 import { setTheme, useTheme, type ThemePref } from '@/lib/theme'
 import { CodeInput, ErrorAlert } from '../auth/LoginPage'
-import { ApnsSetup } from '../notifications/ApnsSetup'
+import { NtfyPanel } from '../notifications/Ntfy'
 import { NotificationsPanel } from '../notifications/Notifications'
 import { GitHubConnection } from '../work/GitHub'
 
@@ -81,11 +81,9 @@ export function AccountPage() {
         <Panel title="Notifications" description="Choose what DevDash tells you about. These apply to all your devices.">
           <NotificationsPanel />
         </Panel>
-        {me.role === 'admin' && (
-          <Panel title="iPhone app notifications" description="The space's Apple push key, so the DevDash iPhone app gets notifications while it's closed. Only admins see this.">
-            <ApnsSetup />
-          </Panel>
-        )}
+        <Panel title="Phone notifications with ntfy" description="For an iPhone app installed with a sideloading app: notifications even while DevDash is closed, through the free ntfy app.">
+          <NtfyPanel />
+        </Panel>
         <Panel title="GitHub" description="Your own GitHub account on the server. DevDash clones, fetches and pushes as you; you sign in once with a code in your browser.">
           <GitHubConnection />
         </Panel>

@@ -5,6 +5,7 @@ import { json } from '../../core/http.ts'
 import type { AuthEnv, authMiddleware } from '../auth/routes.ts'
 import type { ApnsService } from './apns.ts'
 import type { NotificationsService } from './service.ts'
+import type { NtfyService } from './ntfy.ts'
 
 const Subscription = z.object({
   endpoint: z.url().max(1000).refine((u) => u.startsWith('https://'), 'Push endpoints must be https'),
@@ -25,7 +26,7 @@ const ApnsConfig = z.object({
   key: z.string().max(10_000).optional(),
 })
 
-export function notificationsRoutes(n: NotificationsService, apns: ApnsService, mw: ReturnType<typeof authMiddleware>) {
+export function notificationsRoutes(n: NotificationsService, apns: ApnsService, ntfy: NtfyService, mw: ReturnType<typeof authMiddleware>) {
   return new Hono<AuthEnv>()
     .use(mw.requireUser)
     .get('/', (c) => c.json(n.list(c.get('user').id)))
@@ -79,6 +80,12 @@ export function notificationsRoutes(n: NotificationsService, apns: ApnsService, 
       apns.unregister(c.get('user').id, c.req.valid('json').token)
       return c.json({ ok: true })
     })
+    // The member's own ntfy target (ntfy.ts). The access token is posted once, sealed, and never returned.
+    .get('/ntfy', (c) => c.json(ntfy.status(c.get('user').id)))
+    .put('/ntfy', json(z.object({ server: z.string().max(300).optional(), token: z.string().max(300).nullable().optional(), newTopic: z.boolean().optional() })),
+      (c) => c.json(ntfy.configure(c.get('user').id, c.req.valid('json'))))
+    .delete('/ntfy', (c) => c.json(ntfy.disable(c.get('user').id)))
+    .post('/ntfy/test', async (c) => c.json(await ntfy.test(c.get('user').id)))
     .get('/apns/config', mw.requireAdmin, (c) => c.json(apns.info()))
     .put('/apns/config', mw.requireAdmin, json(ApnsConfig), (c) => c.json(apns.setConfig(c.get('user'), c.req.valid('json'))))
     .delete('/apns/config', mw.requireAdmin, (c) => c.json(apns.removeConfig()))

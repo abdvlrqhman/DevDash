@@ -103,12 +103,8 @@ export function NotificationsPanel() {
 /** What reaches the iPhone app while it's closed, and if nothing does, why. */
 function iosNote(push: IosPushState | null | undefined, apns: boolean | undefined) {
   if (push === undefined) return 'Arrive while the app is open. Checking whether they can arrive while it’s closed…'
-  if (push?.error === 'no-entitlement') {
-    return 'Arrive while the app is open. This copy of DevDash can’t get them while it’s closed: iPhone only allows that for apps signed with a paid Apple developer account, which AltStore and SideStore installs aren’t. The signed DevDash app or DevDash on your Home Screen (from Safari) can.'
-  }
-  if (apns === false) return 'Arrive while the app is open. For notifications while it’s closed, an admin adds the space’s Apple push key (Account → iPhone app notifications).'
-  if (push?.token) return 'Arrive even when the app is closed.'
-  return 'Arrive while the app is open. Apple hasn’t given this iPhone a push address yet: check the connection, then turn this off and on again.'
+  if (push?.token && apns) return 'Arrive even when the app is closed.'
+  return 'Arrive while the app is open. For notifications while it’s closed, turn on ntfy below.'
 }
 
 /** Turns notifications on for the device in hand: Web Push in browsers, system permission (and Apple push) in the app. */
