@@ -9,6 +9,7 @@ import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, 
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { showSearch } from '@/components/app/search'
 import { meQuery } from '@/lib/api'
+import { PinnedList } from '../pins/pins'
 import { APP_DOWNLOADS, inShell, openExternal } from '@/lib/shell'
 import { setTheme, useTheme, type ThemePref } from '@/lib/theme'
 
@@ -38,6 +39,7 @@ export function MorePage() {
     <>
       <PageHeader title="More" />
       <PageBody>
+        <PinnedList />
         <Item variant="muted">
           <ItemMedia><Avatar className="size-10"><AvatarFallback>{initials(me.name)}</AvatarFallback></Avatar></ItemMedia>
           <ItemContent>

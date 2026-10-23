@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { Toggle } from '@/components/ui/toggle'
 import { api, meQuery, unwrap } from '@/lib/api'
+import { PinButton } from '../pins/pins'
 import { ErrorAlert } from '../auth/LoginPage'
 import { Prose } from '../claude/Blocks'
 import { relativeTime } from '../claude/data'
@@ -81,7 +82,8 @@ function Editor({ note, initialProject }: { note: Note | null; initialProject: s
     <div className="flex h-full flex-col">
       <PageHeader back="/notes" title={d.title || 'Untitled'} description={status}
         actions={<>
-          <Toggle size="sm" pressed={d.pinned} onPressedChange={(v) => change({ pinned: v })} aria-label="Pin to the top"><Pin /></Toggle>
+          <Toggle size="sm" pressed={d.pinned} onPressedChange={(v) => change({ pinned: v })} aria-label="Pin to the top of Notes, for everyone" title="Pin to the top of Notes, for everyone"><Pin /></Toggle>
+          {note && <PinButton kind="note" id={String(note.id)} labelled />}
           {isAuthor && <Toggle size="sm" pressed={d.private} onPressedChange={(v) => change({ private: v })} aria-label="Only me"><Lock /></Toggle>}
           <Button size="sm" variant="outline" onClick={() => setPreview((p) => !p)}>{preview ? <><Pencil />Edit</> : <><Eye />Preview</>}</Button>
           {idRef.current && (

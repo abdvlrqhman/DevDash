@@ -21,6 +21,8 @@ import { servicePages } from './modules/previews/service.ts'
 import { statusService } from './modules/status/service.ts'
 import { deployService } from './modules/status/deploy.ts'
 import { vaultService } from './modules/vault/service.ts'
+import { pinsRoutes } from './modules/pins/routes.ts'
+import { pinsService, type Resolved } from './modules/pins/service.ts'
 import { spacePagesRoutes } from './modules/storage/pages.ts'
 import { storageRoutes, storageTokenRoutes } from './modules/storage/routes.ts'
 import { storageService } from './modules/storage/service.ts'
@@ -120,6 +122,28 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   tailnet = tailnetService({ db, agents, masterKey: config.masterKey, runDir: config.runDir, isRole: (u, s) => !!team?.service?.roleOf(u, s) })
   const status = statusService({ db, agents, services, browser, runDir: config.runDir, dataDir: config.dataDir, version: config.version })
   const deploys = deployService({ db, agents, projects, notify: notifications.notify, runDir: config.runDir, repo: config.repo, live: status.release })
+  // Each member's sidebar pins: every module shows its own items, by its own visibility rules (pins imports none of them).
+  const pins = pinsService({ db, hub })
+  const each = (refs: string[], fn: (ref: string) => Resolved) =>
+    new Map(refs.flatMap((r) => { try { return [[r, fn(r)] as const] } catch { return [] } })) // gone, or not theirs to see
+  pins.register('project', (u, refs) => each(refs, (slug) => {
+    const p = projects.get(slug, u.id)
+    return { title: p.name, url: `/projects/${slug}`, detail: p.archived ? 'archived' : null }
+  }))
+  pins.register('session', (u, refs) => claude.pinned(u, refs))
+  pins.register('task', (_u, refs) => each(refs, (ref) => {
+    const [slug, n] = ref.split('/')
+    const t = tasks.get(slug!, Number(n))
+    return { title: `#${t.number} ${t.title}`, url: `/tasks/${slug}/${n}`, state: t.status, detail: slug ?? null }
+  }))
+  pins.register('note', (u, refs) => each(refs, (id) => {
+    const n = notes.get(u, Number(id))
+    return { title: n.title, url: `/notes/${id}` }
+  }))
+  pins.register('service', (u, refs) => each(refs, (name) => {
+    const s = services.get(u, name)
+    return { title: s.name, url: `/services/${name}`, state: s.state }
+  }))
   const app = new Hono()
     // Requests from the services site (port 8443) are proxied to services, never mixed with DevDash's routes.
     .use('*', previews.middleware)
@@ -154,6 +178,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     .route('/api/vault', vaultRoutes(vault, mw))
     .route('/api/tailnet', tailnetRoutes(tailnet, mw))
     .route('/api/storage', storageRoutes(storage, mw))
+    .route('/api/pins', pinsRoutes(pins, mw))
     .route('/api/browser', browserRoutes(browser, mw))
     .route('/api/status', statusRoutes(status, deploys, mw))
     .route('/api/team', team.routes) // Team

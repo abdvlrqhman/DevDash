@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import {
@@ -28,6 +28,7 @@ import { initials, Logo } from './brand'
 import { useDragWidth, useStoredWidth } from './resize-handle'
 import { SearchDialog, showSearch } from './search'
 import { ApprovalsBadge } from '@/features/team/Approvals' // Team (optional): docs/REMOVING-TEAM.md
+import { SidebarPins } from '@/features/pins/pins'
 
 type NavItem = { to: string; label: string; icon: typeof House; exact?: true }
 const NAV: { label?: string; items: NavItem[] }[] = [
@@ -174,8 +175,9 @@ function AppSidebar({ waiting, pane }: { waiting: number; pane: ReturnType<typeo
         <SidebarTrigger title="Collapse the sidebar (Ctrl+B)" className="text-muted-foreground group-data-[collapsible=icon]:hidden" />
       </SidebarHeader>
       <SidebarContent>
-        {NAV.map((g, gi) => (
-          <SidebarGroup key={g.label ?? 'top'} className={cn('px-2 py-1.5', gi > 0 && 'pt-0')}>
+        {NAV.map((g, gi) => (<Fragment key={g.label ?? 'top'}>
+          {gi === 1 && <SidebarPins />}
+          <SidebarGroup className={cn('px-2 py-1.5', gi > 0 && 'pt-0')}>
             {g.label && <SidebarGroupLabel>{g.label}</SidebarGroupLabel>}
             <SidebarMenu>
               {gi === 0 && (
@@ -198,7 +200,7 @@ function AppSidebar({ waiting, pane }: { waiting: number; pane: ReturnType<typeo
               ))}
             </SidebarMenu>
           </SidebarGroup>
-        ))}
+        </Fragment>))}
       </SidebarContent>
       <SidebarFooter className="py-1.5">
         <SidebarTrigger title="Expand the sidebar (Ctrl+B)" className="mx-auto hidden text-muted-foreground group-data-[collapsible=icon]:inline-flex" />

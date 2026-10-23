@@ -17,6 +17,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { api, meQuery, unwrap } from '@/lib/api'
+import { PinMenuItem } from '../pins/pins'
 import { ErrorAlert } from '../auth/LoginPage'
 import { FileViewerProvider } from '../files/FileViewer'
 import { KeyBar } from '../terminal/KeyBar'
@@ -577,6 +578,7 @@ function SessionMenu({ s, isOwner, canSend, onUpdate, onShare, onRename, onUsage
           </p>
         )}
         <DropdownMenuSeparator />
+        <PinMenuItem kind="session" id={s.id} />
         <DropdownMenuItem asChild><Link to="/claude/setup">Claude setup</Link></DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

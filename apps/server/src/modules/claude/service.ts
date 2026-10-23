@@ -597,6 +597,21 @@ export function claudeService({ db, agents, hub, notify, projects, tailnetConnec
       }
     },
 
+    /** For sidebar pins: the sessions this member may open, by id, named as their page names them, with live status. */
+    pinned(user: User, ids: string[]) {
+      const out = new Map<string, { title: string; url: string; state: string; detail: string | null }>()
+      for (const id of ids) {
+        const s = repo.byId(id)
+        if (!s || !canView(user, s)) continue
+        const rl = roleLabel(s)
+        out.set(id, {
+          title: rl ? `${rl.role.name} · AI team` : s.title, url: `/claude/${id}`, state: s.status,
+          detail: s.archived ? 'archived' : s.project_name,
+        })
+      }
+      return out
+    },
+
     /** This session's own usage so far (cost + tokens + turns). Same visibility as any other session read. */
     sessionUsage: (user: User, id: string) => (find(user, id), sumTurns(repo.turns(id))),
 

@@ -25,6 +25,7 @@ import { NoteList } from '../notes/NotesPage'
 import { repoLabel } from './ProjectsPage'
 import { BuildsTab } from '../builds/BuildsTab'
 import { api, unwrap } from '@/lib/api'
+import { PinButton } from '../pins/pins'
 import { TeamTab } from '../team/TeamTab' // Team (optional): docs/REMOVING-TEAM.md
 import { deliveriesQuery, ReadyToReview, useLiveDeliveries } from './ReadyToReview'
 
@@ -62,6 +63,7 @@ function ProjectPageView() {
         description={<span className="flex items-center gap-1.5"><span className="truncate font-mono">{repoLabel(p.repoUrl)}</span><GitBranch className="size-3.5 shrink-0" />{p.defaultBranch}</span>}
         actions={<>
           {p.repoUrl && <Button size="icon-sm" variant="ghost" aria-label="Fetch now" disabled={fetchNow.isPending} onClick={() => fetchNow.mutate()}><RefreshCw className={fetchNow.isPending ? 'animate-spin' : ''} /></Button>}
+          <PinButton kind="project" id={p.slug} />
           <Button size="sm" variant="outline" onClick={() => setSession(true)}><Sparkles /><span className="hidden sm:inline">Claude</span></Button>
         </>} />
       <PageBody>

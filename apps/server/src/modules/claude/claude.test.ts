@@ -331,3 +331,12 @@ test("a project's sessions shared with chosen people: listed for them, only coun
   assert.deepEqual(claude.inProject(cat, 'app', false).sessions, [])
   assert.deepEqual(claude.inProject(cat, 'app', false).hidden, { count: 1, people: ['Ann Lee'] })
 })
+
+test("a pinned session shows in the sidebar only while the member may open it, with its live status", () => {
+  const { claude, ann, bob, cat } = setup() // s1: Ann's, shared with the team
+  assert.deepEqual([...claude.pinned(bob, ['s1', 'nope'])], [['s1', { title: 'Fix login', url: '/claude/s1', state: 'idle', detail: null }]])
+  claude.setSharing(ann, 's1', { audience: 'people', people: [{ id: 2, canSend: false }] })
+  assert.equal(claude.pinned(bob, ['s1']).size, 1)
+  assert.equal(claude.pinned(cat, ['s1']).size, 0) // not shared with her any more: the pin hides
+  assert.equal(claude.pinned(ann, ['s1']).size, 1)
+})

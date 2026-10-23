@@ -13,6 +13,7 @@ import { openExternal } from '@/lib/shell'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api, unwrap } from '@/lib/api'
+import { PinButton } from '../pins/pins'
 import { ErrorAlert } from '../auth/LoginPage'
 import { TerminalView, type Status } from '../terminal/TerminalView'
 import { servicesQuery, stateOf, useLiveServices, type Service } from './data'
@@ -60,6 +61,7 @@ function ServicePageView() {
       <PageHeader back="/services" title={<span className="font-mono">{s.name}</span>}
         description={<span className="flex items-center gap-1.5"><StatusLight state={st.light} />{st.label}</span>}
         actions={<>
+          <PinButton kind="service" id={s.name} />
           {s.previewUrl && <Button size="sm" variant="outline" onClick={() => openExternal(s.previewUrl!)}><ExternalLink /><span className="hidden sm:inline">Open</span></Button>}
           {s.canControl && <>
           {s.desired === 'stopped'
