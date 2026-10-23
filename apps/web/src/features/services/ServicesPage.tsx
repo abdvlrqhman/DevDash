@@ -1,11 +1,11 @@
 import { useMemo, useState, type FormEvent } from 'react'
+import { UserAvatar } from '@/components/app/user-avatar'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { ChevronDown, ChevronRight, Plus, Server, Sparkles } from 'lucide-react'
-import { initials, StatusLight } from '@/components/app/brand'
+import { StatusLight } from '@/components/app/brand'
 import { PageBody, PageHeader } from '@/components/app/page'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -109,7 +109,7 @@ function ServiceRow({ s, showOwner }: { s: Service; showOwner: boolean }) {
         </ItemContent>
         {showOwner && (
           <ItemActions>
-            <Avatar className="size-7" title={s.owner.name}><AvatarFallback className="text-[11px]">{initials(s.owner.name)}</AvatarFallback></Avatar>
+            <UserAvatar user={s.owner} className="size-7" textClassName="text-[11px]" title={s.owner.name} />
           </ItemActions>
         )}
       </Link>

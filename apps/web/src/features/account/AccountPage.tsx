@@ -1,15 +1,17 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, LogOut } from 'lucide-react'
 import { toast } from 'sonner'
 import { PageBody, PageHeader, SettingsSection } from '@/components/app/page'
 import { useSignOut } from '@/components/app/shell'
+import { membersQuery, UserAvatar } from '@/components/app/user-avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { api, meQuery, unwrap } from '@/lib/api'
+import { squarePicture } from '@/lib/avatar'
 import { APP_DOWNLOADS, inShell, openExternal } from '@/lib/shell'
 import { setTheme, useTheme, type ThemePref } from '@/lib/theme'
 import { CodeInput, ErrorAlert } from '../auth/LoginPage'
@@ -18,6 +20,45 @@ import { NotificationsPanel } from '../notifications/Notifications'
 import { GitHubConnection } from '../work/GitHub'
 
 const Panel = SettingsSection
+
+/** Choose, change or remove your picture. Cropped to a centred square and shrunk in the browser before it uploads. */
+function ProfilePicture() {
+  const me = useQuery(meQuery).data!
+  const qc = useQueryClient()
+  const has = useQuery({ ...membersQuery, select: (d) => d.users.find((u) => u.id === me.id)?.avatarAt ?? null }).data
+  const input = useRef<HTMLInputElement>(null)
+  const done = (msg: string) => { toast.success(msg); void qc.invalidateQueries({ queryKey: ['members'] }) }
+  const upload = useMutation({
+    mutationFn: async (file: File) => {
+      const picture = await squarePicture(file)
+      const res = await fetch('/api/members/me/avatar', { method: 'PUT', credentials: 'same-origin', headers: { 'content-type': picture.type }, body: picture })
+      if (!res.ok) {
+        const e = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
+        throw new Error(e?.error?.message ?? `Upload failed (${res.status})`)
+      }
+    },
+    onSuccess: () => done('Picture updated'),
+    onError: (e) => toast.error(e.message),
+  })
+  const remove = useMutation({
+    mutationFn: () => unwrap(api.api.members.me.avatar.$delete()),
+    onSuccess: () => done('Picture removed'),
+    onError: (e) => toast.error(e.message),
+  })
+  return (
+    <div className="flex items-center gap-4">
+      <UserAvatar user={me} className="size-16" textClassName="text-lg" />
+      <div className="flex flex-wrap gap-2">
+        <input ref={input} type="file" accept="image/*" className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) upload.mutate(f) }} />
+        <Button size="sm" variant="outline" disabled={upload.isPending} onClick={() => input.current?.click()}>
+          {upload.isPending ? 'Uploading…' : has ? 'Change picture' : 'Choose a picture'}
+        </Button>
+        {has && <Button size="sm" variant="ghost" disabled={remove.isPending} onClick={() => remove.mutate()}>Remove</Button>}
+      </div>
+    </div>
+  )
+}
 
 export function AccountPage() {
   const me = useQuery(meQuery).data!
@@ -28,7 +69,8 @@ export function AccountPage() {
     <>
       <PageHeader title="Account" />
       <PageBody>
-        <Panel title="Profile" description="You can sign in with your email or your username.">
+        <Panel title="Profile" description="Your picture shows wherever DevDash shows who you are. You can sign in with your email or your username.">
+          <ProfilePicture />
           <dl className="grid grid-cols-[auto_1fr] gap-x-8 gap-y-2 text-sm">
             <dt className="text-muted-foreground">Name</dt><dd>{me.name}</dd>
             <dt className="text-muted-foreground">Username</dt><dd className="font-mono">{me.username}</dd>

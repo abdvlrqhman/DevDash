@@ -1,11 +1,10 @@
 import { useState, type FormEvent } from 'react'
+import { UserAvatar } from '@/components/app/user-avatar'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Check, Copy, UserPlus, Ellipsis, UserMinus } from 'lucide-react'
 import { toast } from 'sonner'
-import { initials } from '@/components/app/brand'
 import { PageBody, PageHeader, Section } from '@/components/app/page'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
@@ -36,7 +35,7 @@ export function MembersPage() {
           <ItemGroup className="rounded-xl border">
             {users.map((u) => (
               <Item key={u.id} className="rounded-none border-0 border-b last:border-b-0">
-                <ItemMedia><Avatar className="size-9"><AvatarFallback>{initials(u.name)}</AvatarFallback></Avatar></ItemMedia>
+                <ItemMedia><UserAvatar user={u} className="size-9" /></ItemMedia>
                 <ItemContent>
                   <ItemTitle>{u.name}{u.id === me.id && <span className="font-normal text-muted-foreground">(you)</span>}</ItemTitle>
                   <ItemDescription className="truncate">{u.username}, {u.email}</ItemDescription>

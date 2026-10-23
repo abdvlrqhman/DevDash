@@ -1,10 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { UserAvatar } from '@/components/app/user-avatar'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
 import { Bot, GitCommitHorizontal, MessagesSquare, Pencil, Sparkles } from 'lucide-react'
 import { toast } from 'sonner'
 import { AuthorTag } from '@/components/app/author'
-import { initials } from '@/components/app/brand'
 import { NativeSelect } from '@/components/app/native-select'
 import { PageHeader, pageCol } from '@/components/app/page'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
@@ -159,7 +159,7 @@ function Comments({ t }: { t: TaskDetail }) {
       <h2 className="text-sm font-medium">Comments</h2>
       {t.comments.map((c) => (
         <div key={c.id} className="flex gap-3">
-          <Avatar className="size-7"><AvatarFallback className="text-[11px]">{c.role ? <Bot className="size-3.5" /> : initials(c.user.name)}</AvatarFallback></Avatar>
+          {c.role ? <Avatar className="size-7"><AvatarFallback className="text-[11px]"><Bot className="size-3.5" /></AvatarFallback></Avatar> : <UserAvatar user={c.user} className="size-7" textClassName="text-[11px]" />}
           <div className="min-w-0 flex-1">
             <p className="flex flex-wrap items-center gap-x-2 text-sm">
               <span className="font-medium">{c.role ?? c.user.name}</span>

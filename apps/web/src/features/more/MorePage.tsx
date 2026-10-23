@@ -1,10 +1,9 @@
 import { useQuery } from '@tanstack/react-query'
+import { UserAvatar } from '@/components/app/user-avatar'
 import { Link } from '@tanstack/react-router'
 import { Activity, ArrowLeftRight, ChevronRight, Cloud, Download, Globe, HardDrive, Inbox, KeyRound, LogOut, Network, PocketKnife, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Users } from 'lucide-react'
-import { initials } from '@/components/app/brand'
 import { PageBody, PageHeader, Section } from '@/components/app/page'
 import { useSignOut } from '@/components/app/shell'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { showSearch } from '@/components/app/search'
@@ -41,7 +40,7 @@ export function MorePage() {
       <PageBody>
         <PinnedList />
         <Item variant="muted">
-          <ItemMedia><Avatar className="size-10"><AvatarFallback>{initials(me.name)}</AvatarFallback></Avatar></ItemMedia>
+          <ItemMedia><UserAvatar user={me} className="size-10" /></ItemMedia>
           <ItemContent>
             <ItemTitle>{me.name}</ItemTitle>
             <ItemDescription>{me.email}</ItemDescription>

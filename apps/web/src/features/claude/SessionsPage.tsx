@@ -1,12 +1,12 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { UserAvatar } from '@/components/app/user-avatar'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { Archive, ChevronRight, Plus, Settings2, Sparkles, ChevronDown } from 'lucide-react'
-import { initials, StatusLight } from '@/components/app/brand'
+import { StatusLight } from '@/components/app/brand'
 import { PageBody, PageHeader, Section } from '@/components/app/page'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
@@ -100,7 +100,7 @@ function SessionRow({ s, me, highlight, onArchive }: { s: Session; me: number; h
         <ItemActions>
           {s.mode === 'cli' && <Badge variant="outline">CLI</Badge>}
           {s.owner.id === me && s.audience !== 'private' && <Badge variant="secondary">{s.audience === 'people' ? `Shared with ${s.sharedWith}` : 'Shared'}</Badge>}
-          {s.owner.id !== me && <Avatar className="size-7"><AvatarFallback className="text-[11px]">{initials(s.owner.name)}</AvatarFallback></Avatar>}
+          {s.owner.id !== me && <UserAvatar user={s.owner} className="size-7" textClassName="text-[11px]" />}
           <ChevronRight className="size-4 text-muted-foreground" />
         </ItemActions>
       </Link>

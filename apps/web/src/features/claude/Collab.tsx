@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { UserAvatar } from '@/components/app/user-avatar'
 import { queryOptions, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Eye, Hand, MessageSquareText, SendHorizontal } from 'lucide-react'
 import { toast } from 'sonner'
-import { initials } from '@/components/app/brand'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -29,7 +28,7 @@ export function Watchers({ viewers, me }: { viewers: Person[]; me: number }) {
           <Eye className="size-3.5" />
           <div className="flex -space-x-1.5">
             {others.slice(0, 3).map((v) => (
-              <Avatar key={v.id} className="size-6 ring-2 ring-background"><AvatarFallback className="text-[10px]">{initials(v.name)}</AvatarFallback></Avatar>
+              <UserAvatar key={v.id} user={v} className="size-6 ring-2 ring-background" textClassName="text-[10px]" />
             ))}
           </div>
           {others.length > 3 && <span>+{others.length - 3}</span>}
@@ -68,7 +67,7 @@ export function Comments({ id, open, onOpenChange, me }: { id: string; open: boo
           {!q.isPending && !list.length && <p className="py-6 text-center text-sm text-muted-foreground">No comments yet. Leave a note for whoever is driving.</p>}
           {list.map((c) => (
             <div key={c.id} className="flex gap-2.5">
-              <Avatar className="size-7 shrink-0"><AvatarFallback className="text-[11px]">{initials(c.user.name)}</AvatarFallback></Avatar>
+              <UserAvatar user={c.user} className="size-7 shrink-0" textClassName="text-[11px]" />
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline gap-2 text-xs">
                   <span className="font-medium">{c.user.id === me ? 'You' : c.user.name}</span>

@@ -1,10 +1,10 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useLiveMembers, UserAvatar } from '@/components/app/user-avatar'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import {
   Activity, ArrowLeftRight, ChevronsUpDown, Cloud, Download, Ellipsis, FolderGit2, Globe, HardDrive, House, Inbox, KeyRound, ListTodo, LogOut, Monitor, Moon, Network, PocketKnife, Search, Server, Settings, Sparkles, SquareTerminal, StickyNote, Sun, Users,
 } from 'lucide-react'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup,
   DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger,
@@ -24,7 +24,7 @@ import { useUpdateCheck } from '@/lib/update'
 import { cn } from '@/lib/utils'
 import { sessionsQuery, useLiveSessions } from '@/features/claude/data'
 import { useNotificationEvents } from '@/features/notifications/Notifications'
-import { initials, Logo } from './brand'
+import { Logo } from './brand'
 import { useDragWidth, useStoredWidth } from './resize-handle'
 import { SearchDialog, showSearch } from './search'
 import { ApprovalsBadge } from '@/features/team/Approvals' // Team (optional): docs/REMOVING-TEAM.md
@@ -89,6 +89,7 @@ function useActive() {
 /** Sessions waiting on the member: the badge on Claude in both navigations. */
 function useWaitingCount() {
   useLiveSessions()
+  useLiveMembers() // someone's new profile picture shows everywhere at once
   return useQuery(sessionsQuery(false)).data?.sessions.filter((s) => s.status === 'waiting').length ?? 0
 }
 
@@ -239,7 +240,7 @@ function UserMenu() {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton size="lg" className="data-[state=open]:bg-sidebar-accent">
-              <Avatar className="size-8 rounded-lg"><AvatarFallback className="rounded-lg">{initials(me.name)}</AvatarFallback></Avatar>
+              <UserAvatar user={me} className="size-8 rounded-lg" textClassName="rounded-lg" />
               <div className="grid flex-1 text-left leading-tight">
                 <span className="truncate text-sm font-medium">{me.name}</span>
                 <span className="truncate text-xs text-muted-foreground">{me.username}</span>

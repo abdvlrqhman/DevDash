@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
+import { UserAvatar } from '@/components/app/user-avatar'
 import { useQuery } from '@tanstack/react-query'
 import { Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { Archive, ChevronRight, Folder, Plus, Search, Settings2, Sparkles, FolderGit2 } from 'lucide-react'
-import { initials, StatusLight } from '@/components/app/brand'
+import { StatusLight } from '@/components/app/brand'
 import { ResizeHandle, useStoredWidth } from '@/components/app/resize-handle'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
@@ -114,7 +114,7 @@ function SessionsPane({ active }: { active?: string }) {
                             {s.status === 'waiting' ? 'Needs you' : s.status === 'working' ? 'Working' : relativeTime(s.lastActivityAt)}{s.mode === 'cli' ? ', in CLI' : ''}
                           </span>
                         </span>
-                        {s.owner.id !== me.id && <Avatar className="size-6"><AvatarFallback className="text-[10px]">{initials(s.owner.name)}</AvatarFallback></Avatar>}
+                        {s.owner.id !== me.id && <UserAvatar user={s.owner} className="size-6" textClassName="text-[10px]" />}
                       </Link>
                     </li>
                   ))}

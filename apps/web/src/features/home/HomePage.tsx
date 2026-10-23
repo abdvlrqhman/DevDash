@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { UserAvatar } from '@/components/app/user-avatar'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { ChevronRight, ListTodo, Plus, Search, StickyNote } from 'lucide-react'
-import { initials, StatusLight } from '@/components/app/brand'
+import { StatusLight } from '@/components/app/brand'
 import { PageHeader, pageCol } from '@/components/app/page'
 import { showSearch } from '@/components/app/search'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { api, meQuery, spaceQuery, unwrap } from '@/lib/api'
 import { landFrom, landTo, useArrivals, useMotion } from '@/lib/motion'
@@ -239,7 +239,7 @@ export function HomePage() {
                         <span className="line-clamp-1 font-medium">{s.title}</span>
                         <span className="line-clamp-1 text-xs text-muted-foreground">{s.statusDetail || 'Working'}, in {where(s)}</span>
                       </span>
-                      {s.owner.id !== me.id && <Avatar className="size-6" title={s.owner.name}><AvatarFallback className="text-[10px]">{initials(s.owner.name)}</AvatarFallback></Avatar>}
+                      {s.owner.id !== me.id && <UserAvatar user={s.owner} className="size-6" textClassName="text-[10px]" title={s.owner.name} />}
                     </Link>
                   </li>
                 ))}
@@ -263,7 +263,7 @@ export function HomePage() {
                   const busy = working.filter((s) => s.owner.id === u.id).length
                   return (
                     <li key={u.id} className="flex items-center gap-3 text-sm">
-                      <Avatar className="size-7"><AvatarFallback className="text-xs">{initials(u.name)}</AvatarFallback></Avatar>
+                      <UserAvatar user={u} className="size-7" textClassName="text-xs" />
                       <span className="min-w-0 flex-1 truncate">{u.name}{u.id === me.id && <span className="text-muted-foreground"> (you)</span>}</span>
                       {busy > 0 && <span className="flex items-center gap-1.5 text-xs text-muted-foreground"><StatusLight state="live" />{plural(busy, 'session')}</span>}
                     </li>

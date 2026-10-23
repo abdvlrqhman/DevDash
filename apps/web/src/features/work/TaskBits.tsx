@@ -1,11 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { UserAvatar } from '@/components/app/user-avatar'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { CalendarClock, Circle, CircleCheck, CircleDashed, CircleDot, CircleEllipsis, TriangleAlert } from 'lucide-react'
-import { initials } from '@/components/app/brand'
 import { NativeSelect } from '@/components/app/native-select'
 import { ResponsiveDialog } from '@/components/app/responsive-dialog'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { Field, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
@@ -65,7 +64,7 @@ export function TaskCard({ t, showProject, onDragStart }: { t: Task; showProject
       </span>
       <span className="flex items-center justify-between gap-2">
         {meta(t, showProject)}
-        {t.assignee && <Avatar className="size-6" title={t.assignee.name}><AvatarFallback className="text-[10px]">{initials(t.assignee.name)}</AvatarFallback></Avatar>}
+        {t.assignee && <UserAvatar user={t.assignee} className="size-6" textClassName="text-[10px]" title={t.assignee.name} />}
       </span>
     </Link>
   )
@@ -80,7 +79,7 @@ export function TaskRow({ t, showProject }: { t: Task; showProject: boolean }) {
       <span className={cn('min-w-0 flex-1 truncate', t.status === 'done' && 'text-muted-foreground line-through')}>{t.title}</span>
       <PriorityIcon priority={t.priority} />
       {meta(t, showProject)}
-      {t.assignee && <Avatar className="size-6" title={t.assignee.name}><AvatarFallback className="text-[10px]">{initials(t.assignee.name)}</AvatarFallback></Avatar>}
+      {t.assignee && <UserAvatar user={t.assignee} className="size-6" textClassName="text-[10px]" title={t.assignee.name} />}
     </Link>
   )
 }

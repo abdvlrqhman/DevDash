@@ -39,6 +39,7 @@ import { tasksRoutes, type GiveToClaude } from './modules/tasks/routes.ts'
 import { tasksService } from './modules/tasks/service.ts'
 import { servicesRoutes } from './modules/services/routes.ts'
 import { servicesService } from './modules/services/service.ts'
+import { avatarsService } from './modules/members/avatars.ts'
 import { membersRoutes } from './modules/members/routes.ts'
 import { apnsService } from './modules/notifications/apns.ts'
 import { notificationsRoutes } from './modules/notifications/routes.ts'
@@ -122,6 +123,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   tailnet = tailnetService({ db, agents, masterKey: config.masterKey, runDir: config.runDir, isRole: (u, s) => !!team?.service?.roleOf(u, s) })
   const status = statusService({ db, agents, services, browser, runDir: config.runDir, dataDir: config.dataDir, version: config.version })
   const deploys = deployService({ db, agents, projects, notify: notifications.notify, runDir: config.runDir, repo: config.repo, live: status.release })
+  const avatars = avatarsService({ db, hub })
   // Each member's sidebar pins: every module shows its own items, by its own visibility rules (pins imports none of them).
   const pins = pinsService({ db, hub })
   const each = (refs: string[], fn: (ref: string) => Resolved) =>
@@ -164,8 +166,9 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
     .route('/api/auth', authRoutes(auth, mw, ip, (u) => void provisioning.ensure(u)))
     .route('/api/members', membersRoutes(auth, mw, ip, config.origin, (id) => {
       vault.memberRemoved(id)
+      avatars.remove(id)
       void storage.memberRemoved(id).catch((err) => console.error('storage: forgetting a removed member:', err))
-    }))
+    }, avatars))
     .route('/api/terminals', terminalsRoutes(terms, auth, mw, provisioning, ip))
     .route('/api/claude', claudeRoutes(claude, mw))
     .route('/api/notifications', notificationsRoutes(notifications, apns, mw))
