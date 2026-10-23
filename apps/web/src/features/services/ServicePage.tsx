@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useNavigate, useParams } from '@tanstack/react-router'
-import { ExternalLink, Pencil, Play, RotateCw, Square, Trash2 } from 'lucide-react'
+import { ExternalLink, Eye, Pencil, Play, RotateCw, Square, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { StatusLight } from '@/components/app/brand'
 import { PageHeader, pageCol } from '@/components/app/page'
@@ -62,6 +62,7 @@ function ServicePageView() {
         description={<span className="flex items-center gap-1.5"><StatusLight state={st.light} />{st.label}</span>}
         actions={<>
           <PinButton kind="service" id={s.name} />
+          {s.previewUrl && <Button size="sm" variant="outline" asChild><Link to="/services/$name/view" params={{ name: s.name }}><Eye /><span className="hidden sm:inline">View</span></Link></Button>}
           {s.previewUrl && <Button size="sm" variant="outline" onClick={() => openExternal(s.previewUrl!)}><ExternalLink /><span className="hidden sm:inline">Open</span></Button>}
           {s.canControl && <>
           {s.desired === 'stopped'

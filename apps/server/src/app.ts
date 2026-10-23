@@ -144,7 +144,7 @@ export function createApp({ db, config }: { db: Db; config: Config }) {
   }))
   pins.register('service', (u, refs) => each(refs, (name) => {
     const s = services.get(u, name)
-    return { title: s.name, url: `/services/${name}`, state: s.state }
+    return { title: s.name, url: `/services/${name}/view`, state: s.state } // a pinned service opens inside DevDash
   }))
   const app = new Hono()
     // Requests from the services site (port 8443) are proxied to services, never mixed with DevDash's routes.

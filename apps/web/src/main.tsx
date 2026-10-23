@@ -97,6 +97,8 @@ const storageCallback = createRoute({ getParentRoute: () => root, path: '/storag
 const network = createRoute({ getParentRoute: () => app, path: '/network', component: lazy(() => import('./features/network/NetworkPage'), 'NetworkPage') })
 const services = createRoute({ getParentRoute: () => app, path: '/services', component: lazyRouteComponent(() => import('./features/services/ServicesPage'), 'ServicesPage') })
 const service = createRoute({ getParentRoute: () => app, path: '/services/$name', component: lazyRouteComponent(() => import('./features/services/ServicePage'), 'ServicePage') })
+// A service inside the app, framed under the top bar (the Service page's "View", and pinned services).
+const serviceView = createRoute({ getParentRoute: () => app, path: '/services/$name/view', component: lazyRouteComponent(() => import('./features/services/ServiceViewPage'), 'ServiceViewPage') })
 // Claude is master-detail on wide screens: ClaudeLayout keeps the session list beside whatever is open.
 const claude = createRoute({ getParentRoute: () => app, path: '/claude', component: ClaudeLayout })
 const claudeIndex = createRoute({ getParentRoute: () => claude, path: '/', component: ClaudeIndex })
@@ -108,7 +110,7 @@ const claudeSession = createRoute({
 })
 
 const router = createRouter({
-  routeTree: root.addChildren([login, invite, storageCallback, app.addChildren([home, claude.addChildren([claudeIndex, claudeSetup, claudeSession]), terminal, files, vaultRoute, network, storage, browserRoute, serverRoute, services, service, projects, project, teamRole, teamThreads, teamThread, approvals, approvalsProject, buildRun, tasks, task, tools, tool, notes, note, members, account, more])]),
+  routeTree: root.addChildren([login, invite, storageCallback, app.addChildren([home, claude.addChildren([claudeIndex, claudeSetup, claudeSession]), terminal, files, vaultRoute, network, storage, browserRoute, serverRoute, services, service, serviceView, projects, project, teamRole, teamThreads, teamThread, approvals, approvalsProject, buildRun, tasks, task, tools, tool, notes, note, members, account, more])]),
   context: { queryClient },
   defaultPreload: 'intent',
 })

@@ -17,7 +17,8 @@
 	header @app {
 		X-Frame-Options "DENY"
 		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
-		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+		# frame-src: the in-app view of a service (/services/<name>/view) frames the services site, a separate origin.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-src 'self' https://{$DEVDASH_DOMAIN}:8443; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 	}
 
 	handle /api/* {

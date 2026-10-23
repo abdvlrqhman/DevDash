@@ -15,6 +15,28 @@ const HOP = ['connection', 'keep-alive', 'proxy-connection', 'transfer-encoding'
 const PATH_RE = /^\/service\/([a-z][a-z0-9-]{0,30})(\/.*)?$/
 
 /**
+ * Lets DevDash's own pages frame a service, for the in-app view (/services/<name>/view), without opening it to anyone
+ * else. A service that says nothing about framing is left as it was. One that refuses it (X-Frame-Options, or a CSP
+ * frame-ancestors) keeps refusing every other site and lets DevDash in: X-Frame-Options can't name another origin, so
+ * it becomes frame-ancestors 'self' plus DevDash. Mutates `headers`.
+ */
+export function letDevDashFrame(headers: Headers, devdash: string) {
+  const xfo = headers.get('x-frame-options')
+  headers.delete('x-frame-options')
+  const csp = headers.get('content-security-policy')
+  let named = false
+  const policies = (csp ? csp.split(',') : []).map((policy) => policy.split(';').map((d) => {
+    const [name, ...sources] = d.trim().split(/\s+/).filter(Boolean)
+    if (name?.toLowerCase() !== 'frame-ancestors') return d.trim()
+    named = true
+    const kept = sources.filter((x) => x.toLowerCase() !== "'none'")
+    return `frame-ancestors ${(kept.includes('*') || kept.includes(devdash) ? kept : [...kept, devdash]).join(' ')}`
+  }).filter(Boolean).join('; '))
+  if (xfo && !named) policies.push(`frame-ancestors 'self' ${devdash}`)
+  if (policies.length) headers.set('content-security-policy', policies.join(', '))
+}
+
+/**
  * Services open at https://<space>:8443/service/<name>/, proxied to their port on 127.0.0.1. The separate port makes
  * it a separate origin for browsers, so a service's pages can't act on DevDash as whoever opens them; the DevDash
  * session cookie still comes along (cookies ignore ports), so signed-in members get in without another login.
@@ -57,7 +79,7 @@ export function servicePages({ db, auth, origin, port }: { db: Db; auth: AuthSer
       if (r.direct && !r.rest) return c.redirect(`/service/${r.name}/${url.search}`) // relative URLs need the slash
       const { s, ok } = allowed(r.name, cookies)
       if (!s) return page(c, 404, 'No such service', `There is no service called ${r.name}.`)
-      if (!ok) return page(c, 401, 'Sign in to DevDash first', `${r.name} is for members. <a href="${origin}/">Sign in to DevDash</a>, then open this link again.`)
+      if (!ok) return page(c, 401, 'Sign in to DevDash first', `${r.name} is for members. <a href="${origin}/" target="_top">Sign in to DevDash</a>, then open this link again.`)
 
       const headers = new Headers()
       c.req.raw.headers.forEach((v, k) => { if (!HOP.includes(k) && k !== MARK) headers.set(k, v) })
@@ -76,6 +98,7 @@ export function servicePages({ db, auth, origin, port }: { db: Db; auth: AuthSer
         return page(c, 502, `${r.name} isn't answering`, 'Is it running? Check its logs on the Services page in DevDash.')
       }
       const out = new Headers(res.headers)
+      letDevDashFrame(out, origin) // the in-app view frames it; no other site gains anything
       out.delete('content-encoding') // fetch already decompressed the body
       out.delete('content-length')
       // Redirects to "/x" stay inside the service.
